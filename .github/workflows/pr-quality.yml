@@ -1,0 +1,13 @@
+name: PR Quality
+on:
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Basic Secrets Scan
+        run: |
+          echo "Scanning for potential secrets (basic grep)"
+          ! grep -R --line-number -E '(AWS_SECRET|BEGIN RSA PRIVATE KEY|password=|api_key=)' || (echo "Secrets pattern detected"; exit 1)

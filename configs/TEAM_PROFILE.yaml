@@ -1,0 +1,14 @@
+name: "Lean Web"
+description: "Fast iteration for CRUD web apps"
+agents:
+  pm: { model: gpt-5, tools: [kb, tracker] }
+  architect: { model: gpt-5, tools: [mermaid, openapi] }
+  dev_backend: { model: gpt-5, tools: [pytest, uvicorn], count: 1 }
+  dev_frontend: { model: gpt-5, tools: [node, playwright], count: 1 }
+  qa: { model: gpt-5, tools: [pytest, coverage, playwright] }
+  secops: { model: gpt-5, tools: [semgrep, trivy, gitleaks] }
+  devops: { model: gpt-5, tools: [terraform, kubectl, gha] }
+policies:
+  approvals: { prod_deploy: "auto" }
+  coverage_gate: 0.8
+  risk_threshold: medium

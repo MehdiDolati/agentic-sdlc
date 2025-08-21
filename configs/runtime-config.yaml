@@ -1,0 +1,19 @@
+stack:
+  language: python
+  framework: fastapi
+  frontend: nextjs
+  database: postgres
+  deployment: kubernetes
+
+agents:
+  dev:
+    count: 2
+    specializations: [python, frontend-js]
+  qa:
+    mode: heavy
+  tech_writer:
+    enabled: true
+
+policies:
+  security: strict
+  docs: mandatory

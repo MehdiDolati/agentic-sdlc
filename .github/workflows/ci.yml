@@ -1,0 +1,37 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: API deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r orchestrator/requirements.txt
+          pip install -r services/api/requirements.txt
+
+      - name: Run orchestrator summary
+        run: |
+          python orchestrator/main.py
+
+      - name: Unit tests (API)
+        working-directory: services/api
+        run: |
+          coverage run -m pytest -q
+          coverage xml -o ../../reports/coverage.xml
+          coverage report -m
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: reports/coverage.xml

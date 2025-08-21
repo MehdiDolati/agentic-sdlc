@@ -1,0 +1,14 @@
+languages: [python, typescript]
+frameworks:
+  web: [fastapi, express, nextjs]
+  data: [pandas, polars]
+db: [postgres, sqlite]
+queue: [redis, rabbitmq]
+deploy: [docker, k8s, ecs]
+ci: [github_actions]
+observability: [otel, prometheus]
+security: [semgrep, trivy, gitleaks]
+constraints:
+  budget_usd: 50
+  latency_ms_target: 500
+  regions: [us-east-1]

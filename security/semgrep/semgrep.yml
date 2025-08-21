@@ -1,0 +1,7 @@
+rules:
+  - id: example-no-eval
+    patterns:
+      - pattern: eval(...)
+    message: "Avoid eval"
+    languages: [python, javascript, typescript]
+    severity: ERROR

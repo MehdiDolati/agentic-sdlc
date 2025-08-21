@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+# Node
+node_modules/
+.next/
+# OS
+.DS_Store
+# Env/Secrets
+.env
+.env.*
+# Build
+dist/
+build/
+coverage/
+reports/
