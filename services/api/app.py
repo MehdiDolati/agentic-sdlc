@@ -6,10 +6,17 @@ try:
 except ImportError:
     from planner import plan_request
 
+
+try:
+    from .routes.notes import router as notes_router
+except ImportError:
+    from routes.notes import router as notes_router
 app = FastAPI(title="Agentic SDLC API", version="0.4.0")
 
 class RequestIn(BaseModel):
     text: str
+
+app.include_router(notes_router)
 
 @app.get("/health")
 def health():
