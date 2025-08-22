@@ -43,7 +43,7 @@ def _selected_stack(repo_root: Path) -> dict:
     return {"stack": stack, "gates": gates}
 
 def _derive_requirements(request_text: str):
-    text = request_text.lower()
+    text = (request_text or "").lower()
     must = ["Implement the primary endpoint(s) described by the request",
             "Write unit tests with coverage above the gate"]
     should = ["Add basic error handling and input validation"]
@@ -61,6 +61,39 @@ def _acceptance_criteria(request_text: str):
         "Given the service is running, When I call the primary endpoint, Then I receive a 200 response.",
         "Given invalid input, When I call the endpoint, Then I receive a 4xx response with an error body."
     ]
+
+def _resource_from_request(request_text: str) -> str:
+    text = (request_text or "").lower()
+    m = re.search(r"(\b\w+\b)\s+service", text)
+    if m:
+        return m.group(1)
+    words = re.findall(r"[a-zA-Z]+", text)
+    return words[0] if words else "resource"
+
+def _openapi_skeleton(resource: str, auth: bool, title: str = "Agentic Feature API") -> dict:
+    base_path = f"/api/{resource}"
+    paths = {
+        base_path: {
+            "get": {"summary": f"List {resource}", "responses": {"200": {"description": "OK"}}},
+            "post": {"summary": f"Create {resource[:-1] if resource.endswith('s') else resource}", "responses": {"201": {"description": "Created"}}},
+        },
+        f"{base_path}/{{id}}": {
+            "get": {"summary": f"Get {resource[:-1] if resource.endswith('s') else resource}", "responses": {"200": {"description": "OK"}, "404": {"description": "Not Found"}}},
+            "put": {"summary": f"Update {resource[:-1] if resource.endswith('s') else resource}", "responses": {"200": {"description": "OK"}}},
+            "delete": {"summary": f"Delete {resource[:-1] if resource.endswith('s') else resource}", "responses": {"204": {"description": "No Content"}}},
+        },
+    }
+    spec = {
+        "openapi": "3.1.0",
+        "info": {"title": title, "version": "0.1.0"},
+        "paths": paths
+    }
+    if auth:
+        spec.setdefault("components", {}).setdefault("securitySchemes", {})["bearerAuth"] = {"type": "http", "scheme": "bearer"}
+        for p in paths.values():
+            for op in p.values():
+                op["security"] = [{"bearerAuth": []}]
+    return spec
 
 def plan_request(request_text: str, repo_root: Path) -> dict:
     slug = _slugify(request_text.splitlines()[0] if request_text else "request")
@@ -171,6 +204,16 @@ def plan_request(request_text: str, repo_root: Path) -> dict:
     """
     tasks_path.write_text(tasks_md.strip() + "\n", encoding="utf-8")
 
+    # OpenAPI skeleton
+    resource = _resource_from_request(request_text)
+    want_auth = "auth" in (request_text or "").lower() or "login" in (request_text or "").lower()
+    spec = _openapi_skeleton(resource, want_auth, title=f"{resource.capitalize()} API")
+    api_dir = repo_root / "docs" / "api" / "generated"
+    api_dir.mkdir(parents=True, exist_ok=True)
+    openapi_path = api_dir / f"openapi-{date}-{slug}.yaml"
+    with open(openapi_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(spec, f, sort_keys=False, allow_unicode=True)
+
     def rel(p: Path) -> str:
         return str(p.relative_to(repo_root).as_posix())
 
@@ -179,4 +222,5 @@ def plan_request(request_text: str, repo_root: Path) -> dict:
         "adr": rel(adr_path),
         "stories": rel(stories_path),
         "tasks": rel(tasks_path),
+        "openapi": rel(openapi_path),
     }

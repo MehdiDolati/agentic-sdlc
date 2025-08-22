@@ -1,1 +1,1 @@
-package pr.gates\n
+package pr.gates

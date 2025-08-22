@@ -1,1 +1,1 @@
-# Contributing\n
+# Contributing

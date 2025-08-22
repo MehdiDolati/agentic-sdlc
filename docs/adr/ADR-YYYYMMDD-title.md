@@ -1,1 +1,1 @@
-# ADR Template\n
+# ADR Template

@@ -1,1 +1,1 @@
-# PRD Template\n
+# PRD Template

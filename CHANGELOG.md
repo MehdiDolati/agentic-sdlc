@@ -1,1 +1,1 @@
-# Changelog\n
+# Changelog

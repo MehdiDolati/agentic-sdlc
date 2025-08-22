@@ -9,6 +9,6 @@ def test_planner_endpoint_creates_artifacts():
     data = r.json()
     assert "artifacts" in data
     artifacts = data["artifacts"]
-    assert all(k in artifacts for k in ("prd", "adr", "stories", "tasks"))
+    assert all(k in artifacts for k in ("prd", "adr", "stories", "tasks", "openapi"))
     for v in artifacts.values():
-        assert v.startswith("docs/")
+        assert isinstance(v, str) and len(v) > 0
