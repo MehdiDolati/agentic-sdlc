@@ -135,6 +135,40 @@ from app import app
 client = TestClient(app)
 
 def test_{resource}_crud_flow():
+
+    r = client.get("/api/{resource}/" + _id{comma} {hdrs})
+    assert r.status_code == 200
+    assert r.json() == []
+
+    r = client.post("/api/{resource}"{comma} {hdrs}, json={{"title": "t", "content": "c"}})
+    assert r.status_code == 201
+    created = r.json()
+    _id = created["id"]
+
+    r = client.get("/api/{resource}/" + _id{comma} {hdrs})
+    assert r.status_code == 200
+    assert r.json()["title"] == "t"
+
+    r = client.put("/api/{resource}/" + _id{comma} {hdrs}, json={"title": "t2", "content": "c2"})
+    assert r.status_code == 200
+    assert r.json()["title"] == "t2"
+
+    r = client.delete("/api/{resource}/" + _id{comma} {hdrs})
+    assert r.status_code == 204
+
+    r = client.get("/api/{resource}/" + _id{comma} {hdrs})
+    assert r.status_code == 404
+"""
+
+    hdrs = 'headers={"Authorization": "Bearer test"}' if require_auth else ""
+    comma = "," if hdrs else ""
+    return f"""
+from fastapi.testclient import TestClient
+from app import app
+
+client = TestClient(app)
+
+def test_{resource}_crud_flow():
     r = client.get("/api/{resource}"{comma} {hdrs})
     assert r.status_code == 200
     assert r.json() == []

@@ -1,11 +1,14 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+﻿from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from typing import Dict, List, Optional
+from typing import Dict, List, Any
 from uuid import uuid4
 
+try:
+    from .state import DBS
+except ImportError:
+    from state import DBS
 
-router = APIRouter(prefix="/api/create", tags=["create"], )
+router = APIRouter(prefix="/api/create", tags=["create"])
 
 class CreateIn(BaseModel):
     title: str = ""
@@ -14,25 +17,25 @@ class CreateIn(BaseModel):
 class Create(CreateIn):
     id: str
 
-_DB: Dict[str, Create] = {}
+_DB: Dict[str, Any] = DBS.setdefault("create", {})
 
 @router.get("", response_model=List[Create])
 def list_create():
     return list(_DB.values())
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=Create)
-def create_create(item: CreateIn):
+def create_item(item: CreateIn):
     obj = Create(id=str(uuid4()), **item.model_dump())
     _DB[obj.id] = obj
     return obj
 
-@router.get("/"+"<built-in function id>", response_model=Create)
+@router.get("/{id}", response_model=Create)
 def get_create(id: str):
     if id not in _DB:
         raise HTTPException(status_code=404, detail="create not found")
     return _DB[id]
 
-@router.put("/"+"<built-in function id>", response_model=Create)
+@router.put("/{id}", response_model=Create)
 def update_create(id: str, item: CreateIn):
     if id not in _DB:
         raise HTTPException(status_code=404, detail="create not found")
@@ -40,7 +43,7 @@ def update_create(id: str, item: CreateIn):
     _DB[id] = obj
     return obj
 
-@router.delete("/"+"<built-in function id>", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_create(id: str):
     if id not in _DB:
         raise HTTPException(status_code=404, detail="create not found")
