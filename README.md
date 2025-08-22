@@ -5,9 +5,11 @@ It includes:
 - Configurable **stack profiles** and **agent specializations** via YAML
 - Orchestrator stubs (Planner/Registry/Capability Graph)
 - FastAPI service + sample tests
-- Optional Next.js web skeleton
-- Policy-as-code gates and GitHub Actions CI
-- Documentation templates (PRD, ADR, Test Plan, Runbook, User Manual)
+- Planner that generates PRD/ADR/Stories/Tasks **and OpenAPI 3.1**
+- **Plans API** for traceability (`/plans` & `/plans/{id}`)
+- **Dev Agent** that scaffolds FastAPI routes + tests from OpenAPI
+- **QA Agent** that enforces coverage gate
+- GitHub Actions CI (tests + coverage + QA gate) and a basic secret scan
 
 > Generated on: 2025-08-22
 
@@ -19,24 +21,30 @@ pip install -r orchestrator\requirements.txt
 pip install -r services\api\requirements.txt
 uvicorn services.api.app:app --reload
 ```
-Then POST a request:
+
+Submit a request:
 ```powershell
 Invoke-RestMethod -Uri 'http://127.0.0.1:8000/requests' -Method Post -ContentType 'application/json' -Body (@{text="Build a notes service with auth"} | ConvertTo-Json)
 ```
 
 ## Planner (PRD/ADR/Stories/Tasks + OpenAPI)
-The Planner generates **PRD**, **ADR**, **User Stories**, **Task Plan**, and an **OpenAPI skeleton** under `docs/`.
+Artifacts appear under `docs/` (including an OpenAPI skeleton under `docs/api/generated/`).
+
+## Plans API
+After you `POST /requests`, the server stores a plan entry and returns a `plan_id`.
+- `GET /plans` — list recent plans
+- `GET /plans/{id}` — fetch a specific plan with artifact paths
 
 ## Dev Agent (scaffold from OpenAPI)
 Scaffold CRUD endpoints + tests from a generated OpenAPI spec.
 
 ```powershell
 # from repo root (Windows)
-.venv\Scripts\activate.bat
+. .\.venv\Scripts\activate.ps1
 pip install -r tools\requirements.txt
 
 # pick your generated spec (from /requests call)
-$spec = Get-ChildItem docs\api\generated\openapi-*.yaml | Select-Object -Last 1 | % { $_.FullName }
+$spec = (Get-ChildItem .\docs\api\generated\openapi-*.yaml | Select-Object -Last 1).FullName
 
 python tools\dev_agent.py --spec $spec
 
@@ -49,4 +57,15 @@ uvicorn services.api.app:app --reload
 To also commit on a branch (and open a PR with GitHub CLI if configured):
 ```powershell
 python tools\dev_agent.py --spec $spec --git --pr
+```
+
+## QA Agent (coverage gate)
+Enforce coverage gate from `TEAM_PROFILE.yaml` locally or in CI.
+
+```powershell
+. .\.venv\Scripts\activate.ps1
+pip install -r tools\requirements.txt
+python tools\qa_agent.py --strict
+# or reuse existing XML
+python tools\qa_agent.py --strict --xml reports\coverage.xml
 ```

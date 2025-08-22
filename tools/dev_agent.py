@@ -77,13 +77,13 @@ def create_{singular}(item: {singular.capitalize()}In):
     _DB[obj.id] = obj
     return obj
 
-@router.get("/"+"{{id}}", response_model={singular.capitalize()})
+@router.get("/"+"{id}", response_model={singular.capitalize()})
 def get_{singular}(id: str):
     if id not in _DB:
         raise HTTPException(status_code=404, detail="{singular} not found")
     return _DB[id]
 
-@router.put("/"+"{{id}}", response_model={singular.capitalize()})
+@router.put("/"+"{id}", response_model={singular.capitalize()})
 def update_{singular}(id: str, item: {singular.capitalize()}In):
     if id not in _DB:
         raise HTTPException(status_code=404, detail="{singular} not found")
@@ -91,7 +91,7 @@ def update_{singular}(id: str, item: {singular.capitalize()}In):
     _DB[id] = obj
     return obj
 
-@router.delete("/"+"{{id}}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/"+"{id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_{singular}(id: str):
     if id not in _DB:
         raise HTTPException(status_code=404, detail="{singular} not found")
@@ -126,7 +126,6 @@ except ImportError:
     APP_PATH.write_text(app_src, encoding="utf-8")
 
 def create_test_content(resource: str, require_auth: bool) -> str:
-    singular = resource[:-1] if resource.endswith("s") else resource
     hdrs = 'headers={"Authorization": "Bearer test"}' if require_auth else ""
     comma = "," if hdrs else ""
     return f"""
@@ -162,10 +161,7 @@ def test_{resource}_crud_flow():
 
 def update_manual_and_changelog(resource: str):
     MANUAL_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    # FIX: make sure the default string is properly closed with \n
     prev = MANUAL_PATH.read_text(encoding="utf-8") if MANUAL_PATH.exists() else "# User Manual\n"
-
     add = f"""
 ## {resource.capitalize()} endpoints
 - `GET /api/{resource}`
@@ -181,7 +177,6 @@ def update_manual_and_changelog(resource: str):
     entry = f"- feat({resource}): scaffolded CRUD API and tests\n"
     if entry not in ch:
         CHANGELOG_PATH.write_text(ch + entry, encoding="utf-8")
-
 
 def maybe_git(actions: dict, enable_git: bool, open_pr: bool, branch: str):
     if not enable_git:

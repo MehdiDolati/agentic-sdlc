@@ -20,6 +20,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r orchestrator/requirements.txt
           pip install -r services/api/requirements.txt
+          pip install -r tools/requirements.txt
 
       - name: Run orchestrator summary
         run: |
@@ -31,6 +32,10 @@ jobs:
           coverage run -m pytest -q
           coverage xml -o ../../reports/coverage.xml
           coverage report -m
+
+      - name: QA gate (coverage threshold)
+        run: |
+          python tools/qa_agent.py --strict --xml reports/coverage.xml
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
