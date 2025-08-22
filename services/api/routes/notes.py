@@ -1,12 +1,10 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
-from uuid import uuid4
-
 try:
-    from .state import DBS
+    from ..repo.factory import notes_repo
 except ImportError:
-    from state import DBS
+    from services.api.repo.factory import notes_repo
 
 def require_auth(authorization: Optional[str] = Header(None)):
     if authorization is None or not authorization.lower().startswith("bearer "):
@@ -22,35 +20,33 @@ class NotesIn(BaseModel):
 class Notes(NotesIn):
     id: str
 
-_DB: Dict[str, Any] = DBS.setdefault("notes", {})
+_repo = notes_repo()
 
 @router.get("", response_model=List[Notes])
 def list_notes():
-    return list(_DB.values())
+    return _repo.list()
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=Notes)
 def create_note(item: NotesIn):
-    obj = Notes(id=str(uuid4()), **item.model_dump())
-    _DB[obj.id] = obj
-    return obj
+    return _repo.create(item.title, item.content)
 
 @router.get("/{id}", response_model=Notes)
 def get_note(id: str):
-    if id not in _DB:
+    found = _repo.get(id)
+    if not found:
         raise HTTPException(status_code=404, detail="note not found")
-    return _DB[id]
+    return found
 
 @router.put("/{id}", response_model=Notes)
 def update_note(id: str, item: NotesIn):
-    if id not in _DB:
+    updated = _repo.update(id, item.title, item.content)
+    if not updated:
         raise HTTPException(status_code=404, detail="note not found")
-    obj = _DB[id].model_copy(update=item.model_dump())
-    _DB[id] = obj
-    return obj
+    return updated
 
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_note(id: str):
-    if id not in _DB:
+    ok = _repo.delete(id)
+    if not ok:
         raise HTTPException(status_code=404, detail="note not found")
-    del _DB[id]
     return None
