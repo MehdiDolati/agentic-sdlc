@@ -13,41 +13,30 @@ It includes:
 
 ## Quickstart
 ```bash
-# 1) Create a public repo on GitHub named agentic-sdlc-starter (or any name you prefer)
-# 2) Initialize locally
 git init
 git add .
 git commit -m "chore: bootstrap agentic SDLC starter"
-# 3) Add remote and push
-#    Replace <YOUR_USERNAME> and repo name as needed
 git branch -M main
 git remote add origin git@github.com:<YOUR_USERNAME>/agentic-sdlc-starter.git
 git push -u origin main
 
-# 4) (Optional) Run API service
-cd services/api
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app:app --reload
+# (Windows)
+python -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r orchestrator\requirements.txt
+pip install -r services\api\requirements.txt
+uvicorn services.api.app:app --reload
 ```
 
-## Structure
-```
-.
-├── .github/workflows/
-├── configs/
-├── docs/
-├── orchestrator/
-├── services/
-│   ├── api/         # FastAPI sample
-│   └── web/         # Next.js (minimal placeholder)
-├── infra/
-│   └── terraform/   # placeholders
-├── security/
-└── tools/
+## Planner (auto-generates PRD/ADR/Stories/Tasks)
+Submit a request and the system will generate artifacts under `docs/`:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/requests" -H "Content-Type: application/json" -d "{"text":"Build a notes service with auth"}"
 ```
 
-## Notes
-- CI reads gates (coverage, security) from `configs/TEAM_PROFILE.yaml`.
-- Policies (OPA, basic secret scanning) run in PR workflows.
-- Extend orchestrator to route tasks to specialized agents at runtime.
+Artifacts created:
+- `docs/prd/PRD-YYYYMMDD-<slug>.md` (now **enriched** with stack summary & policy gates)
+- `docs/adr/ADR-YYYYMMDD-auto-planning.md`
+- `docs/stories/USER_STORIES-YYYYMMDD-<slug>.yaml`
+- `docs/plans/TASKS-YYYYMMDD-<slug>.md`

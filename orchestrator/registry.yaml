@@ -1,15 +1,1 @@
-agents:
-  pm:
-    tools: [kb, tracker]
-  architect:
-    tools: [mermaid, openapi]
-  dev_backend:
-    tools: [pytest, uvicorn]
-  dev_frontend:
-    tools: [node, playwright]
-  qa:
-    tools: [pytest, coverage, playwright]
-  secops:
-    tools: [semgrep, trivy, gitleaks]
-  devops:
-    tools: [terraform, kubectl, gha]
+agents: { pm: {}, architect: {}, dev_backend: {}, dev_frontend: {}, qa: {}, secops: {}, devops: {} }

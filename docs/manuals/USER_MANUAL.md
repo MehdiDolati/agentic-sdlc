@@ -1,4 +1,1 @@
-# User Manual
-## Getting Started
-## Features
-## FAQs
+# User Manual\n

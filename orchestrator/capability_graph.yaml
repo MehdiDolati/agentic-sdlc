@@ -1,13 +1,1 @@
-tasks:
-  prd_write: [pm]
-  design_adr: [architect]
-  implement_backend: [dev_backend]
-  implement_frontend: [dev_frontend]
-  write_tests: [qa, dev_backend, dev_frontend]
-  security_scan: [secops]
-  deploy: [devops]
-routing_rules:
-  - if: "coverage < policy.coverage_gate"
-    then: "return_to: qa"
-  - if: "secrets_detected == true"
-    then: "block: secops"
+tasks: { prd_write: [pm], implement_backend: [dev_backend] }
