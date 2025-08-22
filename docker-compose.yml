@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   api:
     build: .
@@ -7,3 +9,22 @@ services:
     command: uvicorn app:app --app-dir services/api --host 0.0.0.0 --port 8080 --reload
     volumes:
       - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DB_URL=postgresql://agent:agent@db:5432/agentic
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: agentic
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

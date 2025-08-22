@@ -51,6 +51,15 @@ app = FastAPI(title="Agentic SDLC API", version="0.5.0")
 app.include_router(create_router)
 app.include_router(notes_router)
 
+# add DB router
+try:
+    from .db import router as db_router
+except ImportError:
+    from services.api.db import router as db_router
+
+app.include_router(db_router)
+
+
 class RequestIn(BaseModel):
     text: str
 
