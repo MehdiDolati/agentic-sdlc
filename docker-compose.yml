@@ -2,14 +2,22 @@ version: "3.9"
 
 services:
   db:
+    # ...your existing settings...
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql
+      - /tmp
+    # ensure data stays writable via a volume (you likely already have this):
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     image: postgres:15-alpine
     env_file: .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1 || exit 1"]
       interval: 2s
@@ -17,6 +25,14 @@ services:
       retries: 30
 
   db-init:
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      # prevents Python from writing .pyc files to the (now read-only) root fs
+      PYTHONDONTWRITEBYTECODE: "1"
     build: .
     image: agentic-sdlc-api:dev
     env_file: .env
