@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import subprocess
+import shlex
 from pathlib import Path
 
 try:
@@ -216,7 +217,7 @@ def maybe_git(actions: dict, enable_git: bool, open_pr: bool, branch: str):
     if not enable_git:
         return
     def run(cmd):
-        subprocess.check_call(cmd, shell=True)
+        subprocess.check_call(cmd if isinstance(cmd, list) else shlex.split(cmd), shell=False)
     try:
         run("git rev-parse --is-inside-work-tree")
     except subprocess.CalledProcessError:

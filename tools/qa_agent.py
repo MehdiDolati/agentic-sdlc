@@ -3,8 +3,11 @@ import argparse
 import os
 import sys
 import subprocess
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
+import shlex
 from pathlib import Path
+
+
 
 try:
     import yaml
@@ -33,10 +36,12 @@ def ensure_coverage_xml(repo_root: Path, xml_out: Path) -> None:
     if xml_out.exists():
         return
     cmd = "coverage run -m pytest -q"
-    subprocess.check_call(cmd, shell=True, cwd=str(repo_root / "services" / "api"))
+    subprocess.check_call(cmd if isinstance(cmd_xml, list) else shlex.split(cmd_xml),
+                      shell=False, cwd=str(repo_root / "services" / "api"))
     xml_out.parent.mkdir(parents=True, exist_ok=True)
     cmd_xml = f"coverage xml -o {xml_out}"
-    subprocess.check_call(cmd_xml, shell=True, cwd=str(repo_root / "services" / "api"))
+    subprocess.check_call(cmd_xml if isinstance(cmd_xml, list) else shlex.split(cmd_xml),
+                      shell=False, cwd=str(repo_root / "services" / "api"))
 
 def main():
     ap = argparse.ArgumentParser(description="QA Agent: enforce coverage gate from TEAM_PROFILE.yaml")

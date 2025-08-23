@@ -1,64 +1,23 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from pathlib import Path
-from datetime import datetime
-import json, uuid, importlib, sys
 
-# --- make both import styles work (pytest & uvicorn reload) ---
-ROOT = Path(__file__).resolve().parents[2]   # repo root
-API_DIR = Path(__file__).resolve().parents[1]  # services/api
-for p in (str(ROOT), str(API_DIR)):
-    if p not in sys.path:
-        sys.path.insert(0, p)
+# --- import planner (pytest or uvicorn) ---
+try:
+    from .planner import plan_request            # when loaded as 'services.api.app'
+except Exception:
+    from planner import plan_request             # when loaded as top-level 'app' in tests
 
-def _import_one(*mods):
-    seen = set()
-    for m in mods:
-        if not m or m in seen:
-            continue
-        seen.add(m)
-        try:
-            return importlib.import_module(m)
-        except ImportError:
-            pass
-    raise ImportError(f"Could not import any of: {mods}")
-
-_pkg = __package__  # 'services.api' when run as a package; None under pytest
-
-# planner
-planner_mod = _import_one(
-    f"{_pkg}.planner" if _pkg else None,
-    "services.api.planner",
-    "planner",
-)
-plan_request = getattr(planner_mod, "plan_request")
-
-# routers
-create_mod = _import_one(
-    f"{_pkg}.routes.create" if _pkg else None,
-    "services.api.routes.create",
-    "routes.create",
-)
-notes_mod = _import_one(
-    f"{_pkg}.routes.notes" if _pkg else None,
-    "services.api.routes.notes",
-    "routes.notes",
-)
-create_router = getattr(create_mod, "router")
-notes_router  = getattr(notes_mod, "router")
+# --- import routers (pytest or uvicorn) ---
+try:
+    from .routes.create import router as create_router
+    from .routes.notes  import router as notes_router
+except Exception:
+    from routes.create import router as create_router
+    from routes.notes  import router as notes_router
 
 app = FastAPI(title="Agentic SDLC API", version="0.5.0")
 app.include_router(create_router)
 app.include_router(notes_router)
-
-# add DB router
-try:
-    from .db import router as db_router
-except ImportError:
-    from services.api.db import router as db_router
-
-app.include_router(db_router)
-
 
 class RequestIn(BaseModel):
     text: str
