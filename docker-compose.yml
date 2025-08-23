@@ -1,46 +1,56 @@
 version: "3.9"
 
 services:
+  db:
+    image: postgres:15-alpine
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1 || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  db-init:
+    build: .
+    image: agentic-sdlc-api:dev
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["python", "services/api/tools/db_init.py"]
+    restart: "no"
+
   api:
     build: .
     image: agentic-sdlc-api:dev
-    ports:
-      - "${API_PORT:-8080}:8080"
-    # Run in the same mode as pytest import style
-    command: sh -c "python services/api/tools/db_init.py && uvicorn app:app --app-dir services/api --host 0.0.0.0 --port 8080 --reload"
-    # Make root filesystem read-only; mount code read-only; tmpfs for /tmp
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - .:/app:ro
-      - ./data:/app/data         # RW bind mount for artifacts
-    tmpfs:
-      - /tmp
-      - /run
-    environment:
-      - PYTHONUNBUFFERED=1
-      - DB_URL=postgresql://agent:agent@db:5432/agentic
-      - PLANS_ROOT=/app/data
+    env_file: .env
     depends_on:
-      - db
-  db:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: agentic
-      POSTGRES_USER: agent
-      POSTGRES_PASSWORD: agent
+      db:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     ports:
-      - "5432:5432"
-    # Hardening: read-only root, but keep writable data + runtime dirs via volume/tmpfs
+      - "8080:8080"
     read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./docs:/app/docs
+      - ./plans:/app/plans
     security_opt:
       - no-new-privileges:true
-    volumes:
-      - pgdata:/var/lib/postgresql/data   # writable data
-    tmpfs:
-      - /run
-      - /tmp
-      - /var/run/postgresql               # socket dir
+    command: ["uvicorn", "services.api.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 volumes:
   pgdata:
