@@ -1,17 +1,36 @@
+# services/api/app.py
 from fastapi import FastAPI
 from pydantic import BaseModel
+from datetime import datetime
+import json
+import uuid  # <-- add this
 
-# --- import planner (pytest or uvicorn) ---
+
+# --- Ensure both repo root and services/api are on sys.path for CI/pytest ---
+from pathlib import Path
+import sys
+
+API_DIR = Path(__file__).resolve().parent          # .../services/api
+ROOT    = API_DIR.parent.parent                    # repo root
+for p in (str(API_DIR), str(ROOT)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+# --- planner (static, no importlib) ---
 try:
-    from .planner import plan_request            # when loaded as 'services.api.app'
+    from .planner import plan_request              # package context (uvicorn)
 except Exception:
-    from planner import plan_request             # when loaded as top-level 'app' in tests
+    try:
+        from services.api.planner import plan_request  # absolute package
+    except Exception:
+        from planner import plan_request           # top-level (pytest from repo root)
 
-# --- import routers (pytest or uvicorn) ---
+# --- routers (static, no importlib) ---
 try:
     from .routes.create import router as create_router
     from .routes.notes  import router as notes_router
 except Exception:
+    # top-level fallback (pytest from repo root with API_DIR on sys.path)
     from routes.create import router as create_router
     from routes.notes  import router as notes_router
 
@@ -21,7 +40,7 @@ app.include_router(notes_router)
 
 class RequestIn(BaseModel):
     text: str
-
+    
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 

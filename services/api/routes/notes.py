@@ -1,10 +1,14 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
+# repo factory import – support package, absolute, and top-level
 try:
-    from ..repo.factory import notes_repo
-except ImportError:
-    from services.api.repo.factory import notes_repo
+    from ..repo.factory import notes_repo            # package context
+except Exception:
+    try:
+        from services.api.repo.factory import notes_repo  # absolute package
+    except Exception:
+        from repo.factory import notes_repo          # top-level (pytest from root)
 
 def require_auth(authorization: Optional[str] = Header(None)):
     if authorization is None or not authorization.lower().startswith("bearer "):
