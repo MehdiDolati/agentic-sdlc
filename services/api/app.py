@@ -1,7 +1,10 @@
 # services/api/app.py
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from datetime import datetime
+from pathlib import Path
+
+import os
 import json
 import uuid  # <-- add this
 
@@ -111,3 +114,58 @@ def get_plan(plan_id: str):
     if plan_id not in idx:
         raise HTTPException(status_code=404, detail="plan not found")
     return idx[plan_id]
+
+def _plans_dir(repo_root: Path) -> Path:
+    return repo_root / "docs" / "plans"
+
+def _plans_index_path(repo_root: Path) -> Path:
+    return _plans_dir(repo_root) / "index.json"
+
+def _load_index(repo_root: Path) -> dict:
+    p = _plans_index_path(repo_root)
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+def _save_index(repo_root: Path, idx: dict) -> None:
+    d = _plans_dir(repo_root)
+    d.mkdir(parents=True, exist_ok=True)
+    (_plans_index_path(repo_root)).write_text(json.dumps(idx, indent=2), encoding="utf-8")
+
+@app.get("/plans/{plan_id}")
+def get_plan(plan_id: str):
+    repo_root = _repo_root()
+    idx = _load_index(repo_root)
+    plan = idx.get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="plan not found")
+    return plan
+
+@app.post("/plans/{plan_id}/execute", status_code=status.HTTP_202_ACCEPTED)
+def run_plan_execution(plan_id: str):
+    repo_root = _repo_root()
+    idx = _load_index(repo_root)
+    plan = idx.get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="plan not found")
+
+    try:
+        from .executor import execute_plan  # package context
+    except Exception:
+        from executor import execute_plan   # fallback for pytest root
+
+    result = execute_plan(plan, repo_root)
+    return {"plan_id": plan_id, "result": result}
+    
+def _repo_root() -> Path:
+    # Prefer a writable root if provided (used in containers)
+    override = os.getenv("PLANS_ROOT") or os.getenv("REPO_ROOT")
+    if override:
+        p = Path(override).resolve()
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    # Fallback for local dev/tests (project root)
+    return Path(__file__).resolve().parents[2]

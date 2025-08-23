@@ -1,0 +1,14 @@
+{
+  "20250823111519-build-a-notes-service-with-auth-458593": {
+    "id": "20250823111519-build-a-notes-service-with-auth-458593",
+    "created_at": "20250823111519",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250823-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250823-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250823-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250823-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250823-build-a-notes-service-with-auth.yaml"
+    }
+  }
+}

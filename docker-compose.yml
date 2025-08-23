@@ -14,14 +14,16 @@ services:
       - no-new-privileges:true
     volumes:
       - .:/app:ro
+      - ./data:/app/data         # RW bind mount for artifacts
     tmpfs:
       - /tmp
+      - /run
     environment:
       - PYTHONUNBUFFERED=1
       - DB_URL=postgresql://agent:agent@db:5432/agentic
+      - PLANS_ROOT=/app/data
     depends_on:
       - db
-
   db:
     image: postgres:15-alpine
     environment:
