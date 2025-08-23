@@ -19,24 +19,23 @@ for p in (str(API_DIR), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-# --- planner (static, no importlib) ---
+# planner (keep this as-is if you already have it)
 try:
-    from .planner import plan_request              # package context (uvicorn)
-except Exception:
-    try:
-        from services.api.planner import plan_request  # absolute package
-    except Exception:
-        from planner import plan_request           # top-level (pytest from repo root)
+    from .planner import plan_request
+except ImportError:
+    from planner import plan_request
 
-# --- routers (static, no importlib) ---
+# routers
 try:
     from .routes.create import router as create_router
-    from .routes.notes  import router as notes_router
-except Exception:
-    # top-level fallback (pytest from repo root with API_DIR on sys.path)
+except ImportError:
     from routes.create import router as create_router
-    from routes.notes  import router as notes_router
 
+try:
+    from .routes.notes import router as notes_router
+except ImportError:
+    from routes.notes import router as notes_router
+    
 app = FastAPI(title="Agentic SDLC API", version="0.5.0")
 app.include_router(create_router)
 app.include_router(notes_router)
