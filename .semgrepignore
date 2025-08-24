@@ -3,3 +3,13 @@ node_modules/
 reports/
 dist/
 build/
+
+# .secretsignore
+# Ignore generated API schema snapshots:
+^services/api/tests/fixtures/.*\.json$
+
+# Ignore docs/text where sample keys appear:
+^docs/.*\.md$
+
+# If a specific file has a sample "password=" string used in docs:
+^README\.md$

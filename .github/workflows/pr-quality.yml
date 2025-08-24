@@ -7,7 +7,46 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Basic Secrets Scan
+
+      # Lightweight, grep-based secrets scan with sensible excludes + allowlist support
+      - name: Secrets Scan (filtered)
+        shell: bash
         run: |
-          echo "Scanning for potential secrets (basic grep)"
-          ! grep -R --line-number -E '(AWS_SECRET|BEGIN RSA PRIVATE KEY|password=|api_key=)' || (echo "Secrets pattern detected"; exit 1)
+          set -euo pipefail
+          echo "Scanning tracked text files for common secrets…"
+
+          # Candidate files: only git-tracked; drop binary & noisy dirs
+          FILES="$(git ls-files | grep -Ev '\.(png|jpg|jpeg|gif|ico|pdf|svg|woff2?|eot|ttf|zip|gz|tar|7z|mp4|mov|exe|dll|so)$' \
+                               | grep -Ev '^(node_modules/|\.venv/|venv/|dist/|build/|coverage/|\.pytest_cache/|reports/|\.git/)')"
+
+          # Optional per-repo allowlist to skip paths/patterns (add with justification)
+          if [ -f .secretsignore ]; then
+            FILES="$(printf '%s\n' "$FILES" | grep -Ev -f .secretsignore || true)"
+          fi
+
+          # Patterns: focused on common tokens; fewer false positives than generic "password=" alone
+          PATTERNS=(
+            'AKIA[0-9A-Z]{16}'                       # AWS Access Key ID
+            'ASIA[0-9A-Z]{16}'                       # AWS STS Access Key ID
+            'BEGIN (RSA|EC) PRIVATE KEY'             # Private keys
+            'ghp_[A-Za-z0-9]{36,}'                   # GitHub PAT
+            'xox[baprs]-[0-9A-Za-z-]{10,}'           # Slack tokens
+            'AIza[0-9A-Za-z\-_]{35}'                 # Google API key
+            'password\s*[:=]\s*["'\''][^"'\'' ]{6,}["'\'']'   # quoted password=
+            'api[_-]?key\s*[:=]\s*["'\''][^"'\'' ]{16,}["'\'']' # quoted api_key=
+          )
+
+          EXIT=0
+          for p in "${PATTERNS[@]}"; do
+            # --binary-files=without-match avoids tripping on binaries; -n shows line numbers
+            if grep -REn --binary-files=without-match -E "$p" $FILES; then
+              EXIT=1
+            fi
+          done
+
+          if [ $EXIT -ne 0 ]; then
+            echo "::error::Potential secret detected. If this is a false positive, add the exact path or a narrowly-scoped regex to .secretsignore with a short justification."
+            exit 1
+          else
+            echo "No obvious secrets found."
+          fi
