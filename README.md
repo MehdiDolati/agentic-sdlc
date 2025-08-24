@@ -1,71 +1,100 @@
-# Agentic SDLC Starter (Configurable & Runtime-Specialized)
+# Agentic SDLC
 
-This repository bootstraps an autonomous, agentic software team that can execute a full SDLC for user requests.
-It includes:
-- Configurable **stack profiles** and **agent specializations** via YAML
-- Orchestrator stubs (Planner/Registry/Capability Graph)
-- FastAPI service + sample tests
-- Planner that generates PRD/ADR/Stories/Tasks **and OpenAPI 3.1**
-- **Plans API** for traceability (`/plans` & `/plans/{id}`)
-- **Dev Agent** that scaffolds FastAPI routes + tests from OpenAPI
-- **QA Agent** that enforces coverage gate
-- GitHub Actions CI (tests + coverage + QA gate) and a basic secret scan
+An **Autonomous Agentic Software Development Lifecycle (SDLC) System** that automates planning, code generation, testing, and delivery.  
+The core vision is to **automate the entire SDLC** end-to-end — generating not only requirements and plans, but also the full source code of the final product.
 
-> Generated on: 2025-08-22
+---
 
-## Quickstart (Windows)
+## 🚀 Features
+- **Automated Planning** — Blueprint schema and validators for PRDs.
+- **Code Generation** — Generate initial implementations from specifications.
+- **CI/CD Automation** — Pre-push checks with local smoke tests.
+- **Infrastructure as Code** — Reproducible development with Docker and Docker Compose.
+- **Agentic Workflow** — Issues drive automation, with per-issue PowerShell dispatch scripts.
+
+---
+
+## 📦 Project Structure
+```plaintext
+services/api/      # FastAPI service
+services/api/tests # Unit & smoke tests
+tools/             # PowerShell automation scripts
+docs/              # PRDs and supporting docs
+```
+
+---
+
+## 🛠️ Local Development
+
+### 1. Clone the repo
+```powershell
+git clone https://github.com/MehdiDolati/agentic-sdlc.git
+cd agentic-sdlc
+```
+
+### 2. Setup Python virtual environment
 ```powershell
 python -m venv .venv
-.venv\Scripts\activate.bat
-pip install -r orchestrator\requirements.txt
-pip install -r services\api\requirements.txt
-uvicorn services.api.app:app --reload
+.\.venv\Scripts\Activate.ps1
+pip install -r services/api/requirements.txt
 ```
 
-Submit a request:
-```powershell
-Invoke-RestMethod -Uri 'http://127.0.0.1:8000/requests' -Method Post -ContentType 'application/json' -Body (@{text="Build a notes service with auth"} | ConvertTo-Json)
-```
-
-## Planner (PRD/ADR/Stories/Tasks + OpenAPI)
-Artifacts appear under `docs/` (including an OpenAPI skeleton under `docs/api/generated/`).
-
-## Plans API
-After you `POST /requests`, the server stores a plan entry and returns a `plan_id`.
-- `GET /plans` — list recent plans
-- `GET /plans/{id}` — fetch a specific plan with artifact paths
-
-## Dev Agent (scaffold from OpenAPI)
-Scaffold CRUD endpoints + tests from a generated OpenAPI spec.
+### 3. Run the local CI sanity check
+We provide a batch/PowerShell script that:
+- Mounts Docker,
+- Installs requirements in `.venv`,
+- Runs unit tests,
+- Runs smoke tests.
 
 ```powershell
-# from repo root (Windows)
-. .\.venv\Scripts\activate.ps1
-pip install -r tools\requirements.txt
-
-# pick your generated spec (from /requests call)
-$spec = (Get-ChildItem .\docs\api\generated\openapi-*.yaml | Select-Object -Last 1).FullName
-
-python tools\dev_agent.py --spec $spec
-
-# run tests
-pytest -q services\api
-
-# start API
-uvicorn services.api.app:app --reload
+tools\local-ci.ps1
 ```
-To also commit on a branch (and open a PR with GitHub CLI if configured):
+
+Only push after this script passes ✅
+
+---
+
+## 🧪 Running Tests
+### Unit tests
 ```powershell
-python tools\dev_agent.py --spec $spec --git --pr
+python -m pytest -q services/api
 ```
 
-## QA Agent (coverage gate)
-Enforce coverage gate from `TEAM_PROFILE.yaml` locally or in CI.
-
+### Smoke tests in Docker
 ```powershell
-. .\.venv\Scripts\activate.ps1
-pip install -r tools\requirements.txt
-python tools\qa_agent.py --strict
-# or reuse existing XML
-python tools\qa_agent.py --strict --xml reports\coverage.xml
+docker compose up --build --exit-code-from api
 ```
+
+---
+
+## 🔄 Workflow with Issues
+1. Create a GitHub issue describing the feature/task.  
+2. Dispatch it locally:
+   ```powershell
+   tools\issue-dispatch.ps1 -Repo "MehdiDolati/agentic-sdlc" -IssueNumber <N> -OpenPR -DockerSmoke
+   ```
+3. Work through the generated script under `tools/issues/`.
+4. Run local CI and Docker smoke tests.
+5. Once all pass, push changes and close the issue.
+
+For details, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## 📐 Architecture
+See [ARCHITECTURE.md](ARCHITECTURE.md) for:
+- System design
+- Module responsibilities
+- Data flows (planner → repo → API → tests)
+
+---
+
+## 🤝 Contributing
+- Follow [CONTRIBUTING.md](CONTRIBUTING.md) for workflow and coding guidelines.
+- Always ensure **local CI passes** before opening a PR.
+- Issues are the single source of truth — all development is tied to them.
+
+---
+
+## 📄 License
+MIT
