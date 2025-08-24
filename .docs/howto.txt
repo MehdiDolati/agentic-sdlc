@@ -1,0 +1,17 @@
+Local CI:
+# full run: venv + unit tests + docker up + smoke + docker down
+.\scripts\local-ci.ps1
+
+# keep containers running after smoke
+.\scripts\local-ci.ps1 -KeepRunning
+
+# only run Python unit tests (skip docker)
+.\scripts\local-ci.ps1 -SkipDocker
+
+
+Generate Issues:
+Once:
+Requires the GitHub CLI: winget install GitHub.cli and gh auth login.
+
+foreach issue batch:
+create gh-create-issues.ps1 in tools and run
