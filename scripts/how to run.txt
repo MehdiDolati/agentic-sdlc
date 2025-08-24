@@ -1,0 +1,8 @@
+# full run: venv + unit tests + docker up + smoke + docker down
+.\scripts\local-ci.ps1
+
+# keep containers running after smoke
+.\scripts\local-ci.ps1 -KeepRunning
+
+# only run Python unit tests (skip docker)
+.\scripts\local-ci.ps1 -SkipDocker

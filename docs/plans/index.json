@@ -970,5 +970,101 @@
       "tasks": "docs/plans/TASKS-20250823-build-a-notes-service-with-auth.md",
       "openapi": "docs/api/generated/openapi-20250823-build-a-notes-service-with-auth.yaml"
     }
+  },
+  "20250824071151-build-a-notes-service-with-auth-e5dfaa": {
+    "id": "20250824071151-build-a-notes-service-with-auth-e5dfaa",
+    "created_at": "20250824071151",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250824-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250824-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250824-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250824-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250824-build-a-notes-service-with-auth.yaml"
+    }
+  },
+  "20250824071151-create-a-hello-endpoint-83a6c8": {
+    "id": "20250824071151-create-a-hello-endpoint-83a6c8",
+    "created_at": "20250824071151",
+    "request": "Create a hello endpoint",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250824-create-a-hello-endpoint.md",
+      "adr": "docs/adr/ADR-20250824-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250824-create-a-hello-endpoint.yaml",
+      "tasks": "docs/plans/TASKS-20250824-create-a-hello-endpoint.md",
+      "openapi": "docs/api/generated/openapi-20250824-create-a-hello-endpoint.yaml"
+    }
+  },
+  "20250824071151-build-a-notes-service-with-auth-4ad7f6": {
+    "id": "20250824071151-build-a-notes-service-with-auth-4ad7f6",
+    "created_at": "20250824071151",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250824-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250824-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250824-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250824-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250824-build-a-notes-service-with-auth.yaml"
+    }
+  },
+  "20250824071151-build-a-notes-service-with-auth-7bc23c": {
+    "id": "20250824071151-build-a-notes-service-with-auth-7bc23c",
+    "created_at": "20250824071151",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250824-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250824-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250824-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250824-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250824-build-a-notes-service-with-auth.yaml"
+    }
+  },
+  "20250824071349-build-a-notes-service-with-auth-50da4c": {
+    "id": "20250824071349-build-a-notes-service-with-auth-50da4c",
+    "created_at": "20250824071349",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250824-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250824-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250824-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250824-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250824-build-a-notes-service-with-auth.yaml"
+    }
+  },
+  "20250824071349-create-a-hello-endpoint-486ad0": {
+    "id": "20250824071349-create-a-hello-endpoint-486ad0",
+    "created_at": "20250824071349",
+    "request": "Create a hello endpoint",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250824-create-a-hello-endpoint.md",
+      "adr": "docs/adr/ADR-20250824-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250824-create-a-hello-endpoint.yaml",
+      "tasks": "docs/plans/TASKS-20250824-create-a-hello-endpoint.md",
+      "openapi": "docs/api/generated/openapi-20250824-create-a-hello-endpoint.yaml"
+    }
+  },
+  "20250824071349-build-a-notes-service-with-auth-1ee1ce": {
+    "id": "20250824071349-build-a-notes-service-with-auth-1ee1ce",
+    "created_at": "20250824071349",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250824-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250824-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250824-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250824-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250824-build-a-notes-service-with-auth.yaml"
+    }
+  },
+  "20250824071349-build-a-notes-service-with-auth-397975": {
+    "id": "20250824071349-build-a-notes-service-with-auth-397975",
+    "created_at": "20250824071349",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250824-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250824-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250824-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250824-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250824-build-a-notes-service-with-auth.yaml"
+    }
   }
 }
