@@ -1,4 +1,11 @@
 name: PR Quality
+
+run-name: "PR Quality • PR #${{ github.event.pull_request.number }} • ${{ github.event.pull_request.title || github.ref_name }}"
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+
 on:
   pull_request:
 
