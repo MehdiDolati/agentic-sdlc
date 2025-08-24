@@ -1,5 +1,9 @@
-﻿param(
-  [string]$Repo,
+﻿[CmdletBinding()]
+param(
+  [Parameter(Mandatory=$true)][string]$Repo,
+  [Parameter(Mandatory=$true)][int]$IssueNumber,
+  [Parameter(Mandatory=$true)][string]$Title,
+  [Parameter(Mandatory=$false)][string]$Body,
   [switch]$OpenPR,
   [switch]$DockerSmoke
 )
