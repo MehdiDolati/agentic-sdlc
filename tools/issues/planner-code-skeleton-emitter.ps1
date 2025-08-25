@@ -77,8 +77,20 @@ def emit_skeleton(plan: Dict[str, Any]) -> Dict[str, str]:
 _Run ".\.venv\Scripts\python.exe -m pytest -q services\api" "Unit tests failed after emitter change"
 
 # 5) Commit changes
-_Run "git add $emitterFile $initFile" "git add failed"
-_Run "git commit -m ""feat(planner): add code skeleton emitter stub (#$IssueNumber)""" "git commit failed"
+# Stage expected files
+git add services\api\planner\emitter.py services\api\planner\__init__.py
+
+# If nothing is staged, skip the commit instead of failing
+git diff --cached --quiet
+if ($LASTEXITCODE -eq 0) {
+  Write-Host "• No staged changes; skipping commit."
+} else {
+  git commit -m "feat(planner): add code skeleton emitter stub (#8)"
+  if ($LASTEXITCODE -ne 0) {
+    throw "git commit failed"
+  }
+}
+
 
 # 6) Optional docker smoke
 if ($DockerSmoke) {
