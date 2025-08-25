@@ -92,10 +92,12 @@ def create_request(req: RequestIn):
         "request": req.text,
         "artifacts": artifacts,
     }
-    idx = _load_index(repo_root)
-    idx[plan_id] = entry
-    _save_index(repo_root, idx)
-
+    
+    if not os.getenv("AGENTIC_SKIP_INDEX_WRITE"):
+        idx = _load_index(repo_root)
+        idx[plan_id] = entry
+        _save_index(repo_root, idx)
+        
     return {"message": "Planned and generated artifacts", "plan_id": plan_id, "artifacts": artifacts, "request": req.text}
 
 @app.get("/plans")

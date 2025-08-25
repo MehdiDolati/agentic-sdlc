@@ -15,6 +15,17 @@ Write-Host "Implementing '$Title' (Issue #$IssueNumber)"
 
 $ErrorActionPreference = 'Stop'
 
+$env:AGENTIC_SKIP_INDEX_WRITE = "1"
+& .\.venv\Scripts\python.exe -m pytest -q services\api
+if ($LASTEXITCODE -ne 0) { throw "Pre-flight unit tests failed" }
+
+# ... your edits/commits ...
+
+$env:AGENTIC_SKIP_INDEX_WRITE = "1"
+& .\.venv\Scripts\python.exe -m pytest -q services\api
+if ($LASTEXITCODE -ne 0) { throw "Unit tests failed after emitter change" }
+
+
 function _Run($cmd, $err) {
   Write-Host "• $cmd"
   cmd.exe /c $cmd
