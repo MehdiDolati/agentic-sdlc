@@ -3,11 +3,6 @@ run-name: "PR #${{ github.event.pull_request.number }} • ${{ github.event.pull
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-
-
-on:
-  pull_request:
-  push:
     branches: [ main ]
 
 jobs:
