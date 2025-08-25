@@ -91,6 +91,22 @@ if ($LASTEXITCODE -eq 0) {
   }
 }
 
+# Ensure .env exists for docker compose
+$envPath = Join-Path $PSScriptRoot '..\..\.env' | Resolve-Path -Relative
+if (-not (Test-Path $envPath)) {
+  Write-Host "• .env not found; creating default .env"
+  @'
+POSTGRES_DB=appdb
+POSTGRES_USER=app
+POSTGRES_PASSWORD=app
+DB_HOST=db
+DB_PORT=5432
+DB_NAME=appdb
+DB_USER=app
+DB_PASSWORD=app
+'@ | Set-Content -Path $envPath -Encoding ascii
+}
+
 
 # 6) Optional docker smoke
 if ($DockerSmoke) {
