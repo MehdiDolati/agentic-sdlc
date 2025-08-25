@@ -1,7 +1,8 @@
 name: CI
+run-name: "PR #${{ github.event.pull_request.number }} • ${{ github.event.pull_request.title || github.ref_name }}"
 on:
   pull_request:
-  push:
+    types: [opened, synchronize, reopened]
     branches: [ main ]
 
 jobs:
