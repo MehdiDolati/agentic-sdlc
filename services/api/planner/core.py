@@ -1,3 +1,4 @@
+# services/api/planner/core.py
 from pathlib import Path
 from datetime import datetime
 import re
@@ -39,7 +40,6 @@ def _selected_stack(repo_root: Path) -> dict:
         "risk_threshold": (team.get("policies") or {}).get("risk_threshold", "medium"),
         "approvals": (team.get("policies") or {}).get("approvals", {}),
     }
-
     return {"stack": stack, "gates": gates}
 
 def _derive_requirements(request_text: str):
@@ -112,67 +112,67 @@ def plan_request(request_text: str, repo_root: Path) -> dict:
 
     must, should, could = _derive_requirements(request_text)
     criteria = _acceptance_criteria(request_text)
+
+    from datetime import datetime as _dt
     prd_path = prd_dir / f"PRD-{date}-{slug}.md"
-    prd_md = f"""
-    # Product Requirements Document — {request_text[:80]}
+    prd_md = f"""# Product Requirements Document — {request_text[:80]}
 
-    ## Problem
-    {request_text.strip() or "User request describing desired functionality."}
+## Problem
+{request_text.strip() or "User request describing desired functionality."}
 
-    ## Goals / Non-goals
-    - **Goals**: Deliver the requested functionality with tests and docs.
-    - **Non-goals**: Features not explicitly requested; large-scale infra changes.
+## Goals / Non-goals
+- **Goals**: Deliver the requested functionality with tests and docs.
+- **Non-goals**: Features not explicitly requested; large-scale infra changes.
 
-    ## Personas & Scenarios
-    - Primary Persona: End-user
-    - Scenario: A user interacts with the system to accomplish: "{request_text.strip()}"
+## Personas & Scenarios
+- Primary Persona: End-user
+- Scenario: A user interacts with the system to accomplish: "{request_text.strip()}"
 
-    ## Requirements (Must / Should / Could)
-    **Must**
-    {chr(10).join(f"- {item}" for item in must)}
+## Requirements (Must / Should / Could)
+**Must**
+{chr(10).join(f"- {item}" for item in must)}
 
-    **Should**
-    {chr(10).join(f"- {item}" for item in should)}
+**Should**
+{chr(10).join(f"- {item}" for item in should)}
 
-    **Could**
-    {chr(10).join(f"- {item}" for item in could)}
+**Could**
+{chr(10).join(f"- {item}" for item in could)}
 
-    ## Acceptance Criteria
-    {chr(10).join(f"- {c}" for c in criteria)}
+## Acceptance Criteria
+{chr(10).join(f"- {c}" for c in criteria)}
 
-    ## Stack Summary (Selected)
-    - Language: **{stack.get('language','')}**
-    - Backend Framework: **{stack.get('framework','')}**
-    - Frontend: **{stack.get('frontend','')}**
-    - Database: **{stack.get('database','')}**
-    - Deployment: **{stack.get('deployment','')}**
+## Stack Summary (Selected)
+- Language: **{stack.get('language','')}**
+- Backend Framework: **{stack.get('framework','')}**
+- Frontend: **{stack.get('frontend','')}**
+- Database: **{stack.get('database','')}**
+- Deployment: **{stack.get('deployment','')}**
 
-    ## Quality & Policy Gates
-    - Coverage gate: **{gates.get('coverage_gate')}**
-    - Risk threshold: **{gates.get('risk_threshold')}**
-    - Approvals: **{gates.get('approvals')}**
+## Quality & Policy Gates
+- Coverage gate: **{gates.get('coverage_gate')}**
+- Risk threshold: **{gates.get('risk_threshold')}**
+- Approvals: **{gates.get('approvals')}**
 
-    ## Risks & Assumptions
-    - Assumes default adapters and templates for the chosen stack are available.
-    - Security scanning and policy checks run in CI before deploy.
-    """
+## Risks & Assumptions
+- Assumes default adapters and templates for the chosen stack are available.
+- Security scanning and policy checks run in CI before deploy.
+"""
     prd_path.write_text(prd_md.strip() + "\n", encoding="utf-8")
 
     adr_path = adr_dir / f"ADR-{date}-auto-planning.md"
-    adr_md = f"""
-    # Architecture Decision Record — Auto Planning
-    ## Context
-    Initial design decision for request: {request_text[:80]}
+    adr_md = f"""# Architecture Decision Record — Auto Planning
+## Context
+Initial design decision for request: {request_text[:80]}
 
-    ## Decision
-    Use selected stack from runtime config (or defaults). Document deviations via follow-up ADRs.
+## Decision
+Use selected stack from runtime config (or defaults). Document deviations via follow-up ADRs.
 
-    ## Alternatives
-    - Alternate frameworks or data stores per profile
+## Alternatives
+- Alternate frameworks or data stores per profile
 
-    ## Consequences
-    - Provides a baseline to iterate on in subsequent cycles.
-    """
+## Consequences
+- Provides a baseline to iterate on in subsequent cycles.
+"""
     adr_path.write_text(adr_md.strip() + "\n", encoding="utf-8")
 
     stories_path = stories_dir / f"USER_STORIES-{date}-{slug}.yaml"
@@ -190,25 +190,24 @@ def plan_request(request_text: str, repo_root: Path) -> dict:
     stories_path.write_text(stories_yaml, encoding="utf-8")
 
     tasks_path = plans_dir / f"TASKS-{date}-{slug}.md"
-    tasks_md = f"""
-    # Task Plan — {request_text[:80]}
+    tasks_md = f"""# Task Plan — {request_text[:80]}
 
-    - [ ] Clarify detailed acceptance criteria
-    - [ ] Define API contract (OpenAPI)
-    - [ ] Implement endpoint(s)
-    - [ ] Write unit tests (meet coverage gate {gates.get('coverage_gate')})
-    - [ ] Add integration tests (optional for MVP)
-    - [ ] Update USER_MANUAL & CHANGELOG
-    - [ ] Run CI; ensure gates pass (security, secrets scan)
-    - [ ] Prepare deploy (staging)
-    """
+- [ ] Clarify detailed acceptance criteria
+- [ ] Define API contract (OpenAPI)
+- [ ] Implement endpoint(s)
+- [ ] Write unit tests (meet coverage gate {gates.get('coverage_gate')})
+- [ ] Add integration tests (optional for MVP)
+- [ ] Update USER_MANUAL & CHANGELOG
+- [ ] Run CI; ensure gates pass (security, secrets scan)
+- [ ] Prepare deploy (staging)
+"""
     tasks_path.write_text(tasks_md.strip() + "\n", encoding="utf-8")
 
     # OpenAPI skeleton
     resource = _resource_from_request(request_text)
     want_auth = "auth" in (request_text or "").lower() or "login" in (request_text or "").lower()
     spec = _openapi_skeleton(resource, want_auth, title=f"{resource.capitalize()} API")
-    api_dir = repo_root / "docs" / "openapi"
+    api_dir = repo_root / "docs" / "api" / "generated"
     api_dir.mkdir(parents=True, exist_ok=True)
     openapi_path = api_dir / f"openapi-{date}-{slug}.yaml"
     with open(openapi_path, "w", encoding="utf-8") as f:
