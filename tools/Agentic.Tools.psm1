@@ -100,13 +100,41 @@ function Invoke-DockerSmoke {
 
 function Get-IssueJson {
     param(
-        [Parameter(Mandatory=$true)][string]$Repo,
-        [Parameter(Mandatory=$true)][int]$IssueNumber
+        [Parameter(Mandatory = $true)][string]$Repo,
+        [Parameter(Mandatory = $true)][int]$IssueNumber
     )
 
-    # Query GitHub API for the issue JSON
-    $issue = gh issue view $IssueNumber -R $Repo --json number,title,body,labels
-    return ($issue | ConvertFrom-Json)
+    try {
+        # Only PS5-safe constructs (no ?. operator)
+        $raw = gh issue view $IssueNumber -R $Repo --json number,title,body,labels 2>$null
+        if (-not $raw) { throw "Empty response from gh" }
+
+        $issue = $raw | ConvertFrom-Json
+        if (-not $issue) { throw "Failed to parse JSON" }
+
+        # Normalize labels to simple array of names
+        if ($issue.labels) {
+            $issue | Add-Member -NotePropertyName labelNames -NotePropertyValue (@($issue.labels | ForEach-Object { $_.name }))
+        } else {
+            $issue | Add-Member -NotePropertyName labelNames -NotePropertyValue @()
+        }
+
+        return $issue
+    }
+    catch {
+        throw "Get-IssueJson failed for $Repo#$IssueNumber. $_"
+    }
 }
+
+function Get-IssueSlug {
+    param([Parameter(Mandatory=$true)][string]$Title)
+
+    $slug = $Title.Trim().ToLowerInvariant()
+    $slug = $slug -replace '[^a-z0-9]+','-'      # collapse non-alnum to hyphen
+    $slug = $slug -replace '(^-|-$)',''          # trim leading/trailing hyphens
+    if (-not $slug) { $slug = "issue-$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))" }
+    return $slug
+}
+
 Export-ModuleMember -Function Get-IssueJson
 Export-ModuleMember -Function Get-RepoRoot,Get-VenvPython,Invoke-ApiUnitTests,Invoke-DockerSmoke
