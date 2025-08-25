@@ -208,7 +208,7 @@ def plan_request(request_text: str, repo_root: Path) -> dict:
     resource = _resource_from_request(request_text)
     want_auth = "auth" in (request_text or "").lower() or "login" in (request_text or "").lower()
     spec = _openapi_skeleton(resource, want_auth, title=f"{resource.capitalize()} API")
-    api_dir = repo_root / "docs" / "api" / "generated"
+    api_dir = repo_root / "docs" / "openapi"
     api_dir.mkdir(parents=True, exist_ok=True)
     openapi_path = api_dir / f"openapi-{date}-{slug}.yaml"
     with open(openapi_path, "w", encoding="utf-8") as f:
