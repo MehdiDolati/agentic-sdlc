@@ -136,5 +136,29 @@ function Get-IssueSlug {
     return $slug
 }
 
+function Ensure-PrBodyHasClose {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory=$true)][string]$Repo,
+    [Parameter(Mandatory=$true)][string]$HeadBranch,
+    [Parameter(Mandatory=$true)][int]$IssueNumber,
+    [Parameter(Mandatory=$true)][string]$Title,
+    [string]$Body = ""
+  )
+
+  # If body already has a closing keyword for this issue, don’t duplicate.
+  $hasClosing = $Body -match "(?im)\b(closes|fix(?:es)?|resolve(?:s)?)\s*#\s*$IssueNumber\b"
+  if (-not $hasClosing) { $Body = ($Body.Trim() + "`n`nCloses #$IssueNumber").Trim() }
+
+  # Create or update the PR for this head branch
+  $prNum = gh pr list -R $Repo --search "head:$HeadBranch state:open" --json number -q ".[0].number"
+  if ($prNum) {
+    gh pr edit $prNum -R $Repo --title $Title --body $Body | Out-Null
+  } else {
+    gh pr create -R $Repo --base main --head $HeadBranch --title $Title --body $Body | Out-Null
+  }
+}
+
+Export-ModuleMember -Function Ensure-PrBodyHasClose
 Export-ModuleMember -Function Get-IssueJson
 Export-ModuleMember -Function Get-RepoRoot,Get-VenvPython,Invoke-ApiUnitTests,Invoke-DockerSmoke

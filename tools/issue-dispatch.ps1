@@ -161,6 +161,14 @@ $exit = $LASTEXITCODE
 
 if ($exit -ne 0) {
   Fail "Issue script failed with exit code $exit"
+} else {
+  Write-Host "✅ Issue #$IssueNumber script completed."
+
+  if ($OpenPR) {
+    $head = (git rev-parse --abbrev-ref HEAD).Trim()
+    Import-Module "$PSScriptRoot/Agentic.Tools.psm1" -Force
+    Ensure-PrBodyHasClose -Repo $Repo -HeadBranch $head -IssueNumber $IssueNumber -Title $title -Body $body
+  }
 }
 
 # --- Post-run: commit, push, optionally open PR -------------------------------

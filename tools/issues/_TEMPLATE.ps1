@@ -1,16 +1,20 @@
-# tools/issues/_TEMPLATE.ps1
+[CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)][string]$Repo,
-  [Parameter(Mandatory=$true)][int]$Issue,
-  [Parameter(Mandatory=$true)][string]$VenvPython
+  [Parameter(Mandatory=$true)][int]$IssueNumber,
+  [Parameter(Mandatory=$true)][string]$Title,
+  [Parameter()][string]$Body = "",
+  [switch]$OpenPR,
+  [switch]$DockerSmoke
 )
 
-$ErrorActionPreference = "Stop"
-$root = (Get-Location).Path
+Write-Host ">>> Running issue script for #$IssueNumber: $Title"
 
-# This is a skeleton. Replace contents to actually implement __TITLE__.
-Write-Host "Implementing '__TITLE__' (Issue #$Issue, slug '__SLUG__')" -ForegroundColor Cyan
+# … your work (tests/changes/commits) …
 
-# Example: touch a marker (idempotent)
-$newFile = Join-Path $root "tools/.issue-__ISSUE__-__SLUG__.done"
-Set-Content $newFile "# completed at $(Get-Date -Format s)" -Encoding UTF8
+if ($OpenPR) {
+  $head = (git rev-parse --abbrev-ref HEAD).Trim()
+  # (Optional) scrub dangerous CLI-looking lines from body so gh isn’t confused:
+  $safeBody = [regex]::Replace(($Body ?? ""), '(^|\n)\s*--\w+.*', '')
+  Ensure-PrBodyHasClose -Repo $Repo -HeadBranch $head -IssueNumber $IssueNumber -Title $Title -Body $safeBody
+}
