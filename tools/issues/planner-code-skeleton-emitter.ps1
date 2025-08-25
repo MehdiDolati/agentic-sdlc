@@ -1,16 +1,93 @@
-# tools/issues/_TEMPLATE.ps1
+# tools/issues/planner-code-skeleton-emitter.ps1
+# Windows PowerShell 5 compatible
+
+[CmdletBinding()]
 param(
-  [Parameter(Mandatory=$true)][string]$Repo,
-  [Parameter(Mandatory=$true)][int]$Issue,
-  [Parameter(Mandatory=$true)][string]$VenvPython
+  [Parameter(Mandatory=$true)][string] $Repo,
+  [Parameter(Mandatory=$true)][int]    $IssueNumber,
+  [Parameter(Mandatory=$true)][string] $Title,
+  [Parameter(Mandatory=$false)][string]$Body,
+  [switch] $OpenPR,
+  [switch] $DockerSmoke
 )
 
-$ErrorActionPreference = "Stop"
-$root = (Get-Location).Path
+Write-Host "Implementing '$Title' (Issue #$IssueNumber)"
 
-# This is a skeleton. Replace contents to actually implement __TITLE__.
-Write-Host "Implementing '__TITLE__' (Issue #$Issue, slug '__SLUG__')" -ForegroundColor Cyan
+$ErrorActionPreference = 'Stop'
 
-# Example: touch a marker (idempotent)
-$newFile = Join-Path $root "tools/.issue-__ISSUE__-__SLUG__.done"
-Set-Content $newFile "# completed at $(Get-Date -Format s)" -Encoding UTF8
+function _Run($cmd, $err) {
+  Write-Host "• $cmd"
+  cmd.exe /c $cmd
+  if ($LASTEXITCODE -ne 0) { throw $err }
+}
+
+# 1) Ensure venv + deps (best-effort; your repo already has helpers)
+if (Test-Path .venv\Scripts\python.exe) {
+  & .\.venv\Scripts\python.exe -m pip install -q -r services\api\requirements.txt
+} elseif (Get-Command python -ErrorAction SilentlyContinue) {
+  python -m pip install -q -r services\api\requirements.txt
+}
+
+# 2) Pre-flight tests
+_Run ".\.venv\Scripts\python.exe -m pytest -q services\api" "Pre-flight unit tests failed"
+
+# 3) Minimal implementation: add a skeleton emitter module (non-breaking)
+$emitterDir = "services\api\planner"
+$emitterFile = Join-Path $emitterDir "emitter.py"
+$initFile    = Join-Path $emitterDir "__init__.py"
+
+if (-not (Test-Path $emitterDir)) { New-Item -ItemType Directory -Force -Path $emitterDir | Out-Null }
+if (-not (Test-Path $initFile))   { "" | Set-Content -Path $initFile -Encoding UTF8 }
+
+if (-not (Test-Path $emitterFile)) {
+@'
+"""
+Planner code skeleton emitter (v0).
+Non-breaking placeholder: takes a "plan" dict and returns a dict of file paths -> contents.
+"""
+from typing import Dict, Any
+
+def emit_skeleton(plan: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Given a normalized plan, emit a minimal code skeleton.
+    Safe placeholder implementation that returns an empty dict if no plan provided.
+    """
+    if not plan:
+        return {}
+    # Example scaffold (no side-effects; caller decides where to write):
+    files = {}
+    # You can populate files like:
+    # files["README_SKELETON.md"] = "# Skeleton\\n\\nThis was generated from the plan."
+    return files
+'@ | Set-Content -Path $emitterFile -Encoding UTF8
+}
+
+# 4) Re-run tests
+_Run ".\.venv\Scripts\python.exe -m pytest -q services\api" "Unit tests failed after emitter change"
+
+# 5) Commit changes
+_Run "git add $emitterFile $initFile" "git add failed"
+_Run "git commit -m ""feat(planner): add code skeleton emitter stub (#$IssueNumber)""" "git commit failed"
+
+# 6) Optional docker smoke
+if ($DockerSmoke) {
+  Write-Host "Running docker smoke…"
+  _Run "docker compose up --build -d" "docker compose up failed"
+  try {
+    Start-Sleep -Seconds 3
+    # basic health ping
+    _Run "curl -fsS http://localhost:8080/health" "health check failed"
+  } finally {
+    _Run "docker compose down -v" "docker compose down failed"
+  }
+}
+
+# 7) Push & PR
+_Run "git push -u origin HEAD" "git push failed"
+
+if ($OpenPR) {
+  $prTitle = "$Title"
+  $prBody  = if ($Body) { $Body + "`n`nCloses #$IssueNumber" } else { "Closes #$IssueNumber" }
+  _Run ("gh pr create -R {0} --base main --head {1} --title ""{2}"" --body ""{3}""" -f `
+      $Repo, (git rev-parse --abbrev-ref HEAD), $prTitle, $prBody) "gh pr create failed"
+}
