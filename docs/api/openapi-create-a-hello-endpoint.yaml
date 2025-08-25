@@ -1,0 +1,19 @@
+openapi: 3.0.3
+info:
+  title: Generated API
+  version: 0.1.0
+paths:
+  /hello:
+    get:
+      summary: Hello endpoint
+      responses:
+        '200':
+          description: OK
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - BearerAuth: []

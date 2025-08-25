@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from datetime import datetime
 from pathlib import Path
+from typing import Dict
 
 import os
 import json
@@ -12,6 +13,8 @@ import uuid  # <-- add this
 # --- Ensure both repo root and services/api are on sys.path for CI/pytest ---
 from pathlib import Path
 import sys
+
+_ephemeral_index: Dict[str, dict] = {}
 
 API_DIR = Path(__file__).resolve().parent          # .../services/api
 ROOT    = API_DIR.parent.parent                    # repo root
@@ -80,23 +83,36 @@ def health():
     return {"status": "ok"}
 
 @app.post("/requests")
+@app.post("/requests")
 def create_request(req: RequestIn):
     repo_root = _repo_root()
     artifacts = plan_request(req.text, repo_root)
 
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     plan_id = f"{ts}-{_slugify(req.text)}-{uuid.uuid4().hex[:6]}"
+
     entry = {
         "id": plan_id,
         "created_at": ts,
         "request": req.text,
         "artifacts": artifacts,
     }
-    idx = _load_index(repo_root)
-    idx[plan_id] = entry
-    _save_index(repo_root, idx)
 
-    return {"message": "Planned and generated artifacts", "plan_id": plan_id, "artifacts": artifacts, "request": req.text}
+    # Always update ephemeral cache
+    _ephemeral_index[plan_id] = entry
+
+    # Persist only when not explicitly skipped (tests/automation set the env var)
+    if not os.getenv("AGENTIC_SKIP_INDEX_WRITE"):
+        idx = _load_index(repo_root)
+        idx[plan_id] = entry
+        _save_index(repo_root, idx)
+
+    return {
+        "message": "Planned and generated artifacts",
+        "plan_id": plan_id,
+        "artifacts": artifacts,
+        "request": req.text,
+    }
 
 @app.get("/plans")
 def list_plans(limit: int = 20):
@@ -108,10 +124,15 @@ def list_plans(limit: int = 20):
 
 @app.get("/plans/{plan_id}")
 def get_plan(plan_id: str):
+    # Serve from ephemeral cache when available (e.g., in tests)
+    if plan_id in _ephemeral_index:
+        return _ephemeral_index[plan_id]
+
+    # Fallback to persisted index
     repo_root = _repo_root()
     idx = _load_index(repo_root)
     if plan_id not in idx:
-        raise HTTPException(status_code=404, detail="plan not found")
+        raise HTTPException(status_code=404, detail="Plan not found")
     return idx[plan_id]
 
 def _plans_dir(repo_root: Path) -> Path:
