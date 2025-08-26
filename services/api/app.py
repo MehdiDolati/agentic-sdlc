@@ -64,32 +64,20 @@ def _run_plan(plan_id: str, run_id: str, repo_root: Path):
     run_dir = repo_root / "docs" / "plans" / plan_id / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Simulate work
+    # Simulate execution
+    (run_dir / "run.log").write_text("started\n", encoding="utf-8")
+    time.sleep(0.01)  # tiny delay to simulate work
     (run_dir / "run.log").write_text("started\ncompleted\n", encoding="utf-8")
 
-    # Load the precreated manifest (if present), update to completed, and write back
+    # Write manifest.json so tests/CI can see it
     manifest_path = run_dir / "manifest.json"
-    try:
-        current = {}
-        if manifest_path.exists():
-            import json  # if not already imported at top
-            current = json.loads(manifest_path.read_text(encoding="utf-8")) or {}
-        current.update({
-            "plan_id": plan_id,
-            "run_id": run_id,
-            "status": "completed",
-            "completed_at": datetime.utcnow().isoformat() + "Z",
-        })
-        manifest_path.write_text(json.dumps(current, indent=2), encoding="utf-8")
-    except Exception:
-        # last-resort write so tests still see a manifest
-        fallback = {
-            "plan_id": plan_id,
-            "run_id": run_id,
-            "status": "completed",
-            "completed_at": datetime.utcnow().isoformat() + "Z",
-        }
-        manifest_path.write_text(json.dumps(fallback, indent=2), encoding="utf-8")
+    manifest = {
+        "plan_id": plan_id,
+        "run_id": run_id,
+        "status": "completed",
+        "artifacts": [],
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 @app.post("/plans/{plan_id}/execute")
 def execute_plan(plan_id: str, background: BackgroundTasks):
