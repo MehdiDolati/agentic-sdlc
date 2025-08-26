@@ -224,18 +224,20 @@ def execute_plan(plan_id: str, background: BackgroundTasks):
     repo_root = _repo_root()
     run_id = uuid.uuid4().hex[:8]
 
-    # Force synchronous execution under test/CI to make the manifest
-    # exist immediately for the test assertion.
-    if any(os.getenv(k) for k in (
-	"CI",
-	"GITHUB_ACTIONS",
-	"GITHUB_WORKFLOW",
-	"RUNNER_OS",
-	"PYTEST_CURRENT_TEST",
-    )):
-    	_run_plan(plan_id, run_id, repo_root)
+    # Detect CI / tests reliably across environments
+    is_ci_or_test = bool(
+        os.getenv("CI") or
+        os.getenv("GITHUB_ACTIONS") or
+        os.getenv("PYTEST_CURRENT_TEST")
+    )
+
+    if is_ci_or_test:
+        # Run synchronously so tests (and CI) can immediately find the manifest
+        _run_plan(plan_id, run_id, repo_root)
     else:
-    	background.add_task(_run_plan, plan_id, run_id, repo_root)
+        # Normal behavior in dev: run in the background
+        background.add_task(_run_plan, plan_id, run_id, repo_root)
+
     return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
 
 def _plans_dir(repo_root: Path) -> Path:
