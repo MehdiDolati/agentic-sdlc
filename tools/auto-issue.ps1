@@ -25,44 +25,63 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
 $dirty = git status --porcelain
 if ($dirty) { Fail "Working tree is dirty. Commit or stash before running auto-issue." }
 
-# Call the dispatcher (engine)
+# Call the dispatcher (engine) – do not ask it to open a PR
 $dispatchArgs = @{
   Repo        = $Repo
   IssueNumber = $IssueNumber
 }
-if ($OpenPR)      { $dispatchArgs.OpenPR = $true }
 if ($DockerSmoke) { $dispatchArgs.DockerSmoke = $true }
 
 $dispatch = & (Join-Path $PSScriptRoot 'issue-dispatch.ps1') @dispatchArgs
-
 if (-not $dispatch) { Fail "issue-dispatch returned no context." }
 
 $branch = $dispatch.Branch
 $title  = $dispatch.Title
-
 Write-Host "Branch from dispatcher: $branch"
-# Create or update PR
+
+# Stage & commit any changes the dispatcher just made
+if (git status --porcelain) {
+  git add -A | Out-Null
+  $msg = "Resolve #$IssueNumber: $title"
+  Write-Host "Committing changes: $msg"
+  git commit -m "$msg" | Out-Null
+} else {
+  Write-Host "No changes to commit."
+}
+
+# Ensure upstream & push safely
+$branchName = (git rev-parse --abbrev-ref HEAD).Trim()
+# Detect upstream safely (suppress errors)
+$hasUpstream = $false
+try {
+  git rev-parse --symbolic-full-name --abbrev-ref "$branchName@{u}" *> $null
+  if ($LASTEXITCODE -eq 0) { $hasUpstream = $true }
+} catch { $hasUpstream = $false }
+
+if (-not $hasUpstream) {
+  Write-Host "Setting upstream and pushing $branchName…"
+  git push -u origin "$branchName" | Out-Null
+} else {
+  Write-Host "Rebasing on remote and pushing $branchName…"
+  git pull --rebase origin "$branchName" | Out-Null
+  git push | Out-Null
+}
+
+
 # Create or update PR (always provide title/body)
 $existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number' 2>$null
-
 if (-not $existing) {
-  # Build a safe body and ensure it auto-closes the issue
-  $title = $dispatch.Title
-  $body  = "Automated PR for issue #$IssueNumber.`r`n`r`nCloses #$IssueNumber"
-
-  # Create PR non-interactively (use splatting to avoid quoting/line-break issues)
-  $createArgs = @{
+  $prArgs = @{
     R     = $Repo
     base  = "main"
     head  = $branch
     title = $title
-    body  = $body
+    body  = "Automated PR for issue #$IssueNumber.`r`n`r`nCloses #$IssueNumber"
   }
-  $null = gh pr create @createArgs
-
-  # Re-fetch PR number
+  $null = gh pr create @prArgs
   $existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number'
 }
+
 
 # Idempotently ensure the body contains “Closes #N”
 try {

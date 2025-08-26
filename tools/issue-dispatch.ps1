@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)][string] $Repo = "MehdiDolati/agentic-sdlc",
-  [Parameter(Mandatory=$true)][int]$IssueNumber,
+  [Parameter(Mandatory=$true)][int]    $IssueNumber,
   [switch] $OpenPR,
   [switch] $DockerSmoke
 )
@@ -33,7 +33,7 @@ try {
 # --- Fetch issue -------------------------------------------------------------
 Write-Host "Fetching issue #$IssueNumber from $Repo..."
 try {
-  $json = & gh api "repos/$Repo/issues/$IssueNumber" --jq . 2>$null
+  $json = & gh api "repos/$Repo/issues/$IssueNumber" --jq .
 } catch {
   Fail "Error contacting api.github.com. Check network or 'gh auth status'."
 }
@@ -66,7 +66,6 @@ if (-not (Test-Path $issueScriptDir)) {
 }
 
 if (-not (Test-Path $template)) {
-  # minimal template if missing
   @'
 [CmdletBinding()]
 param(
@@ -78,20 +77,13 @@ param(
   [switch]$DockerSmoke
 )
 
-Write-Host ">>> Running issue script for #$IssueNumber: $Title"
+Write-Host ">>> Running issue script for #$($IssueNumber) - $Title"
 
-# TODO: implement actual work here. Below is a common pattern most issue scripts need:
-
-# 1) Ensure venv + deps
-# & tools/sanity.ps1  # optional if you have it
-# 2) Run unit tests before making changes (quick safety)
-# python -m pytest -q services/api
-# if ($LASTEXITCODE -ne 0) { throw "Pre-test failed" }
-
-# 3) Make changes (edit files / generate code)
-# 4) Re-run tests + optional docker smoke
-# 5) Create a feature branch + commit
-# 6) Open PR (if -OpenPR)
+# 1) (optional) ensure venv + deps
+# 2) run quick tests
+# 3) make changes
+# 4) re-run tests; optionally docker smoke if ($DockerSmoke)
+# 5) DO NOT commit/push/PR here; the dispatcher/auto-issue does that
 
 Write-Host "<<< Done (template)"
 '@ | Set-Content -Path $template -Encoding UTF8
@@ -100,12 +92,10 @@ Write-Host "<<< Done (template)"
 if (-not (Test-Path $issueScript)) {
   Write-Host "No script found for '$title' -> $slug. Creating from template…"
   Copy-Item $template $issueScript -Force
-  $rel = Resolve-Path -Relative $issueScript
-  git add $rel | Out-Null
-  git commit -m "chore(issues): add script for #$IssueNumber $title" | Out-Null
+  # Do NOT commit here; leave changes staged/unstaged for the caller (auto-issue.ps1)
 }
 
-Write-Host "=== Processing #${IssueNumber}: $title ==="
+Write-Host "=== Processing #$($IssueNumber): $title ==="
 
 # --- Git pre-checks & branch create/checkout ---------------------------------
 # Ensure git exists
@@ -128,7 +118,7 @@ function Test-GitClean {
   return [string]::IsNullOrWhiteSpace($status)
 }
 
-# Require a clean tree before switching/creating branches
+# Require a clean tree before switching/creating branches (caller enforces this too)
 if (-not (Test-GitClean)) {
   Fail "Working tree has uncommitted changes. Commit or stash before dispatching."
 }
@@ -166,77 +156,11 @@ if ($exit -ne 0) {
   Fail "Issue script failed with exit code $exit"
 } else {
   Write-Host "✅ Issue #$IssueNumber script completed."
-
-  if ($OpenPR) {
-    $head = (git rev-parse --abbrev-ref HEAD).Trim()
-    Import-Module "$PSScriptRoot/Agentic.Tools.psm1" -Force
-    Ensure-PrBodyHasClose -Repo $Repo -HeadBranch $head -IssueNumber $IssueNumber -Title $title -Body $body
-  }
 }
 
-# --- Post-run: commit, push, optionally open PR -------------------------------
-# Stage any changes (issue script may have created/edited files)
-& git add -A
+# --- DO NOT commit/push/PR here. Return context for caller (auto-issue.ps1) --
+$branchName = (& git rev-parse --abbrev-ref HEAD).Trim()
 
-# If there are staged changes, commit them
-$diffIndex = & git diff --cached --name-only
-if (-not [string]::IsNullOrWhiteSpace($diffIndex)) {
-  $commitMsg = "Resolve #$($IssueNumber): $title"
-  Write-Host "Committing changes: $commitMsg"
-  & git commit -m "$commitMsg" | Out-Null
-} else {
-  Write-Host "No changes to commit."
-}
-
-$branch = (git rev-parse --abbrev-ref HEAD).Trim()
-$hasUpstream = git rev-parse --symbolic-full-name --abbrev-ref "$branch@{u}" 2>$null
-if (-not $hasUpstream) {
-  Write-Host "Pushing new branch $branch upstream..."
-  git push -u origin $branch | Out-Null
-} else {
-  Write-Host "Branch $branch already has upstream. Pushing latest commits..."
-  git push | Out-Null
-}
-
-# Ensure remote exists
-$remoteCheck = & git remote
-if ([string]::IsNullOrWhiteSpace($remoteCheck)) {
-  Fail "No git remotes configured. Add a remote (e.g., 'origin') and re-run."
-}
-
-# Ensure upstream & push safely
-$branch = if ($env:AGENTIC_CURRENT_BRANCH) { $env:AGENTIC_CURRENT_BRANCH } else { (& git rev-parse --abbrev-ref HEAD).Trim() }
-$hasUpstream = & git rev-parse --symbolic-full-name --abbrev-ref "$branch@{u}" 2>$null
-
-if (-not $hasUpstream) {
-  Write-Host "Setting upstream and pushing $branch…"
-  & git push -u origin $branch | Out-Null
-} else {
-  Write-Host "Rebasing on remote and pushing $branch…"
-  & git pull --rebase origin $branch | Out-Null
-  & git push | Out-Null
-}
-
-
-# Optionally open PR
-if ($OpenPR) {
-  Write-Host "Opening PR via GitHub CLI…"
-  # PR title mirrors the commit; body auto-closes the issue
-  $prTitle = ${"Resolve #$IssueNumber: $title"}
-  $prBody  = ${"This PR implements: **$title**`n`nCloses #$IssueNumber."}
-  # If a PR already exists, gh will error; we catch and just print a hint
-  try {
-    & gh pr create `
-      --title "$prTitle" `
-      --body "$prBody" `
-      --base "main" `
-      --head "$branchName"
-  } catch {
-    Write-Warning "gh pr create failed (maybe PR already exists). You can open manually with: gh pr create"
-  }
-}
-
-$branchName = (git rev-parse --abbrev-ref HEAD).Trim()
 [pscustomobject]@{
   Repo        = $Repo
   IssueNumber = $IssueNumber
