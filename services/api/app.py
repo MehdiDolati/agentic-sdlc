@@ -96,24 +96,13 @@ def execute_plan(plan_id: str, background: BackgroundTasks):
     repo_root = _repo_root()
     run_id = uuid.uuid4().hex[:8]
 
-    # Create run dir and a "started" manifest synchronously so tests can see it immediately
-    run_dir = repo_root / "docs" / "plans" / plan_id / "runs" / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    started_manifest = {
-        "plan_id": plan_id,
-        "run_id": run_id,
-        "status": "started",
-        "started_at": datetime.utcnow().isoformat() + "Z"
-    }
-    (run_dir / "manifest.json").write_text(json.dumps(started_manifest, indent=2), encoding="utf-8")
-
-    # Queue background work (or run synchronously if you still want the CI shortcut)
-    if any(os.getenv(k) for k in ("CI", "GITHUB_ACTIONS", "PYTEST_CURRENT_TEST", "GITHUB_WORKFLOW", "RUNNER_OS")):
+    if os.getenv("CI") or os.getenv("PYTEST_CURRENT_TEST"):
+        # run synchronously on CI/tests so manifest exists immediately
         _run_plan(plan_id, run_id, repo_root)
     else:
         background.add_task(_run_plan, plan_id, run_id, repo_root)
 
-    return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)	
+    return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
 
 def _load_index(repo_root: Path) -> dict:
     p = _plans_index_path(repo_root)
