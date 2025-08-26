@@ -83,3 +83,14 @@ gh issue close <number> --comment "Resolved in PR #<PR number>"
 ```
 
 ---
+
+# Dev Workflow (Issues → Branch → PR → Merge)
+
+This project includes **automation** to take an open GitHub issue, run local tests/smoke, open a PR with a proper `Closes #N` footer, apply labels, and optionally wait/merge when green — **one command**.
+
+## Prereqs
+
+- **GitHub CLI** (`gh`) installed and authenticated:
+  ```powershell
+  gh auth login
+  gh auth status

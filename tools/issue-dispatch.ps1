@@ -214,4 +214,12 @@ if ($OpenPR) {
   }
 }
 
+$branchName = (git rev-parse --abbrev-ref HEAD).Trim()
+[pscustomobject]@{
+  Repo        = $Repo
+  IssueNumber = $IssueNumber
+  Title       = $title
+  Branch      = $branchName
+}
+
 Write-Host "✅ Issue #$IssueNumber script completed on branch '$branchName'."
