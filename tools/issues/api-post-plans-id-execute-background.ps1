@@ -8,8 +8,15 @@ param(
   [switch]$DockerSmoke
 )
 
-Write-Host (">>> Running issue script for #{0}: {1}" -f $IssueNumber, $Title)
+# Ensure Agentic tools are available
+$toolsMod = Join-Path $PSScriptRoot "..\Agentic.Tools.psm1"
+if (Test-Path $toolsMod) {
+  Import-Module $toolsMod -Force
+} else {
+  Write-Warning "Agentic.Tools.psm1 not found at: $toolsMod"
+}
 
+Write-Host ">>> Running issue script for #${IssueNumber}: $Title"
 
 # … your work (tests/changes/commits) …
 
@@ -18,5 +25,6 @@ if ($OpenPR) {
   # (Optional) scrub dangerous CLI-looking lines from body so gh isn’t confused:
   $bodyOrEmpty = if ($null -ne $Body) { $Body } else { "" }
   $safeBody    = [regex]::Replace($bodyOrEmpty, '(^|\n)\s*--\w+.*', '')
+=======
   Ensure-PrBodyHasClose -Repo $Repo -HeadBranch $head -IssueNumber $IssueNumber -Title $Title -Body $safeBody
 }
