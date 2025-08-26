@@ -82,11 +82,12 @@ def execute_plan(plan_id: str, background: BackgroundTasks):
     repo_root = _repo_root()
     run_id = uuid.uuid4().hex[:8]
 
-    if os.getenv("CI") or os.getenv("PYTEST_CURRENT_TEST"):
-        # run synchronously on CI/tests so manifest exists immediately
-        _run_plan(plan_id, run_id, repo_root)
+    # after — also treat GitHub Actions as CI
+    if os.getenv("CI") or os.getenv("GITHUB_ACTIONS") or os.getenv("PYTEST_CURRENT_TEST"):
+    	_run_plan(plan_id, run_id, repo_root)
     else:
-        background.add_task(_run_plan, plan_id, run_id, repo_root)
+    	background.add_task(_run_plan, plan_id, run_id, repo_root)
+
 
     return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
 	
