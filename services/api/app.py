@@ -165,59 +165,45 @@ def get_plan(plan_id: str):
 # --------------------------------------------------------------------------------------
 def _run_plan(plan_id: str, run_id: str, repo_root: Path) -> None:
     """
-    Minimal executor that writes a run directory with:
-      - run.log
-      - manifest.json (with status=completed)
+    Write a minimal run log and a manifest; never leave CI without a manifest.
     """
-    run_dir = repo_root / "docs" / "plans" / plan_id / "runs" / run_id
+    run_dir = (repo_root / "docs" / "plans" / plan_id / "runs" / run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    (run_dir / "run.log").write_text("started\n", encoding="utf-8")
-    started = datetime.utcnow().isoformat() + "Z"
+    manifest_path = run_dir / "manifest.json"
+    log_path = run_dir / "run.log"
 
-    # tiny sleep to emulate activity; harmless for CI
-    time.sleep(30.0)
-
-    (run_dir / "run.log").write_text("started\ncompleted\n", encoding="utf-8")
-    completed = datetime.utcnow().isoformat() + "Z"
-
-    manifest = {
+    data = {
         "plan_id": plan_id,
         "run_id": run_id,
-        "started_at": started,
-        "completed_at": completed,
-        "status": "completed",
+        "status": "started",
     }
-    (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    # Write a "started" manifest immediately
+    manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    try:
+        log_path.write_text("started\ncompleted\n", encoding="utf-8")
+        data["status"] = "completed"
+    except Exception as e:
+        # Ensure manifest exists even on failure
+        data["status"] = "error"
+        data["error"] = str(e)
+    finally:
+        manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 @app.post("/plans/{plan_id}/execute")
 def execute_plan(plan_id: str, background: BackgroundTasks):
-    """
-    Start a background run that writes a manifest under:
-      docs/plans/{plan_id}/runs/{run_id}/manifest.json
-
-    On CI/pytest, we run synchronously to make sure the file exists
-    immediately after the request returns (prevents flakiness).
-    """
     repo_root = _repo_root()
     run_id = uuid.uuid4().hex[:8]
 
-    # Ensure plan exists (nice error for bad IDs)
-    idx = _load_index(repo_root)
-    if plan_id not in idx:
-        raise HTTPException(status_code=404, detail="Plan not found")
-
-    if _ci_or_pytest():
+    # On CI or when running pytest, run inline so the manifest exists immediately.
+    if os.getenv("CI") or os.getenv("PYTEST_CURRENT_TEST"):
         _run_plan(plan_id, run_id, repo_root)
-    else:
-        background.add_task(_run_plan, plan_id, run_id, repo_root)
+        return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
 
-    return JSONResponse(
-        {"message": "Execution started", "run_id": run_id},
-        status_code=status.HTTP_202_ACCEPTED,
-    )
+    # Otherwise, run in the background
+    background.add_task(_run_plan, plan_id, run_id, repo_root)
+    return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
 
 # --------------------------------------------------------------------------------------
 # Simple "create" CRUD (used by tests in test_create_routes.py)
