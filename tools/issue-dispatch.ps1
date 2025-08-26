@@ -100,6 +100,9 @@ Write-Host "<<< Done (template)"
 if (-not (Test-Path $issueScript)) {
   Write-Host "No script found for '$title' -> $slug. Creating from template…"
   Copy-Item $template $issueScript -Force
+  $rel = Resolve-Path -Relative $issueScript
+  git add $rel | Out-Null
+  git commit -m "chore(issues): add script for #$IssueNumber $title" | Out-Null
 }
 
 Write-Host "=== Processing #${IssueNumber}: $title ==="
