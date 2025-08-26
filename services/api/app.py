@@ -176,7 +176,7 @@ def _run_plan(plan_id: str, run_id: str, repo_root: Path) -> None:
     started = datetime.utcnow().isoformat() + "Z"
 
     # tiny sleep to emulate activity; harmless for CI
-    time.sleep(0.01)
+    time.sleep(1.0)
 
     (run_dir / "run.log").write_text("started\ncompleted\n", encoding="utf-8")
     completed = datetime.utcnow().isoformat() + "Z"
