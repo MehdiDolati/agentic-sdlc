@@ -1,0 +1,14 @@
+{
+  "plan_id": "20250826102711-build-a-notes-service-with-auth-e18b4a",
+  "run_id": "1e3910b8",
+  "started_at": "2025-08-26T10:27:11.963379Z",
+  "status": "completed",
+  "artifacts": {
+    "prd": "docs/prd/PRD-20250826-build-a-notes-service-with-auth.md",
+    "adr": "docs/adr/ADR-20250826-auto-planning.md",
+    "stories": "docs/stories/USER_STORIES-20250826-build-a-notes-service-with-auth.yaml",
+    "tasks": "docs/plans/TASKS-20250826-build-a-notes-service-with-auth.md",
+    "openapi": "docs/api/generated/openapi-20250826-build-a-notes-service-with-auth.yaml"
+  },
+  "finished_at": "2025-08-26T10:27:11.974390Z"
+}

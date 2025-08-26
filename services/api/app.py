@@ -1,5 +1,5 @@
 # services/api/app.py
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, BackgroundTasks,HTTPException, status
 from pydantic import BaseModel
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +8,7 @@ from typing import Dict
 import os
 import json
 import uuid  # <-- add this
+import time
 
 
 # --- Ensure both repo root and services/api are on sys.path for CI/pytest ---
@@ -56,6 +57,37 @@ def _plans_index_path(repo_root: Path) -> Path:
         p.write_text("{}", encoding="utf-8")
     return p
 
+# --- background execution -----------------------------------------------------
+
+def _run_plan(plan_id: str, repo_root: Path, run_id: str | None = None) -> None:
+    try:
+        if run_id is None:
+            run_id = uuid.uuid4().hex[:8]
+        plans_dir = repo_root / "docs" / "plans"
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        # legacy marker (kept for compatibility with earlier tests)
+        (plans_dir / f"{plan_id}.run").write_text(
+            f"started:{datetime.utcnow().isoformat()}\n", encoding="utf-8"
+        )
+        # run-scoped marker (useful if multiple executes happen)
+        (plans_dir / f"{plan_id}-{run_id}.run").write_text(
+            f"started:{datetime.utcnow().isoformat()}\n", encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+@app.post("/plans/{plan_id}/execute", status_code=202)
+def execute_plan(plan_id: str, background: BackgroundTasks):
+    repo_root = _repo_root()
+    idx = _load_index(repo_root)
+    if plan_id not in idx:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    run_id = uuid.uuid4().hex[:8]
+    background.add_task(_run_plan, plan_id, repo_root, run_id)
+    return {"plan_id": plan_id, "run_id": run_id, "status": "accepted"}
+	
+
 def _load_index(repo_root: Path) -> dict:
     p = _plans_index_path(repo_root)
     try:
@@ -73,6 +105,53 @@ def _slugify(text: str) -> str:
     t = re.sub(r'[^a-z0-9\s-]', '', t)
     t = re.sub(r'[\s-]+', '-', t).strip('-')
     return t[:60] or "request"
+
+def _plan_root(repo_root: Path, plan_id: str) -> Path:
+    return repo_root / "docs" / "plans" / plan_id
+
+def _run_dir(repo_root: Path, plan_id: str, run_id: str) -> Path:
+    return _plan_root(repo_root, plan_id) / "runs" / run_id
+
+def _write_json(p: Path, data: dict) -> None:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+def _run_plan(plan_id: str, repo_root: Path, run_id: str) -> None:
+    """
+    Very small stub ‘executor’: it records a manifest and a log.
+    Later we can wire this to the real orchestrator step runner.
+    """
+    run_path = _run_dir(repo_root, plan_id, run_id)
+    run_path.mkdir(parents=True, exist_ok=True)
+
+    # load the plan entry to record which artifacts are being executed
+    idx = _load_index(repo_root)
+    entry = idx.get(plan_id) or {}
+
+    manifest = {
+        "plan_id": plan_id,
+        "run_id": run_id,
+        "started_at": datetime.utcnow().isoformat() + "Z",
+        "status": "running",
+        "artifacts": entry.get("artifacts") or {},
+    }
+    _write_json(run_path / "manifest.json", manifest)
+
+    # write an execution log (placeholder)
+    log_fp = (run_path / "run.log").open("a", encoding="utf-8")
+    try:
+        log_fp.write(f"[{datetime.utcnow().isoformat()}Z] Run started for plan {plan_id}\n")
+        # TODO: call real orchestrator steps here
+        # simulate some quick work (do not sleep too long; tests should be fast)
+        time.sleep(0.01)
+        log_fp.write(f"[{datetime.utcnow().isoformat()}Z] Run completed\n")
+    finally:
+        log_fp.close()
+
+    # finalize manifest
+    manifest["finished_at"] = datetime.utcnow().isoformat() + "Z"
+    manifest["status"] = "completed"
+    _write_json(run_path / "manifest.json", manifest)
 
 app.include_router(create_router)
 
@@ -134,6 +213,27 @@ def get_plan(plan_id: str):
     if plan_id not in idx:
         raise HTTPException(status_code=404, detail="Plan not found")
     return idx[plan_id]
+
+# --- add the new route (place near the other /plans routes) ---
+@app.post("/plans/{plan_id}/execute", status_code=202)
+def execute_plan(plan_id: str, background: BackgroundTasks):
+    """
+    Start executing a saved plan in the background.
+    Returns 202 + a run_id that can be used to inspect logs later.
+    """
+    repo_root = _repo_root()
+    idx = _load_index(repo_root)
+
+    if plan_id not in idx:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    run_id = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    background.add_task(_run_plan, plan_id, repo_root, run_id)
+
+    # Ensure per-plan folder exists so clients can immediately locate it
+    _plan_root(repo_root, plan_id).mkdir(parents=True, exist_ok=True)
+
+    return {"message": "Plan execution started", "plan_id": plan_id, "run_id": run_id}
 
 def _plans_dir(repo_root: Path) -> Path:
     return repo_root / "docs" / "plans"
