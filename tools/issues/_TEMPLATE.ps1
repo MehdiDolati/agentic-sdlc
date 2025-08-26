@@ -8,6 +8,14 @@ param(
   [switch]$DockerSmoke
 )
 
+# Ensure Agentic tools are available
+$toolsMod = Join-Path $PSScriptRoot "..\Agentic.Tools.psm1"
+if (Test-Path $toolsMod) {
+  Import-Module $toolsMod -Force
+} else {
+  Write-Warning "Agentic.Tools.psm1 not found at: $toolsMod"
+}
+
 Write-Host ">>> Running issue script for #${IssueNumber}: $Title"
 
 
