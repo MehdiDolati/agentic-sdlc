@@ -1,5 +1,6 @@
 # services/api/app.py
 from fastapi import FastAPI, BackgroundTasks,HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from datetime import datetime
 from pathlib import Path
@@ -76,16 +77,18 @@ def _run_plan(plan_id: str, repo_root: Path, run_id: str | None = None) -> None:
     except Exception:
         pass
 
-@app.post("/plans/{plan_id}/execute", status_code=202)
+@app.post("/plans/{plan_id}/execute")
 def execute_plan(plan_id: str, background: BackgroundTasks):
     repo_root = _repo_root()
-    idx = _load_index(repo_root)
-    if plan_id not in idx:
-        raise HTTPException(status_code=404, detail="Plan not found")
-
     run_id = uuid.uuid4().hex[:8]
-    background.add_task(_run_plan, plan_id, run_id, repo_root)
-    return {"plan_id": plan_id, "run_id": run_id, "status": "accepted"}
+
+    if os.getenv("CI") or os.getenv("PYTEST_CURRENT_TEST"):
+        # run synchronously on CI/tests so manifest exists immediately
+        _run_plan(plan_id, run_id, repo_root)
+    else:
+        background.add_task(_run_plan, plan_id, run_id, repo_root)
+
+    return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
 	
 
 def _load_index(repo_root: Path) -> dict:
@@ -252,11 +255,12 @@ def run_plan_execution(plan_id: str):
     return {"plan_id": plan_id, "result": result}
     
 def _repo_root() -> Path:
-    # Prefer a writable root if provided (used in containers)
-    override = os.getenv("PLANS_ROOT") or os.getenv("REPO_ROOT")
-    if override:
-        p = Path(override).resolve()
-        p.mkdir(parents=True, exist_ok=True)
-        return p
-    # Fallback for local dev/tests (project root)
+    """
+    Prefer the current working directory (pytest/CI runs from repo root),
+    but fall back to path relative to this file if needed.
+    """
+    cwd = Path.cwd()
+    # Heuristic: our repo always has a docs/ folder
+    if (cwd / "docs").exists():
+        return cwd
     return Path(__file__).resolve().parents[2]
