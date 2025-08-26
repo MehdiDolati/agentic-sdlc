@@ -26,11 +26,14 @@ $dirty = git status --porcelain
 if ($dirty) { Fail "Working tree is dirty. Commit or stash before running auto-issue." }
 
 # Call the dispatcher (engine)
-$dispatch = & (Join-Path $PSScriptRoot 'issue-dispatch.ps1') `
-  -Repo $Repo `
-  -IssueNumber $IssueNumber `
-  @(@{OpenPR=$OpenPR.IsPresent} | Where-Object { $_.OpenPR }) `
-  @(@{DockerSmoke=$DockerSmoke.IsPresent} | Where-Object { $_.DockerSmoke })
+$dispatchArgs = @{
+  Repo        = $Repo
+  IssueNumber = $IssueNumber
+}
+if ($OpenPR)      { $dispatchArgs.OpenPR = $true }
+if ($DockerSmoke) { $dispatchArgs.DockerSmoke = $true }
+
+$dispatch = & (Join-Path $PSScriptRoot 'issue-dispatch.ps1') @dispatchArgs
 
 if (-not $dispatch) { Fail "issue-dispatch returned no context." }
 
