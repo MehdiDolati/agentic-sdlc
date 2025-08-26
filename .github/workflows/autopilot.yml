@@ -1,0 +1,39 @@
+name: Autopilot
+
+env:
+  AUTOPILOT_ENABLE: ${{ secrets.AUTOPILOT_ENABLE }}
+  
+on:
+  workflow_dispatch:
+    inputs:
+      maxIssues:
+        description: "Max issues to process this run"
+        default: "2"
+        required: true
+  schedule:
+    - cron: "0 * * * *"   # hourly; adjust to taste
+
+permissions:
+  contents: write         # push branches
+  pull-requests: write    # open/edit/merge PRs
+  issues: write           # update issue labels, etc.
+
+jobs:
+  autopilot:
+    runs-on: windows-latest  # pwsh & gh available
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # If you use private submodules or need gh auth for clone: set up additional steps.
+
+      - name: Run autopilot
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $max = "${{ github.event.inputs.maxIssues }}"
+          if ([string]::IsNullOrWhiteSpace($max)) { $max = 2 }
+          tools/auto-pilot.ps1 -Repo "${{ github.repository }}" -MaxIssues $max -DockerSmoke
