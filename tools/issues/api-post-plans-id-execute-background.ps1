@@ -17,6 +17,6 @@ if ($OpenPR) {
   # (Optional) scrub dangerous CLI-looking lines from body so gh isn’t confused:
   $BodyString = if ($null -eq $Body) { "" } else { [string]$Body }
   # also tolerate Windows newlines in the regex:
-  $safeBody = [regex]::Replace(($BodyString ?? ""), '(^|\n)\s*--\w+.*', '')
+  $safeBody = [regex]::Replace($BodyString, '(^|\r?\n)\s*--\w+.*', '')
   Ensure-PrBodyHasClose -Repo $Repo -HeadBranch $head -IssueNumber $IssueNumber -Title $Title -Body $safeBody
 }
