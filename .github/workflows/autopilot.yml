@@ -32,8 +32,12 @@ jobs:
       - name: Run autopilot
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          MAX: ${{ github.event.inputs.maxIssues }}
         run: |
-          $max = "$env:MAX"
+          # Fallbacks for safety
+          if ([string]::IsNullOrWhiteSpace($env:REPO)) { throw "REPO env is not set" }
+          $max = $env:MAX
           if ([string]::IsNullOrWhiteSpace($max)) { $max = 2 }
-          tools/auto-pilot.ps1 -Repo "$env:REPO" -MaxIssues $max -DockerSmoke
+
+          tools/auto-pilot.ps1 -Repo $env:REPO -MaxIssues $max -DockerSmoke

@@ -11,6 +11,14 @@ param(
   [switch]    $DryRun
 )
 
+if (-not $Repo -or [string]::IsNullOrWhiteSpace($Repo)) {
+  $Repo = $env:REPO
+}
+if (-not $MaxIssues -or $MaxIssues -le 0) {
+  $MaxIssues = [int]::TryParse($env:MAX, [ref]0) ? [int]$env:MAX : 2
+}
+
+
 function Fail($msg) { Write-Error $msg; exit 1 }
 
 $ErrorActionPreference = 'Stop'
