@@ -84,7 +84,7 @@ def execute_plan(plan_id: str, background: BackgroundTasks):
         raise HTTPException(status_code=404, detail="Plan not found")
 
     run_id = uuid.uuid4().hex[:8]
-    background.add_task(_run_plan, plan_id, repo_root, run_id)
+    background.add_task(_run_plan, plan_id, run_id, repo_root)
     return {"plan_id": plan_id, "run_id": run_id, "status": "accepted"}
 	
 
@@ -116,42 +116,19 @@ def _write_json(p: Path, data: dict) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-def _run_plan(plan_id: str, repo_root: Path, run_id: str) -> None:
-    """
-    Very small stub ‘executor’: it records a manifest and a log.
-    Later we can wire this to the real orchestrator step runner.
-    """
-    run_path = _run_dir(repo_root, plan_id, run_id)
-    run_path.mkdir(parents=True, exist_ok=True)
+def _run_plan(plan_id: str, run_id: str, repo_root: Path):
+    run_dir = repo_root / "docs" / "plans" / plan_id / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run.log").write_text("started\ncompleted\n", encoding="utf-8")
 
-    # load the plan entry to record which artifacts are being executed
-    idx = _load_index(repo_root)
-    entry = idx.get(plan_id) or {}
-
-    manifest = {
-        "plan_id": plan_id,
-        "run_id": run_id,
-        "started_at": datetime.utcnow().isoformat() + "Z",
-        "status": "running",
-        "artifacts": entry.get("artifacts") or {},
-    }
-    _write_json(run_path / "manifest.json", manifest)
-
-    # write an execution log (placeholder)
-    log_fp = (run_path / "run.log").open("a", encoding="utf-8")
-    try:
-        log_fp.write(f"[{datetime.utcnow().isoformat()}Z] Run started for plan {plan_id}\n")
-        # TODO: call real orchestrator steps here
-        # simulate some quick work (do not sleep too long; tests should be fast)
-        time.sleep(0.01)
-        log_fp.write(f"[{datetime.utcnow().isoformat()}Z] Run completed\n")
-    finally:
-        log_fp.close()
-
-    # finalize manifest
-    manifest["finished_at"] = datetime.utcnow().isoformat() + "Z"
-    manifest["status"] = "completed"
-    _write_json(run_path / "manifest.json", manifest)
+    manifest_path = run_dir / "manifest.json"
+    if manifest_path.exists():
+        data = json.loads(manifest_path.read_text(encoding="utf-8") or "{}")
+    else:
+        data = {"plan_id": plan_id, "run_id": run_id, "status": "started"}
+    data["status"] = "completed"
+    data["completed_at"] = datetime.utcnow().isoformat() + "Z"
+    manifest_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 app.include_router(create_router)
 
