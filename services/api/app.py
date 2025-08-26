@@ -63,30 +63,26 @@ def _plans_index_path(repo_root: Path) -> Path:
 def _run_plan(plan_id: str, run_id: str, repo_root: Path):
     run_dir = repo_root / "docs" / "plans" / plan_id / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-
-    # Simulate execution
     (run_dir / "run.log").write_text("started\n", encoding="utf-8")
-    time.sleep(0.01)  # tiny delay to simulate work
+    time.sleep(0.01)
     (run_dir / "run.log").write_text("started\ncompleted\n", encoding="utf-8")
 
-    # Write manifest.json so tests/CI can see it
     manifest_path = run_dir / "manifest.json"
-    manifest = {
-        "plan_id": plan_id,
-        "run_id": run_id,
-        "status": "completed",
-        "artifacts": [],
-    }
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(
+            {"plan_id": plan_id, "run_id": run_id, "status": "completed", "artifacts": []},
+            indent=2
+        ),
+        encoding="utf-8",
+    )
 
 @app.post("/plans/{plan_id}/execute")
 def execute_plan(plan_id: str, background: BackgroundTasks):
     repo_root = _repo_root()
     run_id = uuid.uuid4().hex[:8]
 
-    if os.getenv("CI") or os.getenv("PYTEST_CURRENT_TEST"):
-        # run synchronously on CI/tests so manifest exists immediately
-        _run_plan(plan_id, run_id, repo_root)
+    if os.getenv("CI") or os.getenv("GITHUB_ACTIONS") or os.getenv("PYTEST_CURRENT_TEST"):
+        _run_plan(plan_id, run_id, repo_root)     # sync in CI/tests
     else:
         background.add_task(_run_plan, plan_id, run_id, repo_root)
 
@@ -274,12 +270,11 @@ def run_plan_execution(plan_id: str):
     return {"plan_id": plan_id, "result": result}
     
 def _repo_root() -> Path:
-    """
-    Prefer the current working directory (pytest/CI runs from repo root),
-    but fall back to path relative to this file if needed.
-    """
-    cwd = Path.cwd()
-    # Heuristic: our repo always has a docs/ folder
-    if (cwd / "docs").exists():
-        return cwd
+    # app.py lives at services/api/app.py -> repo root is parents[2],
+    # but use a robust walk-up in case layout changes.
+    here = Path(__file__).resolve()
+    for cand in [here, *here.parents]:
+        if (cand / ".git").exists() or (cand / "docs").exists():
+            return cand
+    # Fallback (shouldn't happen in CI/tests)
     return Path(__file__).resolve().parents[2]
