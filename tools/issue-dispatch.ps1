@@ -181,7 +181,7 @@ if ($exit -ne 0) {
 # If there are staged changes, commit them
 $diffIndex = & git diff --cached --name-only
 if (-not [string]::IsNullOrWhiteSpace($diffIndex)) {
-  $commitMsg = ${"Resolve #$IssueNumber: $title"}
+  $commitMsg = "Resolve #$IssueNumber: $title"
   Write-Host "Committing changes: $commitMsg"
   & git commit -m "$commitMsg" | Out-Null
 } else {
@@ -194,10 +194,19 @@ if ([string]::IsNullOrWhiteSpace($remoteCheck)) {
   Fail "No git remotes configured. Add a remote (e.g., 'origin') and re-run."
 }
 
-# Push branch (set upstream if first push)
-$branchName = $env:AGENTIC_CURRENT_BRANCH
-Write-Host "Pushing branch: $branchName"
-& git push -u origin "$branchName"
+# Ensure upstream & push safely
+$branch = if ($env:AGENTIC_CURRENT_BRANCH) { $env:AGENTIC_CURRENT_BRANCH } else { (& git rev-parse --abbrev-ref HEAD).Trim() }
+$hasUpstream = & git rev-parse --symbolic-full-name --abbrev-ref "$branch@{u}" 2>$null
+
+if (-not $hasUpstream) {
+  Write-Host "Setting upstream and pushing $branch…"
+  & git push -u origin $branch | Out-Null
+} else {
+  Write-Host "Rebasing on remote and pushing $branch…"
+  & git pull --rebase origin $branch | Out-Null
+  & git push | Out-Null
+}
+
 
 # Optionally open PR
 if ($OpenPR) {
