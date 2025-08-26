@@ -146,11 +146,54 @@ def create_request(req: RequestIn):
     }
 
 @app.get("/plans")
-def list_plans():
+def list_plans(
+    offset: int = 0,
+    limit: int = 50,
+    q: Optional[str] = None,
+):
+    """
+    List plans with optional pagination & text filter.
+
+    - offset: start index (>= 0)
+    - limit: page size (0..200), 0 means 'no limit' from offset
+    - q: case-insensitive substring filter on id or request text
+    """
     repo_root = _repo_root()
-    idx = _load_index(repo_root)
-    # Tests expect an object with "plans" key
-    return {"plans": list(idx.values())}
+    idx = _load_index(repo_root)  # existing helper you already use
+    items = list(idx.values())
+
+    # sort newest first using created_at YYYYMMDDHHMMSS
+    items.sort(key=lambda e: e.get("created_at", ""), reverse=True)
+
+    if q:
+        ql = q.lower()
+        items = [
+            it for it in items
+            if ql in (it.get("request", "") or "").lower()
+            or ql in (it.get("id", "") or "").lower()
+        ]
+
+    # sanitize pagination inputs
+    if offset < 0:
+        offset = 0
+    if limit < 0:
+        limit = 0
+    if limit > 200:
+        limit = 200
+
+    total = len(items)
+    if limit == 0:
+        page = items[offset:]
+    else:
+        page = items[offset:offset + limit]
+
+    return {
+        "plans": page,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "q": q,
+    }
 
 @app.get("/plans/{plan_id}")
 def get_plan(plan_id: str):

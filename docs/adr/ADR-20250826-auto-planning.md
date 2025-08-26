@@ -1,6 +1,6 @@
 # Architecture Decision Record — Auto Planning
 ## Context
-Initial design decision for request: Build a notes service with auth
+Initial design decision for request: Add search to notes list
 
 ## Decision
 Use selected stack from runtime config (or defaults). Document deviations via follow-up ADRs.
