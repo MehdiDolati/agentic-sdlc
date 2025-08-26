@@ -34,6 +34,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $max = "${{ github.event.inputs.maxIssues }}"
+          $max = "$env:MAX"
           if ([string]::IsNullOrWhiteSpace($max)) { $max = 2 }
-          tools/auto-pilot.ps1 -Repo "${{ github.repository }}" -MaxIssues $max -DockerSmoke
+          tools/auto-pilot.ps1 -Repo "$env:REPO" -MaxIssues $max -DockerSmoke
