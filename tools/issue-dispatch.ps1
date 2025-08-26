@@ -188,6 +188,16 @@ if (-not [string]::IsNullOrWhiteSpace($diffIndex)) {
   Write-Host "No changes to commit."
 }
 
+$branch = (git rev-parse --abbrev-ref HEAD).Trim()
+$hasUpstream = git rev-parse --symbolic-full-name --abbrev-ref "$branch@{u}" 2>$null
+if (-not $hasUpstream) {
+  Write-Host "Pushing new branch $branch upstream..."
+  git push -u origin $branch | Out-Null
+} else {
+  Write-Host "Branch $branch already has upstream. Pushing latest commits..."
+  git push | Out-Null
+}
+
 # Ensure remote exists
 $remoteCheck = & git remote
 if ([string]::IsNullOrWhiteSpace($remoteCheck)) {
