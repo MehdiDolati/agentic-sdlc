@@ -181,7 +181,7 @@ if ($exit -ne 0) {
 # If there are staged changes, commit them
 $diffIndex = & git diff --cached --name-only
 if (-not [string]::IsNullOrWhiteSpace($diffIndex)) {
-  $commitMsg = "Resolve #$IssueNumber: ${title}"
+  $commitMsg = "Resolve #$($IssueNumber): $title"
   Write-Host "Committing changes: $commitMsg"
   & git commit -m "$commitMsg" | Out-Null
 } else {
