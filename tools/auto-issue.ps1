@@ -42,44 +42,64 @@ $title  = $dispatch.Title
 
 Write-Host "Branch from dispatcher: $branch"
 # Create or update PR
-$existing = gh pr list -R $Repo --head $branch --json number -q '.[0].number' 2>$null
+# Create or update PR (always provide title/body)
+$existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number' 2>$null
+
 if (-not $existing) {
-  # Create with a safe title/body to avoid flags being interpreted
-  $prNum = gh pr create -R $Repo --head $branch --base main `
-    --title "$title" `
-    --body "Automated PR for issue #$IssueNumber.`n`nCloses #$IssueNumber" `
-    --fill 2>$null | ForEach-Object { $_ } # capture output or URL
-  # Resolve PR number reliably
-  $existing = gh pr list -R $Repo --head $branch --json number -q '.[0].number'
+  # Build a safe body and ensure it auto-closes the issue
+  $title = $dispatch.Title
+  $body  = "Automated PR for issue #$IssueNumber.`r`n`r`nCloses #$IssueNumber"
+
+  # Create PR non-interactively (use splatting to avoid quoting/line-break issues)
+  $createArgs = @{
+    R     = $Repo
+    base  = "main"
+    head  = $branch
+    title = $title
+    body  = $body
+  }
+  $null = gh pr create @createArgs
+
+  # Re-fetch PR number
+  $existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number'
 }
 
-# Ensure body has Closes #N (idempotent)
-$body = gh pr view $existing -R $Repo --json body -q .body
-if ($body -notmatch "(?i)closes\s*#\s*$IssueNumber") {
-  $newBody = ($body.Trim() + "`r`n`r`nCloses #$IssueNumber").Trim()
-  gh pr edit $existing -R $Repo --body $newBody | Out-Null
-  Write-Host "Injected 'Closes #$IssueNumber' into PR body."
+# Idempotently ensure the body contains “Closes #N”
+try {
+  Import-Module "$PSScriptRoot/Agentic.Tools.psm1" -Force -ErrorAction Stop
+  $currBody = gh pr view $existing -R $Repo --json body --jq .body
+  Ensure-PrBodyHasClose -Repo $Repo -HeadBranch $branch -IssueNumber $IssueNumber -Title $dispatch.Title -Body $currBody
+} catch {
+  # Fallback if helper module isn't available
+  $currBody = gh pr view $existing -R $Repo --json body --jq .body
+  if ($currBody -notmatch "(?i)closes\s*#\s*$IssueNumber") {
+    $newBody = ($currBody.Trim() + "`r`n`r`nCloses #$IssueNumber").Trim()
+    gh pr edit $existing -R $Repo --body $newBody | Out-Null
+    Write-Host "Injected 'Closes #$IssueNumber' into PR body (fallback)."
+  }
 }
 
-# Apply labels if any
+# Apply labels if any (loop; gh expects one label per flag)
 if ($Labels -and $Labels.Count -gt 0) {
-  # Quote each label to handle spaces
-  $quoted = $Labels | ForEach-Object { '"{0}"' -f $_ }
-  gh pr edit $existing -R $Repo --add-label $quoted | Out-Null
+  foreach ($label in $Labels) {
+    gh pr edit $existing -R $Repo --add-label "$label" | Out-Null
+  }
   Write-Host "Applied labels: $($Labels -join ', ')"
 }
 
-# Wait for checks if requested
 if ($WaitForChecks) {
   Write-Host "Waiting for checks to complete…"
-  # Poll a few times; stop on success/failure
-  for ($i=0; $i -lt 60; $i++) {
-    $sum = gh pr checks $existing -R $Repo --json status,state -q '[.status,.state] | @tsv' 2>$null
-    if ($LASTEXITCODE -eq 0 -and $sum) {
-      # status/state semantics vary; if gh supports a success state, we can break.
-      $summary = gh pr checks $existing -R $Repo
-      if ($summary -match "All checks were successful") { break }
-      if ($summary -match "failing") { Fail "Checks failing for PR #$existing" }
+  # Poll up to ~5 minutes (60 * 5s). Adjust if you want longer.
+  for ($i = 0; $i -lt 60; $i++) {
+    $summary = gh pr checks $existing -R $Repo 2>$null
+    if ($LASTEXITCODE -eq 0 -and $summary) {
+      if ($summary -match "All checks were successful") {
+        Write-Host "Checks are green."
+        break
+      }
+      if ($summary -match "(?i)failing|failed") {
+        Fail "Checks failing for PR #$existing"
+      }
     }
     Start-Sleep -Seconds 5
   }
