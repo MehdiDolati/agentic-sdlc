@@ -23,6 +23,29 @@ $env:GH_PROMPT_DISABLED = "1"
 $env:GH_NO_UPDATE_NOTIFIER = "1"
 $ProgressPreference = 'SilentlyContinue'
 
+# --- timeout helper (PS5-compatible) -----------------------------------------
+function Invoke-WithTimeout {
+  param(
+    [Parameter(Mandatory=$true)][scriptblock]$ScriptBlock,
+    [int]$Seconds = 180,
+    [string]$Description = "operation",
+    $ArgumentList
+  )
+  $job = Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+  try {
+    $done = Wait-Job -Job $job -Timeout $Seconds
+    if (-not $done) {
+      Stop-Job $job -ErrorAction SilentlyContinue
+      Remove-Job $job -ErrorAction SilentlyContinue
+      throw "Timed out after ${Seconds}s while waiting for $Description."
+    }
+    $out = Receive-Job -Job $job -ErrorAction Stop
+    return $out
+  } finally {
+    Remove-Job $job -ErrorAction SilentlyContinue
+  }
+}
+
 # Tiny tracer
 function Trace($msg) { Write-Host "[$(Get-Date -Format HH:mm:ss)] $msg" }
 
@@ -61,7 +84,11 @@ $dispatchArgs = @{
 }
 if ($DockerSmoke) { $dispatchArgs.DockerSmoke = $true }
 
-$dispatch = & (Join-Path $PSScriptRoot 'issue-dispatch.ps1') @dispatchArgs
+$dispatch = Invoke-WithTimeout -Seconds 30 -Description "issue-dispatch" -ScriptBlock {
+  param($root, $args)
+  & (Join-Path $root 'issue-dispatch.ps1') @args
+} -ArgumentList @($PSScriptRoot, $dispatchArgs)
+
 if (-not $dispatch) { Fail "issue-dispatch returned no context." }
 
 $branch = $dispatch.Branch
@@ -107,7 +134,12 @@ if (-not $existing) {
     title = $title
     body  = "Automated PR for issue #$IssueNumber.`r`n`r`nCloses #$IssueNumber"
   }
-  $null = gh pr create @prArgs
+  
+  $null = Invoke-WithTimeout -Seconds 120 -Description "gh pr create" -ScriptBlock {
+	  param($args)
+	  gh pr create @args
+  } -ArgumentList @($prArgs)
+
   $existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number'
 }
 
