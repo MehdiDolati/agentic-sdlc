@@ -140,8 +140,19 @@ if ([string]::IsNullOrWhiteSpace($branch)) {
 }
 
 # Does branch have an upstream?
-$hasUpstream = (& git rev-parse --symbolic-full-name --abbrev-ref "$branch@{u}" 2>$null)
-if (-not $hasUpstream) {
+$hasUpstream = $null
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+
+$null = & git rev-parse --abbrev-ref --symbolic-full-name "$branch@{u}" 2>$null
+$probeExit = $LASTEXITCODE
+if ($probeExit -eq 0) {
+  $hasUpstream = (& git rev-parse --abbrev-ref --symbolic-full-name "$branch@{u}" 2>$null).Trim()
+}
+
+$ErrorActionPreference = $prevEap
+
+if ($probeExit -ne 0 -or [string]::IsNullOrWhiteSpace($hasUpstream)) {
   Write-Host "Setting upstream and pushing $branch…"
   & git push -u origin $branch | Out-Null
 } else {
