@@ -11,6 +11,29 @@ param(
   [switch]                             $WaitForChecks     # wait for checks before returning
 )
 
+# --- timeout helper (PS5-compatible) -----------------------------------------
+function Invoke-WithTimeout {
+  param(
+    [Parameter(Mandatory=$true)][scriptblock]$ScriptBlock,
+    [int]$Seconds = 180,
+    [string]$Description = "operation",
+    $ArgumentList
+  )
+  $job = Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+  try {
+    $done = Wait-Job -Job $job -Timeout $Seconds
+    if (-not $done) {
+      Stop-Job $job -ErrorAction SilentlyContinue
+      Remove-Job $job -ErrorAction SilentlyContinue
+      throw "Timed out after ${Seconds}s while waiting for $Description."
+    }
+    $out = Receive-Job -Job $job -ErrorAction Stop
+    return $out
+  } finally {
+    Remove-Job $job -ErrorAction SilentlyContinue
+  }
+}
+
 function Fail($msg){ Write-Error $msg; exit 1 }
 
 $ErrorActionPreference = 'Stop'
@@ -84,7 +107,7 @@ $dispatchArgs = @{
 }
 if ($DockerSmoke) { $dispatchArgs.DockerSmoke = $true }
 
-$dispatch = Invoke-WithTimeout -Seconds 30 -Description "issue-dispatch" -ScriptBlock {
+$dispatch = Invoke-WithTimeout -Seconds 10 -Description "issue-dispatch" -ScriptBlock {
   param($root, $args)
   & (Join-Path $root 'issue-dispatch.ps1') @args
 } -ArgumentList @($PSScriptRoot, $dispatchArgs)
