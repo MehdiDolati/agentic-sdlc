@@ -28,7 +28,10 @@ jobs:
       - name: Run orchestrator summary
         run: |
           python orchestrator/main.py
-
+          
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=." >> $GITHUB_ENV
+        
       - name: Unit tests (API)
         working-directory: services/api
         run: |
