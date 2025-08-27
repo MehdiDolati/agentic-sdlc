@@ -42,7 +42,7 @@ Write-Host "Branch from dispatcher: $branch"
 # Stage & commit any changes the dispatcher just made
 if (git status --porcelain) {
   git add -A | Out-Null
-  $msg = "Resolve #$IssueNumber: $title"
+  $msg = ("Resolve #{0}: {1}" -f $IssueNumber, $title)
   Write-Host "Committing changes: $msg"
   git commit -m "$msg" | Out-Null
 } else {
