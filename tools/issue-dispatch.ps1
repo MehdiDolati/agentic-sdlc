@@ -1,171 +1,113 @@
-﻿# tools/issue-dispatch.ps1
-# Windows PowerShell 5 compatible (no ?. null-conditional etc.)
+﻿# tools/auto-issue.ps1
+# Windows PowerShell 5+ compatible; portable & non-interactive.
 
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory=$true)][string] $Repo = "MehdiDolati/agentic-sdlc",
+  [Parameter(Mandatory=$true)][string] $Repo,
   [Parameter(Mandatory=$true)][int]    $IssueNumber,
-  [switch] $OpenPR,
-  [switch] $DockerSmoke
+  [string[]]                           $Labels,
+  [switch]                             $OpenPR,
+  [switch]                             $DockerSmoke,
+  [switch]                             $AutoMerge,     # auto-merge when checks are green
+  [switch]                             $WaitForChecks  # wait for checks before returning
 )
 
-function Fail($msg) {
-  Write-Error $msg
-  exit 1
-}
+# --- Portable helpers
+. (Join-Path $PSScriptRoot 'lib/Agentic.Portable.ps1')
 
-# --- Preconditions -----------------------------------------------------------
+function Fail($msg){ Write-Error $msg; exit 1 }
 $ErrorActionPreference = 'Stop'
 
-# Ensure gh exists
-$gh = (Get-Command gh -ErrorAction SilentlyContinue)
-if (-not $gh) {
-  Fail "GitHub CLI 'gh' not found. Install from https://cli.github.com and try again."
-}
+# --- Preconditions
+Ensure-Git
+Ensure-GhAuth
+Ensure-GitClean
 
-# Ensure gh is authenticated
-try {
-  & gh auth status 1>$null 2>$null
-} catch {
-  Fail "Not logged in to GitHub CLI. Run: gh auth login"
-}
-
-# --- Fetch issue -------------------------------------------------------------
-Write-Host "Fetching issue #$IssueNumber from $Repo..."
-try {
-  $json = & gh api "repos/$Repo/issues/$IssueNumber" --jq .
-} catch {
-  Fail "Error contacting api.github.com. Check network or 'gh auth status'."
-}
-
-if (-not $json) { Fail "Empty response for issue #$IssueNumber. Network/auth problem?" }
-
-$issue = $json | ConvertFrom-Json
-$title = [string]$issue.title
-$body  = [string]$issue.body
-
-if ([string]::IsNullOrWhiteSpace($title)) {
-  Fail "Issue #$IssueNumber has no title (or fetch failed)."
-}
-
-# --- Slugify title -> script name -------------------------------------------
-function New-Slug([string]$s) {
-  $s = $s.ToLower()
-  $s = ($s -replace '[^a-z0-9]+','-').Trim('-')
-  if ($s.Length -gt 64) { $s = $s.Substring(0,64).Trim('-') }
-  return $s
-}
-
-$slug = New-Slug $title
-$issueScriptDir = Join-Path $PSScriptRoot "issues"
-$issueScript = Join-Path $issueScriptDir "$slug.ps1"
-$template = Join-Path $issueScriptDir "_template.ps1"
-
-if (-not (Test-Path $issueScriptDir)) {
-  New-Item -ItemType Directory -Force -Path $issueScriptDir | Out-Null
-}
-
-if (-not (Test-Path $template)) {
-  @'
-[CmdletBinding()]
-param(
-  [Parameter(Mandatory=$true)][string]$Repo,
-  [Parameter(Mandatory=$true)][int]$IssueNumber,
-  [Parameter(Mandatory=$true)][string]$Title,
-  [Parameter(Mandatory=$false)][string]$Body,
-  [switch]$OpenPR,
-  [switch]$DockerSmoke
-)
-
-Write-Host ">>> Running issue script for #$($IssueNumber) - $Title"
-
-# 1) (optional) ensure venv + deps
-# 2) run quick tests
-# 3) make changes
-# 4) re-run tests; optionally docker smoke if ($DockerSmoke)
-# 5) DO NOT commit/push/PR here; the dispatcher/auto-issue does that
-
-Write-Host "<<< Done (template)"
-'@ | Set-Content -Path $template -Encoding UTF8
-}
-
-if (-not (Test-Path $issueScript)) {
-  Write-Host "No script found for '$title' -> $slug. Creating from template…"
-  Copy-Item $template $issueScript -Force
-  # Do NOT commit here; leave changes staged/unstaged for the caller (auto-issue.ps1)
-}
-
-Write-Host "=== Processing #$($IssueNumber): $title ==="
-
-# --- Git pre-checks & branch create/checkout ---------------------------------
-# Ensure git exists
-$git = (Get-Command git -ErrorAction SilentlyContinue)
-if (-not $git) {
-  Fail "git not found in PATH. Install Git and try again."
-}
-
-# Ensure we are inside a git repository
-try {
-  & git rev-parse --is-inside-work-tree 1>$null 2>$null
-} catch {
-  Fail "Not inside a git repository. Run this from your repo root."
-}
-
-# Helper: is working tree clean?
-function Test-GitClean {
-  $status = & git status --porcelain
-  if ($LASTEXITCODE -ne 0) { return $false }
-  return [string]::IsNullOrWhiteSpace($status)
-}
-
-# Require a clean tree before switching/creating branches (caller enforces this too)
-if (-not (Test-GitClean)) {
-  Fail "Working tree has uncommitted changes. Commit or stash before dispatching."
-}
-
-# Compose branch name from issue + slug
-$branchName = "issue-$IssueNumber-$slug"
-
-# If branch exists, checkout; else create from current HEAD
-$existing = & git rev-parse --verify --quiet "refs/heads/$branchName"
-if ($LASTEXITCODE -eq 0) {
-  Write-Host "Checking out existing branch: $branchName"
-  & git checkout "$branchName" | Out-Null
-} else {
-  Write-Host "Creating new branch: $branchName"
-  & git checkout -b "$branchName" | Out-Null
-}
-
-# Track the branch name for later steps
-$env:AGENTIC_CURRENT_BRANCH = $branchName
-
-# --- Invoke the issue script with a standard param set -----------------------
-$invokeParams = @{
+# --- Call dispatcher (engine) to prep branch / make changes / run tests
+$dispatchArgs = @{
   Repo        = $Repo
   IssueNumber = $IssueNumber
-  Title       = $title
-  Body        = $body
 }
-if ($OpenPR)     { $invokeParams.OpenPR = $true }
-if ($DockerSmoke){ $invokeParams.DockerSmoke = $true }
+if ($OpenPR)      { $dispatchArgs.OpenPR      = $true }
+if ($DockerSmoke) { $dispatchArgs.DockerSmoke = $true }
 
-& $issueScript @invokeParams
-$exit = $LASTEXITCODE
+$dispatch = & (Join-Path $PSScriptRoot 'issue-dispatch.ps1') @dispatchArgs
+if ($LASTEXITCODE -ne 0) { Fail "issue-dispatch failed with exit code $LASTEXITCODE" }
+if (-not $dispatch)      { Fail "issue-dispatch returned no context." }
 
-if ($exit -ne 0) {
-  Fail "Issue script failed with exit code $exit"
+$branch = $dispatch.Branch
+$title  = $dispatch.Title
+Write-Host "Branch from dispatcher: $branch"
+
+# --- Stage & commit anything left by the dispatcher/idempotent scripts
+git add -A | Out-Null
+$pending = git diff --cached --name-only
+if (-not [string]::IsNullOrWhiteSpace($pending)) {
+  $commitMsg = "Resolve #$($IssueNumber): ${title}"
+  Write-Host "Committing changes: $commitMsg"
+  git commit -m "$commitMsg" | Out-Null
 } else {
-  Write-Host "✅ Issue #$IssueNumber script completed."
+  Write-Host "No changes to commit."
 }
 
-# --- DO NOT commit/push/PR here. Return context for caller (auto-issue.ps1) --
-$branchName = (& git rev-parse --abbrev-ref HEAD).Trim()
+# --- Ensure upstream & push safely
+Ensure-UpstreamAndPush $branch
 
-[pscustomobject]@{
-  Repo        = $Repo
-  IssueNumber = $IssueNumber
-  Title       = $title
-  Branch      = $branchName
+# --- Create or update PR (always provide title/body to avoid prompts)
+$existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number' 2>$null
+if (-not $existing) {
+  $prTitle = "Resolve #$($IssueNumber): ${title}"
+  $prBody  = "Automated PR for **${title}**.`r`n`r`nCloses #$IssueNumber"
+  gh pr create `
+    -R $Repo `
+    --base main `
+    --head $branch `
+    --title "$prTitle" `
+    --body  "$prBody"  | Out-Null
+
+  # Re-fetch PR number
+  $existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number'
 }
 
-Write-Host "✅ Issue #$IssueNumber script completed on branch '$branchName'."
+# --- Ensure body has 'Closes #N' (idempotent)
+try {
+  Import-Module (Join-Path $PSScriptRoot 'Agentic.Tools.psm1') -Force -ErrorAction Stop
+  $currBody = gh pr view $existing -R $Repo --json body --jq .body
+  Ensure-PrBodyHasClose -Repo $Repo -HeadBranch $branch -IssueNumber $IssueNumber -Title $title -Body $currBody
+} catch {
+  $currBody = gh pr view $existing -R $Repo --json body --jq .body
+  if ($currBody -notmatch "(?i)closes\s*#\s*$IssueNumber") {
+    $newBody = ($currBody.Trim() + "`r`n`r`nCloses #$IssueNumber").Trim()
+    gh pr edit $existing -R $Repo --body $newBody | Out-Null
+    Write-Host "Injected 'Closes #$IssueNumber' into PR body (fallback)."
+  }
+}
+
+# --- Apply labels (one flag per label)
+if ($Labels -and $Labels.Count -gt 0) {
+  foreach ($label in $Labels) {
+    gh pr edit $existing -R $Repo --add-label "$label" | Out-Null
+  }
+  Write-Host "Applied labels: $($Labels -join ', ')"
+}
+
+# --- Wait for checks (parse human text; gh’s JSON fields differ across versions)
+if ($WaitForChecks) {
+  Write-Host "Waiting for checks to complete…"
+  for ($i = 0; $i -lt 60; $i++) {  # ~5 minutes @ 5s
+    $summary = gh pr checks $existing -R $Repo 2>$null
+    if ($LASTEXITCODE -eq 0 -and $summary) {
+      if ($summary -match "All checks were successful") { Write-Host "Checks are green."; break }
+      if ($summary -match "(?i)failing|failed")         { Fail "Checks failing for PR #$existing" }
+    }
+    Start-Sleep -Seconds 5
+  }
+}
+
+# --- Auto-merge
+if ($AutoMerge) {
+  Write-Host "Merging PR #$existing…"
+  gh pr merge $existing -R $Repo --squash --delete-branch | Out-Null
+}
+
+Write-Host "Done. PR #$existing for issue #$IssueNumber ready."
