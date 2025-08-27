@@ -34,14 +34,15 @@ function Ensure-Tool([string]$name, [string]$installUrl='') {
 function Ensure-GhAuth {
   Ensure-Tool 'gh' 'https://cli.github.com'
   try {
-	  gh auth status 1>$null 2>$null
-	} catch {
-	  if ($env:GH_TOKEN) {
-		Write-Host "Using GH_TOKEN from environment."
-	  } else {
-		Fail "GitHub CLI not authenticated. Run: gh auth login or set GH_TOKEN"
-	  }
-	}
+    # Non-interactive, short+sweet check: get the current user login
+    $login = & gh api user --jq .login 2>$null
+    if ([string]::IsNullOrWhiteSpace($login)) {
+      throw "not authenticated"
+    }
+  }
+  catch {
+    Fail "GitHub CLI is not authenticated for non-interactive use. Run once: `gh auth login --web --scopes 'repo,workflow'` or set a token via `$env:GH_TOKEN`."
+  }
 }
 
 function Ensure-Git {
