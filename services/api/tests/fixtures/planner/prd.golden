@@ -1,0 +1,16 @@
+# Product Requirements (PRD)
+
+Vision:
+Enable a minimal, auditable, autonomous SDLC loop
+
+Primary Users:
+Platform engineer
+Project lead
+
+Key Scenarios:
+Auto create branches and PRs
+Enforce tests and checks
+
+Success Metrics:
+PR cycle time
+% automated merges

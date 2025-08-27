@@ -8,12 +8,15 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Any
+from planner.routes import router as planner_router
+
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="Agentic SDLC API", version="0.1.0")
+app.include_router(planner_router)
 
 # --------------------------------------------------------------------------------------
 # Utilities

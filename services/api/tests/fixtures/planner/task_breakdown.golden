@@ -1,0 +1,11 @@
+# Task Breakdown
+
+Goal:
+Generate autonomous planning tasks
+
+Context:
+This repository automates SDLC activities.
+
+Non-functional requirements:
+Deterministic
+Observable
