@@ -31,6 +31,9 @@ jobs:
           
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=." >> $GITHUB_ENV
+
+      - name: Test
+        run: PYTHONPATH=${GITHUB_WORKSPACE} coverage run -m pytest -q
         
       - name: Unit tests (API)
         working-directory: services/api
