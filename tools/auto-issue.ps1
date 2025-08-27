@@ -104,7 +104,7 @@ $dispatchArgs += ('-Command')
 $dispatchArgs += ($dispatchCmd + ' | ConvertTo-Json -Compress')
 
 Write-Verbose "Invoking dispatcher: $psExe $($dispatchArgs -join ' ')"
-$run = Invoke-ExternalWithTimeout -FilePath $psExe -ArgumentList ($dispatchArgs -join ' ') -TimeoutSeconds 300 -WorkingDirectory $PSScriptRoot
+$run = Invoke-ExternalWithTimeout -FilePath $psExe -ArgumentList ($dispatchArgs -join ' ') -TimeoutSeconds 10 -WorkingDirectory $PSScriptRoot
 
 if ($run.ExitCode -ne 0) {
   Fail ("issue-dispatch failed (exit {0}). stderr:`n{1}" -f $run.ExitCode, $run.StdErr)
