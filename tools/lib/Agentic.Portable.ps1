@@ -2,6 +2,10 @@
 # PowerShell 5+ compatible helpers for portable, non-interactive scripts.
 
 $ErrorActionPreference = 'Stop'
+# If CI or local shell provides only GITHUB_TOKEN, mirror to GH_TOKEN so gh CLI uses it
+if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN) -and -not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
+  $env:GH_TOKEN = $env:GITHUB_TOKEN
+}
 
 function Fail([string]$msg) { Write-Error $msg; exit 1 }
 
@@ -34,17 +38,22 @@ function Ensure-Tool([string]$name, [string]$installUrl='') {
 function Ensure-GhAuth {
   Ensure-Tool 'gh' 'https://cli.github.com'
 
-  # If a token is present, prefer it for non-interactive runs.
+  # If only GITHUB_TOKEN is set (common in CI), mirror it to GH_TOKEN for gh CLI.
+  if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN) -and -not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
+    $env:GH_TOKEN = $env:GITHUB_TOKEN
+  }
+
+  # Prefer token-based non-interactive auth if available
   if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
-    # Probe once to ensure the token actually works.
+    # Probe once to ensure token actually works
     $null = & gh api user --jq .login 2>$null
     if ($LASTEXITCODE -eq 0) {
       return
     }
-    Fail "GH_TOKEN is set but not valid. Make sure it has 'repo' and 'workflow' scopes, or set a new token."
+    Fail "GH_TOKEN is set but not valid. Ensure it has 'repo' and 'workflow' scopes (or set a new token)."
   }
 
-  # Fall back to gh’s stored credentials
+  # Fall back to stored credentials (interactive login done previously)
   try {
     & gh auth status 1>$null 2>$null
     return
