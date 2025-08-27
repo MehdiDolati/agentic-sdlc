@@ -76,7 +76,24 @@ function Ensure-Tool([string]$name, [string]$hintUrl) {
 Ensure-Tool 'git' 'https://git-scm.com/downloads'
 Ensure-Tool 'gh'  'https://cli.github.com'
 
-try { & gh auth status 1>$null 2>$null } catch { Fail "Run: gh auth login" }
+# Accept GITHUB_TOKEN (CI) by shimming into GH_TOKEN for gh CLI
+if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN) -and -not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
+  $env:GH_TOKEN = $env:GITHUB_TOKEN
+}
+
+# Non-interactive authentication: prefer token, probe once with gh api
+if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+  $null = & gh api user --jq .login 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    Fail "GH_TOKEN is set but invalid or missing scopes. Ensure it has 'repo' and 'workflow'."
+  }
+} else {
+  try {
+    & gh auth status 1>$null 2>$null
+  } catch {
+    Fail "GitHub CLI not authenticated. Run once: gh auth login --web --scopes 'repo,workflow' or set GH_TOKEN."
+  }
+}
 
 # Ensure working tree is clean (clear, actionable failure rather than stall)
 $dirty = git status --porcelain
