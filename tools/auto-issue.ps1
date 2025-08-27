@@ -82,10 +82,7 @@ $dispatchArgs = @{
 if ($OpenPR)      { $dispatchArgs.OpenPR      = $true }
 if ($DockerSmoke) { $dispatchArgs.DockerSmoke = $true }
 
-$dispatch = Invoke-WithTimeout -TimeoutSeconds 240 -Description "issue-dispatch" -ScriptBlock {
-  param($root, $args)
-  & (Join-Path $root 'issue-dispatch.ps1') @args
-} -ArgumentList @($PSScriptRoot, $dispatchArgs)
+$dispatch = & (Join-Path $PSScriptRoot 'issue-dispatch.ps1') @dispatchArgs
 
 if (-not $dispatch) { Fail "issue-dispatch returned no context." }
 
@@ -127,11 +124,7 @@ if (-not $existing) {
   $prBody  = "Automated PR for issue #$($IssueNumber).`r`n`r`nCloses #$($IssueNumber)."
 
   Write-Host "Creating PR for $currBranch → main…"
-  # Use a timeout to avoid hangs
-  $null = Invoke-WithTimeout -TimeoutSeconds 180 -Description "gh pr create" -ScriptBlock {
-    param($repo,$base,$head,$pt,$pb)
-    gh pr create -R $repo --base $base --head $head --title $pt --body $pb
-  } -ArgumentList @($Repo,'main',$currBranch,$prTitle,$prBody)
+  gh pr create -R $Repo --base main --head $currBranch --title "$prTitle" --body "$prBody"
 
   # Re-fetch number
   $existing = gh pr list -R $Repo --head $currBranch --json number --jq '.[0].number'
