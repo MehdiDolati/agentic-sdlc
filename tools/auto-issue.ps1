@@ -161,6 +161,26 @@ if ($probeExit -ne 0 -or [string]::IsNullOrWhiteSpace($hasUpstream)) {
   & git push | Out-Null
 }
 
+# Ensure we only try to open a PR if this branch has commits ahead of main
+$base = 'main'
+& git fetch origin $base | Out-Null
+
+# Count ahead/behind relative to origin/main
+$counts = & git rev-list --left-right --count "origin/$base...$branch" 2>$null
+# Expected format: "<behind> <ahead>"
+$behind = 0; $ahead = 0
+if ($counts -match '^\s*(\d+)\s+(\d+)\s*$') {
+  $behind = [int]$Matches[1]
+  $ahead  = [int]$Matches[2]
+}
+
+if ($ahead -le 0) {
+  Write-Host "Branch '$branch' has no commits ahead of '$base'. Skipping PR creation."
+  Write-Host "Done. Nothing to PR for issue #$IssueNumber right now."
+  return
+}
+
+
 # --- Create or update PR (non-interactive, with timeout) ---------------------
 # Check if a PR already exists for this branch
 $existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number' 2>$null
@@ -180,8 +200,16 @@ if (-not $existing) {
 
   $res = Invoke-ExternalWithTimeout -FilePath 'gh' -ArgumentList $ghCreate -TimeoutSeconds 180 -WorkingDirectory (Get-Location).Path
   if ($res.ExitCode -ne 0) {
-    Fail ("gh pr create failed (exit {0}). stderr:`n{1}" -f $res.ExitCode, $res.StdErr)
-  }
+  $exitDisplay = ($res.ExitCode -as [int]); if ($null -eq $exitDisplay) { $exitDisplay = -1 }
+  $msg = @"
+	gh pr create failed (exit $exitDisplay).
+	STDERR:
+	$($res.StdErr)
+	STDOUT:
+	$($res.StdOut)
+"@
+  Fail $msg
+}
 
   # Resolve PR number post-create
   $existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number'
