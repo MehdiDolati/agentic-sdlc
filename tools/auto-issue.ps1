@@ -1,228 +1,65 @@
 # tools/auto-issue.ps1
-# Windows PowerShell 5+ compatible (no Start-Job/Wait-Job; hard timeouts via Start-Process)
+# Purpose: Create/checkout an issue branch only. No PR here.
 
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true )][string] $Repo,
-  [Parameter(Mandatory = $true )][int]    $IssueNumber,
-  [Parameter(Mandatory = $false)][string[]] $Labels,
-  [switch] $OpenPR,
-  [switch] $DockerSmoke,
-  [switch] $AutoMerge,
-  [switch] $WaitForChecks
+  [Parameter(Mandatory=$true)][string] $Repo,
+  [Parameter(Mandatory=$true)][int]    $IssueNumber
 )
 
-function Fail($msg) { Write-Error $msg; exit 1 }
+function Fail($msg){ Write-Error $msg; exit 1 }
 
-# --- Non-interactive env hardening -------------------------------------------
-$ErrorActionPreference          = 'Stop'
-$ProgressPreference             = 'SilentlyContinue'
-$env:GIT_ASKPASS                = "echo"                 # prevent auth prompts
-$env:GIT_TERMINAL_PROMPT        = "0"
-$env:GIT_EDITOR                 = "true"
-$env:GH_PROMPT_DISABLED         = "1"
-$env:GH_NO_UPDATE_NOTIFIER      = "1"
+# Non-interactive hardening
+$ErrorActionPreference     = 'Stop'
+$ProgressPreference        = 'SilentlyContinue'
+$env:GIT_ASKPASS           = "echo"
+$env:GIT_TERMINAL_PROMPT   = "0"
+$env:GIT_EDITOR            = "true"
+$env:GH_PROMPT_DISABLED    = "1"
+$env:GH_NO_UPDATE_NOTIFIER = "1"
 
-# --- Utilities ---------------------------------------------------------------
-function Get-PwshExe {
-  if ($PSHOME -and (Test-Path (Join-Path $PSHOME 'powershell.exe'))) {
-    return (Join-Path $PSHOME 'powershell.exe') # Windows PowerShell host
-  }
-  return 'powershell.exe'
-}
+# Preconditions
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fail "git not found in PATH." }
+if (-not (Get-Command gh  -ErrorAction SilentlyContinue)) { Fail "GitHub CLI 'gh' not found." }
 
-function Invoke-ExternalWithTimeout {
-  param(
-    [Parameter(Mandatory=$true)][string]$FilePath,
-    [Parameter(Mandatory=$true)][string]$ArgumentList,
-    [int]$TimeoutSeconds = 10,
-    [string]$WorkingDirectory = (Get-Location).Path
-  )
-  $outFile = [System.IO.Path]::GetTempFileName()
-  $errFile = [System.IO.Path]::GetTempFileName()
-  try {
-    $p = Start-Process -FilePath $FilePath `
-                       -ArgumentList $ArgumentList `
-                       -WorkingDirectory $WorkingDirectory `
-                       -NoNewWindow -PassThru `
-                       -RedirectStandardOutput $outFile `
-                       -RedirectStandardError  $errFile
-
-    $null = $p.WaitForExit($TimeoutSeconds * 1000)
-    if (-not $p.HasExited) {
-      try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
-      throw "Timed out after ${TimeoutSeconds}s: $FilePath $ArgumentList"
-    }
-
-    $stdout = Get-Content -LiteralPath $outFile -Raw -ErrorAction SilentlyContinue
-    $stderr = Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue
-    [pscustomobject]@{
-      ExitCode = $p.ExitCode
-      StdOut   = $stdout
-      StdErr   = $stderr
-    }
-  }
-  finally {
-    Remove-Item -LiteralPath $outFile,$errFile -ErrorAction SilentlyContinue
-  }
-}
-
-function Ensure-Tool([string]$name, [string]$hintUrl) {
-  $cmd = Get-Command $name -ErrorAction SilentlyContinue
-  if (-not $cmd) { Fail "$name not found. Install: $hintUrl" }
-}
-
-# --- Preconditions -----------------------------------------------------------
-Ensure-Tool 'git' 'https://git-scm.com/downloads'
-Ensure-Tool 'gh'  'https://cli.github.com'
-
-# Accept GITHUB_TOKEN (CI) by shimming into GH_TOKEN for gh CLI
-if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN) -and -not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
+# Use GH_TOKEN or existing gh login
+if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN) -and [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
   $env:GH_TOKEN = $env:GITHUB_TOKEN
 }
-
-# Non-interactive authentication: prefer token, probe once with gh api
 if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
   $null = & gh api user --jq .login 2>$null
-  if ($LASTEXITCODE -ne 0) {
-    Fail "GH_TOKEN is set but invalid or missing scopes. Ensure it has 'repo' and 'workflow'."
-  }
+  if ($LASTEXITCODE -ne 0) { Fail "GH_TOKEN provided but invalid/insufficient scope. Need 'repo' & 'workflow'." }
 } else {
-  try {
-    & gh auth status 1>$null 2>$null
-  } catch {
-    Fail "GitHub CLI not authenticated. Run once: gh auth login --web --scopes 'repo,workflow' or set GH_TOKEN."
-  }
+  & gh auth status 1>$null 2>$null
 }
 
-# Ensure working tree is clean (clear, actionable failure rather than stall)
+# Must run inside git repo & clean tree
+try { & git rev-parse --is-inside-work-tree 1>$null 2>$null } catch { Fail "Run from inside a git repository." }
 $dirty = git status --porcelain
-if ($dirty) { Fail "Working tree is dirty. Commit or stash before running auto-issue." }
+if ($dirty) { Fail "Working tree is dirty. Commit or stash before continuing." }
 
-# --- Call dispatcher inline (no child process / no timeout) ------------------
-try {
-  $dispatchArgs = @{
-    Repo        = $Repo
-    IssueNumber = $IssueNumber
-  }
-  if ($OpenPR)      { $dispatchArgs.OpenPR      = $true }
-  if ($DockerSmoke) { $dispatchArgs.DockerSmoke = $true }
+# Fetch issue info for slug
+$title = & gh api "repos/$Repo/issues/$IssueNumber" --jq .title 2>$null
+if ([string]::IsNullOrWhiteSpace($title)) { Fail "Unable to fetch issue #$IssueNumber from $Repo." }
 
-  $dispatch = & (Join-Path $PSScriptRoot 'issue-dispatch.ps1') @dispatchArgs
-  if (-not $dispatch) { Fail "issue-dispatch returned no context." }
-}
-catch {
-  Fail ("issue-dispatch failed: {0}" -f $_.Exception.Message)
+function New-Slug([string]$s){
+  $s = $s.ToLower()
+  $s = ($s -replace '[^a-z0-9]+','-').Trim('-')
+  if ($s.Length -gt 64) { $s = $s.Substring(0,64).Trim('-') }
+  return $s
 }
 
-if (-not $dispatch) { Fail "issue-dispatch returned no context." }
-$branch = [string]$dispatch.Branch
-$title  = [string]$dispatch.Title
+$slug       = New-Slug $title
+$branchName = "issue-$IssueNumber-$slug"
 
-Write-Host "Branch from dispatcher: $branch"
-
-# --- Stage & commit anything produced by dispatcher --------------------------
-# (idempotent — commits only if something changed)
-$diffIndex = & git status --porcelain
-if (-not [string]::IsNullOrWhiteSpace($diffIndex)) {
-  & git add -A | Out-Null
-  $commitMsg = ("Resolve #{0}: {1}" -f $IssueNumber, $title)
-  Write-Host "Committing changes: $commitMsg"
-  & git commit -m "$commitMsg" | Out-Null
+# Create or checkout the branch
+$exists = & git rev-parse --verify --quiet "refs/heads/$branchName" 2>$null
+if ($LASTEXITCODE -eq 0) {
+  Write-Host "Checking out existing branch: $branchName"
+  & git checkout "$branchName" | Out-Null
 } else {
-  Write-Host "No changes to commit."
+  Write-Host "Creating new branch: $branchName"
+  & git checkout -b "$branchName" | Out-Null
 }
 
-# --- Ensure upstream, rebase/push safely -------------------------------------
-# Determine branch from current HEAD if needed
-if ([string]::IsNullOrWhiteSpace($branch)) {
-  $branch = (& git rev-parse --abbrev-ref HEAD).Trim()
-}
-
-# Does branch have an upstream?
-$hasUpstream = (& git rev-parse --symbolic-full-name --abbrev-ref "$branch@{u}" 2>$null)
-if (-not $hasUpstream) {
-  Write-Host "Setting upstream and pushing $branch…"
-  & git push -u origin $branch | Out-Null
-} else {
-  Write-Host "Rebasing on remote and pushing $branch…"
-  & git pull --rebase origin $branch | Out-Null
-  & git push | Out-Null
-}
-
-# --- Create or update PR (non-interactive, with timeout) ---------------------
-# Check if a PR already exists for this branch
-$existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number' 2>$null
-
-if (-not $existing) {
-  $prTitle = $title
-  $prBody  = "Automated PR for issue #$IssueNumber.`r`n`r`nCloses #$IssueNumber"
-
-  $ghCreate = @(
-    'pr','create',
-    '-R', $Repo,
-    '--base','main',
-    '--head', $branch,
-    '--title', ('"{0}"' -f $prTitle),
-    '--body',  ('"{0}"' -f $prBody)
-  ) -join ' '
-
-  $res = Invoke-ExternalWithTimeout -FilePath 'gh' -ArgumentList $ghCreate -TimeoutSeconds 180 -WorkingDirectory (Get-Location).Path
-  if ($res.ExitCode -ne 0) {
-    Fail ("gh pr create failed (exit {0}). stderr:`n{1}" -f $res.ExitCode, $res.StdErr)
-  }
-
-  # Resolve PR number post-create
-  $existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number'
-}
-
-# --- Ensure PR body contains “Closes #N” (idempotent) ------------------------
-try {
-  $currBody = gh pr view $existing -R $Repo --json body --jq .body
-  if ($currBody -notmatch "(?i)closes\s*#\s*$IssueNumber") {
-    $newBody = ($currBody.Trim() + "`r`n`r`nCloses #$IssueNumber").Trim()
-    gh pr edit $existing -R $Repo --body $newBody | Out-Null
-    Write-Host "Injected 'Closes #$IssueNumber' into PR body."
-  }
-} catch {
-  Write-Warning "Could not verify/update PR body: $($_.Exception.Message)"
-}
-
-# --- Apply labels (one-by-one; gh expects a single value per flag) -----------
-if ($Labels -and $Labels.Count -gt 0) {
-  foreach ($label in $Labels) {
-    gh pr edit $existing -R $Repo --add-label "$label" | Out-Null
-  }
-  Write-Host "Applied labels: $($Labels -join ', ')"
-}
-
-# --- Optionally wait for checks to complete ----------------------------------
-if ($WaitForChecks) {
-  Write-Host "Waiting for checks to complete…"
-  # Poll up to 5 minutes (60 * 5s). Adjust as needed.
-  for ($i = 0; $i -lt 60; $i++) {
-    $summary = gh pr checks $existing -R $Repo 2>$null
-    if ($LASTEXITCODE -eq 0 -and $summary) {
-      if ($summary -match "All checks were successful") {
-        Write-Host "Checks are green."
-        break
-      }
-      if ($summary -match "(?i)failing|failed") {
-        Fail "Checks failing for PR #$existing"
-      }
-    }
-    Start-Sleep -Seconds 5
-  }
-}
-
-# --- Auto-merge if requested --------------------------------------------------
-if ($AutoMerge) {
-  Write-Host "Merging PR #$existing…"
-  $mergeArgs = @('pr','merge', $existing, '-R', $Repo, '--squash','--delete-branch') -join ' '
-  $m = Invoke-ExternalWithTimeout -FilePath 'gh' -ArgumentList $mergeArgs -TimeoutSeconds 180 -WorkingDirectory (Get-Location).Path
-  if ($m.ExitCode -ne 0) {
-    Fail ("gh pr merge failed (exit {0}). stderr:`n{1}" -f $m.ExitCode, $m.StdErr)
-  }
-}
-
-Write-Host ("Done. PR #{0} for issue #{1} ready." -f $existing, $IssueNumber)
+Write-Host "Branch ready: $branchName"
