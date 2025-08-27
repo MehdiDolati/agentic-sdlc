@@ -35,7 +35,7 @@ function Invoke-ExternalWithTimeout {
   param(
     [Parameter(Mandatory=$true)][string]$FilePath,
     [Parameter(Mandatory=$true)][string]$ArgumentList,
-    [int]$TimeoutSeconds = 240,
+    [int]$TimeoutSeconds = 10,
     [string]$WorkingDirectory = (Get-Location).Path
   )
   $outFile = [System.IO.Path]::GetTempFileName()
