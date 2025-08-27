@@ -18,40 +18,106 @@ $env:GIT_EDITOR            = "true"
 $env:GH_PROMPT_DISABLED    = "1"
 $env:GH_NO_UPDATE_NOTIFIER = "1"
 
-# Preconditions
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fail "git not found in PATH." }
-if (-not (Get-Command gh  -ErrorAction SilentlyContinue)) { Fail "GitHub CLI 'gh' not found." }
+function Invoke-ExternalWithTimeout {
+  param(
+    [Parameter(Mandatory=$true)][string]$FilePath,
+    [Parameter(Mandatory=$true)][string]$ArgumentList,
+    [int]$TimeoutSeconds = 10,
+    [string]$WorkingDirectory = (Get-Location).Path
+  )
+  $outFile = [System.IO.Path]::GetTempFileName()
+  $errFile = [System.IO.Path]::GetTempFileName()
+  try {
+    $p = Start-Process -FilePath $FilePath `
+                       -ArgumentList $ArgumentList `
+                       -WorkingDirectory $WorkingDirectory `
+                       -NoNewWindow -PassThru `
+                       -RedirectStandardOutput $outFile `
+                       -RedirectStandardError  $errFile
 
-# Use GH_TOKEN or existing gh login
-if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN) -and [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+    $null = $p.WaitForExit($TimeoutSeconds * 1000)
+    if (-not $p.HasExited) {
+      try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
+      throw "Timed out after ${TimeoutSeconds}s: $FilePath $ArgumentList"
+    }
+
+    $stdout = Get-Content -LiteralPath $outFile -Raw -ErrorAction SilentlyContinue
+    $stderr = Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue
+    [pscustomobject]@{
+      ExitCode = $p.ExitCode
+      StdOut   = $stdout
+      StdErr   = $stderr
+    }
+  }
+  finally {
+    Remove-Item -LiteralPath $outFile,$errFile -ErrorAction SilentlyContinue
+  }
+}
+
+function Ensure-Tool([string]$name, [string]$hintUrl) {
+  $cmd = Get-Command $name -ErrorAction SilentlyContinue
+  if (-not $cmd) { Fail "$name not found. Install: $hintUrl" }
+}
+
+# --- Preconditions -----------------------------------------------------------
+Ensure-Tool 'git' 'https://git-scm.com/downloads'
+Ensure-Tool 'gh'  'https://cli.github.com'
+
+
+# Accept GITHUB_TOKEN (CI) by shimming into GH_TOKEN for gh CLI
+if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN) -and -not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
   $env:GH_TOKEN = $env:GITHUB_TOKEN
 }
+
+# Non-interactive authentication: prefer token, probe once with gh api
 if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
   $null = & gh api user --jq .login 2>$null
-  if ($LASTEXITCODE -ne 0) { Fail "GH_TOKEN provided but invalid/insufficient scope. Need 'repo' & 'workflow'." }
+  if ($LASTEXITCODE -ne 0) {
+    Fail "GH_TOKEN is set but invalid or missing scopes. Ensure it has 'repo' and 'workflow'."
+  }
 } else {
-  & gh auth status 1>$null 2>$null
+  try {
+    & gh auth status 1>$null 2>$null
+  } catch {
+    Fail "GitHub CLI not authenticated. Run once: gh auth login --web --scopes 'repo,workflow' or set GH_TOKEN."
+  }
 }
 
-# Must run inside git repo & clean tree
-try { & git rev-parse --is-inside-work-tree 1>$null 2>$null } catch { Fail "Run from inside a git repository." }
+# Ensure working tree is clean (clear, actionable failure rather than stall)
 $dirty = git status --porcelain
-if ($dirty) { Fail "Working tree is dirty. Commit or stash before continuing." }
+if ($dirty) { Fail "Working tree is dirty. Commit or stash before running auto-issue." }
 
-# Fetch issue info for slug
-$title = & gh api "repos/$Repo/issues/$IssueNumber" --jq .title 2>$null
-if ([string]::IsNullOrWhiteSpace($title)) { Fail "Unable to fetch issue #$IssueNumber from $Repo." }
+# --- Call dispatcher inline (no child process / no timeout) ------------------
+try {
+  $dispatchArgs = @{
+    Repo        = $Repo
+    IssueNumber = $IssueNumber
+  }
+  if ($OpenPR)      { $dispatchArgs.OpenPR      = $true }
+  if ($DockerSmoke) { $dispatchArgs.DockerSmoke = $true }
 
-function New-Slug([string]$s){
-  $s = $s.ToLower()
-  $s = ($s -replace '[^a-z0-9]+','-').Trim('-')
-  if ($s.Length -gt 64) { $s = $s.Substring(0,64).Trim('-') }
-  return $s
+  $dispatch = & (Join-Path $PSScriptRoot 'issue-dispatch.ps1') @dispatchArgs
+  if (-not $dispatch) { Fail "issue-dispatch returned no context." }
+}
+catch {
+  Fail ("issue-dispatch failed: {0}" -f $_.Exception.Message)
 }
 
-$slug       = New-Slug $title
-$branchName = "issue-$IssueNumber-$slug"
+if (-not $dispatch) { Fail "issue-dispatch returned no context." }
+$branch = [string]$dispatch.Branch
+$title  = [string]$dispatch.Title
 
+Write-Host "Branch from dispatcher: $branch"
+
+# --- Stage & commit anything produced by dispatcher --------------------------
+# (idempotent — commits only if something changed)
+$diffIndex = & git status --porcelain
+if (-not [string]::IsNullOrWhiteSpace($diffIndex)) {
+  & git add -A | Out-Null
+  $commitMsg = ("Resolve #{0}: {1}" -f $IssueNumber, $title)
+  Write-Host "Committing changes: $commitMsg"
+  & git commit -m "$commitMsg" | Out-Null
+} else {
+  Write-Host "No changes to commit."
 }
-
 Write-Host "Branch ready: $branchName"
