@@ -52,14 +52,6 @@ function New-Slug([string]$s){
 $slug       = New-Slug $title
 $branchName = "issue-$IssueNumber-$slug"
 
-# Create or checkout the branch
-$exists = & git rev-parse --verify --quiet "refs/heads/$branchName" 2>$null
-if ($LASTEXITCODE -eq 0) {
-  Write-Host "Checking out existing branch: $branchName"
-  & git checkout "$branchName" | Out-Null
-} else {
-  Write-Host "Creating new branch: $branchName"
-  & git checkout -b "$branchName" | Out-Null
 }
 
 Write-Host "Branch ready: $branchName"
