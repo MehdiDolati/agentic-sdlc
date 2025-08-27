@@ -1,138 +1,186 @@
 # tools/auto-issue.ps1
-# Windows PowerShell 5+ compatible (no PS7-only operators)
+# Windows PowerShell 5+ compatible (no Start-Job/Wait-Job; hard timeouts via Start-Process)
+
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory=$true)][string] $Repo,
-  [Parameter(Mandatory=$true)][int]    $IssueNumber,
-  [string[]]                           $Labels,
-  [switch]                             $OpenPR,
-  [switch]                             $DockerSmoke,
-  [switch]                             $AutoMerge,     # auto-merge when checks are green
-  [switch]                             $WaitForChecks  # wait for checks before returning
+  [Parameter(Mandatory = $true )][string] $Repo,
+  [Parameter(Mandatory = $true )][int]    $IssueNumber,
+  [Parameter(Mandatory = $false)][string[]] $Labels,
+  [switch] $OpenPR,
+  [switch] $DockerSmoke,
+  [switch] $AutoMerge,
+  [switch] $WaitForChecks
 )
 
-function Fail($msg){ Write-Error $msg; exit 1 }
+function Fail($msg) { Write-Error $msg; exit 1 }
 
-# -------------------- Non-interactive environment knobs -----------------------
-$ErrorActionPreference = 'Stop'
-$ProgressPreference    = 'SilentlyContinue'
-$env:GIT_ASKPASS            = "echo"
-$env:GIT_TERMINAL_PROMPT    = "0"
-$env:GIT_EDITOR             = "true"
-$env:GH_PROMPT_DISABLED     = "1"
-$env:GH_NO_UPDATE_NOTIFIER  = "1"
+# --- Non-interactive env hardening -------------------------------------------
+$ErrorActionPreference          = 'Stop'
+$ProgressPreference             = 'SilentlyContinue'
+$env:GIT_ASKPASS                = "echo"                 # prevent auth prompts
+$env:GIT_TERMINAL_PROMPT        = "0"
+$env:GIT_EDITOR                 = "true"
+$env:GH_PROMPT_DISABLED         = "1"
+$env:GH_NO_UPDATE_NOTIFIER      = "1"
 
-# -------------------- Helpers --------------------------------------------------
-function Ensure-Tool([string]$name, [string]$installUrl='') {
-  $cmd = Get-Command $name -ErrorAction SilentlyContinue
-  if (-not $cmd) {
-    if ($installUrl) {
-      Fail "Required tool '$name' not found. Install: $installUrl"
-    } else {
-      Fail "Required tool '$name' not found."
-    }
+# --- Utilities ---------------------------------------------------------------
+function Get-PwshExe {
+  if ($PSHOME -and (Test-Path (Join-Path $PSHOME 'powershell.exe'))) {
+    return (Join-Path $PSHOME 'powershell.exe') # Windows PowerShell host
   }
+  return 'powershell.exe'
 }
 
-function Ensure-GhAuth {
-  Ensure-Tool 'gh' 'https://cli.github.com'
-  try { gh auth status 1>$null 2>$null } catch { Fail "Run: gh auth login" }
-}
-
-function Ensure-GitClean {
-  $status = git status --porcelain
-  if (-not [string]::IsNullOrWhiteSpace($status)) {
-    Fail "Working tree is dirty. Commit or stash before running auto-issue."
-  }
-}
-
-# PS5-safe timeout wrapper using jobs
-function Invoke-WithTimeout {
+function Invoke-ExternalWithTimeout {
   param(
-    [Parameter(Mandatory=$true)][scriptblock]$ScriptBlock,
+    [Parameter(Mandatory=$true)][string]$FilePath,
+    [Parameter(Mandatory=$true)][string]$ArgumentList,
     [int]$TimeoutSeconds = 240,
-    [string]$Description = "operation",
-    $ArgumentList
+    [string]$WorkingDirectory = (Get-Location).Path
   )
-  $job = Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+  $outFile = [System.IO.Path]::GetTempFileName()
+  $errFile = [System.IO.Path]::GetTempFileName()
   try {
-    $ok = Wait-Job -Job $job -Timeout $TimeoutSeconds
-    if (-not $ok) {
-      Stop-Job $job -ErrorAction SilentlyContinue
-      Remove-Job $job -ErrorAction SilentlyContinue
-      throw "Timed out after $TimeoutSeconds s during $Description."
+    $p = Start-Process -FilePath $FilePath `
+                       -ArgumentList $ArgumentList `
+                       -WorkingDirectory $WorkingDirectory `
+                       -NoNewWindow -PassThru `
+                       -RedirectStandardOutput $outFile `
+                       -RedirectStandardError  $errFile
+
+    $null = $p.WaitForExit($TimeoutSeconds * 1000)
+    if (-not $p.HasExited) {
+      try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
+      throw "Timed out after ${TimeoutSeconds}s: $FilePath $ArgumentList"
     }
-    $out = Receive-Job -Job $job -ErrorAction Stop
-    return $out
-  } finally {
-    Remove-Job $job -ErrorAction SilentlyContinue
+
+    $stdout = Get-Content -LiteralPath $outFile -Raw -ErrorAction SilentlyContinue
+    $stderr = Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue
+    [pscustomobject]@{
+      ExitCode = $p.ExitCode
+      StdOut   = $stdout
+      StdErr   = $stderr
+    }
+  }
+  finally {
+    Remove-Item -LiteralPath $outFile,$errFile -ErrorAction SilentlyContinue
   }
 }
 
-# -------------------- Preconditions -------------------------------------------
-Ensure-Tool 'git' 'https://git-scm.com/downloads'
-Ensure-GhAuth
-Ensure-GitClean
-
-# -------------------- Call the dispatcher (engine) ----------------------------
-$dispatchArgs = @{
-  Repo        = $Repo
-  IssueNumber = $IssueNumber
+function Ensure-Tool([string]$name, [string]$hintUrl) {
+  $cmd = Get-Command $name -ErrorAction SilentlyContinue
+  if (-not $cmd) { Fail "$name not found. Install: $hintUrl" }
 }
-if ($OpenPR)      { $dispatchArgs.OpenPR      = $true }
-if ($DockerSmoke) { $dispatchArgs.DockerSmoke = $true }
 
-$dispatch = & (Join-Path $PSScriptRoot 'issue-dispatch.ps1') @dispatchArgs
+# --- Preconditions -----------------------------------------------------------
+Ensure-Tool 'git' 'https://git-scm.com/downloads'
+Ensure-Tool 'gh'  'https://cli.github.com'
+
+try { & gh auth status 1>$null 2>$null } catch { Fail "Run: gh auth login" }
+
+# Ensure working tree is clean (clear, actionable failure rather than stall)
+$dirty = git status --porcelain
+if ($dirty) { Fail "Working tree is dirty. Commit or stash before running auto-issue." }
+
+# --- Call dispatcher (out-of-process, with timeout) --------------------------
+$psExe = Get-PwshExe
+$dispatchArgs = @()
+$dispatchArgs += ('-NoProfile')
+$dispatchArgs += ('-ExecutionPolicy'); $dispatchArgs += ('Bypass')
+
+# Build a single command that emits compact JSON
+$dispatchCmd = @(
+  '&',
+  ('"{0}"' -f (Join-Path $PSScriptRoot 'issue-dispatch.ps1')),
+  '-Repo',       ('"{0}"' -f $Repo),
+  '-IssueNumber', $IssueNumber
+) -join ' '
+
+if ($OpenPR)      { $dispatchCmd += ' -OpenPR' }
+if ($DockerSmoke) { $dispatchCmd += ' -DockerSmoke' }
+
+# Pipe to ConvertTo-Json -Compress so we can parse it reliably here
+$dispatchArgs += ('-Command')
+$dispatchArgs += ($dispatchCmd + ' | ConvertTo-Json -Compress')
+
+Write-Verbose "Invoking dispatcher: $psExe $($dispatchArgs -join ' ')"
+$run = Invoke-ExternalWithTimeout -FilePath $psExe -ArgumentList ($dispatchArgs -join ' ') -TimeoutSeconds 300 -WorkingDirectory $PSScriptRoot
+
+if ($run.ExitCode -ne 0) {
+  Fail ("issue-dispatch failed (exit {0}). stderr:`n{1}" -f $run.ExitCode, $run.StdErr)
+}
+if ([string]::IsNullOrWhiteSpace($run.StdOut)) {
+  Fail "issue-dispatch produced no output."
+}
+
+try {
+  $dispatch = $run.StdOut | ConvertFrom-Json
+} catch {
+  Fail "Failed to parse issue-dispatch output as JSON. Raw:`n$($run.StdOut)"
+}
 
 if (-not $dispatch) { Fail "issue-dispatch returned no context." }
-
-$branch = $dispatch.Branch
+$branch = [string]$dispatch.Branch
 $title  = [string]$dispatch.Title
-if ([string]::IsNullOrWhiteSpace($branch)) { $branch = (git rev-parse --abbrev-ref HEAD).Trim() }
 
 Write-Host "Branch from dispatcher: $branch"
 
-# -------------------- Stage & commit any changes the dispatcher made ----------
-git add -A | Out-Null
-$hasStaged = git diff --cached --name-only
-if (-not [string]::IsNullOrWhiteSpace($hasStaged)) {
-  $msg = "Resolve #$($IssueNumber): $title"
-  Write-Host "Committing changes: $msg"
-  git commit -m "$msg" | Out-Null
+# --- Stage & commit anything produced by dispatcher --------------------------
+# (idempotent — commits only if something changed)
+$diffIndex = & git status --porcelain
+if (-not [string]::IsNullOrWhiteSpace($diffIndex)) {
+  & git add -A | Out-Null
+  $commitMsg = ("Resolve #{0}: {1}" -f $IssueNumber, $title)
+  Write-Host "Committing changes: $commitMsg"
+  & git commit -m "$commitMsg" | Out-Null
 } else {
   Write-Host "No changes to commit."
 }
 
-# -------------------- Ensure upstream & push safely ---------------------------
-$currBranch  = (git rev-parse --abbrev-ref HEAD).Trim()
-$hasUpstream = git rev-parse --symbolic-full-name --abbrev-ref "$currBranch@{u}" 2>$null
-
-if (-not $hasUpstream) {
-  Write-Host "Setting upstream and pushing $currBranch…"
-  git push -u origin $currBranch | Out-Null
-} else {
-  Write-Host "Rebasing on remote and pushing $currBranch…"
-  git pull --rebase origin $currBranch | Out-Null
-  git push | Out-Null
+# --- Ensure upstream, rebase/push safely -------------------------------------
+# Determine branch from current HEAD if needed
+if ([string]::IsNullOrWhiteSpace($branch)) {
+  $branch = (& git rev-parse --abbrev-ref HEAD).Trim()
 }
 
-# -------------------- Create or update PR (always provide title/body) ---------
-$existing = gh pr list -R $Repo --head $currBranch --json number --jq '.[0].number' 2>$null
+# Does branch have an upstream?
+$hasUpstream = (& git rev-parse --symbolic-full-name --abbrev-ref "$branch@{u}" 2>$null)
+if (-not $hasUpstream) {
+  Write-Host "Setting upstream and pushing $branch…"
+  & git push -u origin $branch | Out-Null
+} else {
+  Write-Host "Rebasing on remote and pushing $branch…"
+  & git pull --rebase origin $branch | Out-Null
+  & git push | Out-Null
+}
+
+# --- Create or update PR (non-interactive, with timeout) ---------------------
+# Check if a PR already exists for this branch
+$existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number' 2>$null
 
 if (-not $existing) {
   $prTitle = $title
-  $prBody  = "Automated PR for issue #$($IssueNumber).`r`n`r`nCloses #$($IssueNumber)."
+  $prBody  = "Automated PR for issue #$IssueNumber.`r`n`r`nCloses #$IssueNumber"
 
-  Write-Host "Creating PR for $currBranch → main…"
-  gh pr create -R $Repo --base main --head $currBranch --title "$prTitle" --body "$prBody"
+  $ghCreate = @(
+    'pr','create',
+    '-R', $Repo,
+    '--base','main',
+    '--head', $branch,
+    '--title', ('"{0}"' -f $prTitle),
+    '--body',  ('"{0}"' -f $prBody)
+  ) -join ' '
 
-  # Re-fetch number
-  $existing = gh pr list -R $Repo --head $currBranch --json number --jq '.[0].number'
-} else {
-  Write-Host "PR #$existing already exists for $currBranch."
+  $res = Invoke-ExternalWithTimeout -FilePath 'gh' -ArgumentList $ghCreate -TimeoutSeconds 180 -WorkingDirectory (Get-Location).Path
+  if ($res.ExitCode -ne 0) {
+    Fail ("gh pr create failed (exit {0}). stderr:`n{1}" -f $res.ExitCode, $res.StdErr)
+  }
+
+  # Resolve PR number post-create
+  $existing = gh pr list -R $Repo --head $branch --json number --jq '.[0].number'
 }
 
-# -------------------- Ensure "Closes #N" present ------------------------------
+# --- Ensure PR body contains “Closes #N” (idempotent) ------------------------
 try {
   $currBody = gh pr view $existing -R $Repo --json body --jq .body
   if ($currBody -notmatch "(?i)closes\s*#\s*$IssueNumber") {
@@ -141,10 +189,10 @@ try {
     Write-Host "Injected 'Closes #$IssueNumber' into PR body."
   }
 } catch {
-  Write-Warning "Could not read/update PR body: $_"
+  Write-Warning "Could not verify/update PR body: $($_.Exception.Message)"
 }
 
-# -------------------- Apply labels (one flag per label) -----------------------
+# --- Apply labels (one-by-one; gh expects a single value per flag) -----------
 if ($Labels -and $Labels.Count -gt 0) {
   foreach ($label in $Labels) {
     gh pr edit $existing -R $Repo --add-label "$label" | Out-Null
@@ -152,10 +200,11 @@ if ($Labels -and $Labels.Count -gt 0) {
   Write-Host "Applied labels: $($Labels -join ', ')"
 }
 
-# -------------------- Wait for checks (simple textual poll) -------------------
+# --- Optionally wait for checks to complete ----------------------------------
 if ($WaitForChecks) {
   Write-Host "Waiting for checks to complete…"
-  for ($i=0; $i -lt 60; $i++) {  # ~5 minutes
+  # Poll up to 5 minutes (60 * 5s). Adjust as needed.
+  for ($i = 0; $i -lt 60; $i++) {
     $summary = gh pr checks $existing -R $Repo 2>$null
     if ($LASTEXITCODE -eq 0 -and $summary) {
       if ($summary -match "All checks were successful") {
@@ -170,10 +219,14 @@ if ($WaitForChecks) {
   }
 }
 
-# -------------------- Auto-merge if requested ---------------------------------
+# --- Auto-merge if requested --------------------------------------------------
 if ($AutoMerge) {
   Write-Host "Merging PR #$existing…"
-  gh pr merge $existing -R $Repo --squash --delete-branch | Out-Null
+  $mergeArgs = @('pr','merge', $existing, '-R', $Repo, '--squash','--delete-branch') -join ' '
+  $m = Invoke-ExternalWithTimeout -FilePath 'gh' -ArgumentList $mergeArgs -TimeoutSeconds 180 -WorkingDirectory (Get-Location).Path
+  if ($m.ExitCode -ne 0) {
+    Fail ("gh pr merge failed (exit {0}). stderr:`n{1}" -f $m.ExitCode, $m.StdErr)
+  }
 }
 
-Write-Host "Done. PR #$existing for issue #$IssueNumber ready."
+Write-Host ("Done. PR #{0} for issue #{1} ready." -f $existing, $IssueNumber)
