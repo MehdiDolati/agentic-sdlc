@@ -33,7 +33,15 @@ function Ensure-Tool([string]$name, [string]$installUrl='') {
 
 function Ensure-GhAuth {
   Ensure-Tool 'gh' 'https://cli.github.com'
-  try { gh auth status 1>$null 2>$null } catch { Fail "Run: gh auth login" }
+  try {
+	  gh auth status 1>$null 2>$null
+	} catch {
+	  if ($env:GH_TOKEN) {
+		Write-Host "Using GH_TOKEN from environment."
+	  } else {
+		Fail "GitHub CLI not authenticated. Run: gh auth login or set GH_TOKEN"
+	  }
+	}
 }
 
 function Ensure-Git {
