@@ -33,15 +33,23 @@ function Ensure-Tool([string]$name, [string]$installUrl='') {
 
 function Ensure-GhAuth {
   Ensure-Tool 'gh' 'https://cli.github.com'
-  try {
-    # Non-interactive, short+sweet check: get the current user login
-    $login = & gh api user --jq .login 2>$null
-    if ([string]::IsNullOrWhiteSpace($login)) {
-      throw "not authenticated"
+
+  # If a token is present, prefer it for non-interactive runs.
+  if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+    # Probe once to ensure the token actually works.
+    $null = & gh api user --jq .login 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      return
     }
+    Fail "GH_TOKEN is set but not valid. Make sure it has 'repo' and 'workflow' scopes, or set a new token."
   }
-  catch {
-    Fail "GitHub CLI is not authenticated for non-interactive use. Run once: `gh auth login --web --scopes 'repo,workflow'` or set a token via `$env:GH_TOKEN`."
+
+  # Fall back to gh’s stored credentials
+  try {
+    & gh auth status 1>$null 2>$null
+    return
+  } catch {
+    Fail "GitHub CLI is not authenticated for non-interactive use. Run once: gh auth login --web --scopes 'repo,workflow' or set GH_TOKEN."
   }
 }
 
