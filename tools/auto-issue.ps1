@@ -82,41 +82,20 @@ try { & gh auth status 1>$null 2>$null } catch { Fail "Run: gh auth login" }
 $dirty = git status --porcelain
 if ($dirty) { Fail "Working tree is dirty. Commit or stash before running auto-issue." }
 
-# --- Call dispatcher (out-of-process, with timeout) --------------------------
-$psExe = Get-PwshExe
-$dispatchArgs = @()
-$dispatchArgs += ('-NoProfile')
-$dispatchArgs += ('-ExecutionPolicy'); $dispatchArgs += ('Bypass')
-
-# Build a single command that emits compact JSON
-$dispatchCmd = @(
-  '&',
-  ('"{0}"' -f (Join-Path $PSScriptRoot 'issue-dispatch.ps1')),
-  '-Repo',       ('"{0}"' -f $Repo),
-  '-IssueNumber', $IssueNumber
-) -join ' '
-
-if ($OpenPR)      { $dispatchCmd += ' -OpenPR' }
-if ($DockerSmoke) { $dispatchCmd += ' -DockerSmoke' }
-
-# Pipe to ConvertTo-Json -Compress so we can parse it reliably here
-$dispatchArgs += ('-Command')
-$dispatchArgs += ($dispatchCmd + ' | ConvertTo-Json -Compress')
-
-Write-Verbose "Invoking dispatcher: $psExe $($dispatchArgs -join ' ')"
-$run = Invoke-ExternalWithTimeout -FilePath $psExe -ArgumentList ($dispatchArgs -join ' ') -TimeoutSeconds 10 -WorkingDirectory $PSScriptRoot
-
-if ($run.ExitCode -ne 0) {
-  Fail ("issue-dispatch failed (exit {0}). stderr:`n{1}" -f $run.ExitCode, $run.StdErr)
-}
-if ([string]::IsNullOrWhiteSpace($run.StdOut)) {
-  Fail "issue-dispatch produced no output."
-}
-
+# --- Call dispatcher inline (no child process / no timeout) ------------------
 try {
-  $dispatch = $run.StdOut | ConvertFrom-Json
-} catch {
-  Fail "Failed to parse issue-dispatch output as JSON. Raw:`n$($run.StdOut)"
+  $dispatchArgs = @{
+    Repo        = $Repo
+    IssueNumber = $IssueNumber
+  }
+  if ($OpenPR)      { $dispatchArgs.OpenPR      = $true }
+  if ($DockerSmoke) { $dispatchArgs.DockerSmoke = $true }
+
+  $dispatch = & (Join-Path $PSScriptRoot 'issue-dispatch.ps1') @dispatchArgs
+  if (-not $dispatch) { Fail "issue-dispatch returned no context." }
+}
+catch {
+  Fail ("issue-dispatch failed: {0}" -f $_.Exception.Message)
 }
 
 if (-not $dispatch) { Fail "issue-dispatch returned no context." }
