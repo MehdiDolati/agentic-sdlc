@@ -15,6 +15,35 @@ function Fail($msg){ Write-Error $msg; exit 1 }
 
 $ErrorActionPreference = 'Stop'
 
+# Prevent interactive prompts from git/gh/editors
+$env:GIT_ASKPASS = "echo"
+$env:GIT_TERMINAL_PROMPT = "0"
+$env:GIT_EDITOR = "true"
+$env:GH_PROMPT_DISABLED = "1"
+$env:GH_NO_UPDATE_NOTIFIER = "1"
+$ProgressPreference = 'SilentlyContinue'
+
+# Tiny tracer
+function Trace($msg) { Write-Host "[$(Get-Date -Format HH:mm:ss)] $msg" }
+
+# Run a scriptblock with a timeout (so we fail fast instead of 'freezing')
+function Invoke-WithTimeout {
+  param(
+    [Parameter(Mandatory=$true)][scriptblock]$ScriptBlock,
+    [int]$TimeoutSec = 60,
+    [string]$Description = "operation"
+  )
+  $job = Start-Job -ScriptBlock $ScriptBlock
+  if (-not (Wait-Job $job -Timeout $TimeoutSec)) {
+    Stop-Job $job -Force | Out-Null
+    Remove-Job $job -Force | Out-Null
+    throw "Timed out after ${TimeoutSec}s while $Description"
+  }
+  $result = Receive-Job $job
+  Remove-Job $job -Force | Out-Null
+  return $result
+}
+
 # Preconditions
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
   Fail "GitHub CLI 'gh' not found. Install https://cli.github.com and run 'gh auth login'."
