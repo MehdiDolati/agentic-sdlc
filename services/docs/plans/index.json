@@ -2014,5 +2014,101 @@
       "tasks": "docs/plans/TASKS-20250829-add-search-to-notes-list.md",
       "openapi": "docs/api/generated/openapi-20250829-add-search-to-notes-list.yaml"
     }
+  },
+  "20250829210259-build-a-notes-service-with-auth-de5a1d": {
+    "id": "20250829210259-build-a-notes-service-with-auth-de5a1d",
+    "created_at": "20250829210259",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250829-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250829-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250829-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250829-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250829-build-a-notes-service-with-auth.yaml"
+    }
+  },
+  "20250829210259-build-a-notes-service-with-auth-1f7c47": {
+    "id": "20250829210259-build-a-notes-service-with-auth-1f7c47",
+    "created_at": "20250829210259",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250829-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250829-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250829-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250829-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250829-build-a-notes-service-with-auth.yaml"
+    }
+  },
+  "20250829210300-create-a-hello-endpoint-371027": {
+    "id": "20250829210300-create-a-hello-endpoint-371027",
+    "created_at": "20250829210300",
+    "request": "Create a hello endpoint",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250829-create-a-hello-endpoint.md",
+      "adr": "docs/adr/ADR-20250829-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250829-create-a-hello-endpoint.yaml",
+      "tasks": "docs/plans/TASKS-20250829-create-a-hello-endpoint.md",
+      "openapi": "docs/api/generated/openapi-20250829-create-a-hello-endpoint.yaml"
+    }
+  },
+  "20250829210300-build-a-notes-service-with-auth-8aa65f": {
+    "id": "20250829210300-build-a-notes-service-with-auth-8aa65f",
+    "created_at": "20250829210300",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250829-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250829-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250829-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250829-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250829-build-a-notes-service-with-auth.yaml"
+    }
+  },
+  "20250829210300-build-a-notes-service-with-auth-a0a093": {
+    "id": "20250829210300-build-a-notes-service-with-auth-a0a093",
+    "created_at": "20250829210300",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250829-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250829-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250829-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250829-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250829-build-a-notes-service-with-auth.yaml"
+    }
+  },
+  "20250829210300-build-a-notes-service-with-auth-baa8d8": {
+    "id": "20250829210300-build-a-notes-service-with-auth-baa8d8",
+    "created_at": "20250829210300",
+    "request": "Build a notes service with auth",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250829-build-a-notes-service-with-auth.md",
+      "adr": "docs/adr/ADR-20250829-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250829-build-a-notes-service-with-auth.yaml",
+      "tasks": "docs/plans/TASKS-20250829-build-a-notes-service-with-auth.md",
+      "openapi": "docs/api/generated/openapi-20250829-build-a-notes-service-with-auth.yaml"
+    }
+  },
+  "20250829210300-create-a-hello-endpoint-8842f4": {
+    "id": "20250829210300-create-a-hello-endpoint-8842f4",
+    "created_at": "20250829210300",
+    "request": "Create a hello endpoint",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250829-create-a-hello-endpoint.md",
+      "adr": "docs/adr/ADR-20250829-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250829-create-a-hello-endpoint.yaml",
+      "tasks": "docs/plans/TASKS-20250829-create-a-hello-endpoint.md",
+      "openapi": "docs/api/generated/openapi-20250829-create-a-hello-endpoint.yaml"
+    }
+  },
+  "20250829210300-add-search-to-notes-list-5aed05": {
+    "id": "20250829210300-add-search-to-notes-list-5aed05",
+    "created_at": "20250829210300",
+    "request": "Add search to notes list",
+    "artifacts": {
+      "prd": "docs/prd/PRD-20250829-add-search-to-notes-list.md",
+      "adr": "docs/adr/ADR-20250829-auto-planning.md",
+      "stories": "docs/stories/USER_STORIES-20250829-add-search-to-notes-list.yaml",
+      "tasks": "docs/plans/TASKS-20250829-add-search-to-notes-list.md",
+      "openapi": "docs/api/generated/openapi-20250829-add-search-to-notes-list.yaml"
+    }
   }
 }
