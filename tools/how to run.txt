@@ -11,7 +11,7 @@
 auto-issue example at the begining:
 
 $labels = @("area:planner","priority:normal")
-tools/auto-issue.ps1 -Repo "MehdiDolati/agentic-sdlc" -IssueNumber 5 -Labels $labels -OpenPR -WaitForChecks -AutoMerge
+tools/auto-issue.ps1 -Repo "MehdiDolati/agentic-sdlc" -IssueNumber 5
 
 if couldn't parse parameters:
 $labels = @("area:planner","priority:normal")
