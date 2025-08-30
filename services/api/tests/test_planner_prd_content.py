@@ -9,9 +9,12 @@ def test_prd_contains_stack_summary_and_gates():
     assert r.status_code == 200
     data = r.json()
     prd_rel = data["artifacts"]["prd"]
-    repo_root = Path(__file__).resolve().parents[3]
+
+    # Correct path to 'services/docs'
+    repo_root = Path(__file__).resolve().parents[3] / 'services/'  
     prd_path = repo_root / prd_rel
     content = prd_path.read_text(encoding="utf-8")
+
     assert "## Stack Summary (Selected)" in content
     assert "Language:" in content
     assert "Backend Framework:" in content
