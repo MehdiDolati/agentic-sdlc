@@ -11,7 +11,7 @@ def test_prd_contains_stack_summary_and_gates():
     prd_rel = data["artifacts"]["prd"]
 
     # Correct path to 'services/docs'
-    repo_root = Path(__file__).resolve().parents[3] / 'services/'  
+    repo_root = Path(__file__).resolve().parents[2]   
     prd_path = repo_root / prd_rel
     content = prd_path.read_text(encoding="utf-8")
 

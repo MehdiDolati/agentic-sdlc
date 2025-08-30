@@ -12,7 +12,7 @@ def test_openapi_is_generated_with_paths_and_auth():
     openapi_rel = data["artifacts"]["openapi"]
 
     # Correct path to 'services/docs'
-    repo_root = Path(__file__).resolve().parents[3] / 'services/docs' 
+    repo_root = Path(__file__).resolve().parents[2]
     openapi_path = repo_root / openapi_rel
     assert openapi_path.exists()
 

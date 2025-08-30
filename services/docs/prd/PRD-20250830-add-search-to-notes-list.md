@@ -1,17 +1,29 @@
 # Product Requirements (PRD)
 
 Vision:
-Add search to notes list
+- {{ vision }}
 
 Primary Users:
-End user
-Admin
+{% for u in users %}
+- {{ u }}
+{% endfor %}
 
 Key Scenarios:
-Create note
-List notes
-Delete note
+{% for s in scenarios %}
+- {{ s }}
+{% endfor %}
 
 Success Metrics:
-Lead time
-Error rate
+{% for m in metrics %}
+- {{ m }}
+{% endfor %}
+
+## Stack Summary (Selected)
+Language: Python
+Backend Framework: FastAPI
+Database: SQLite
+
+## Acceptance Gates
+- Coverage gate: minimum 80%
+- Linting passes
+- All routes return expected codes
