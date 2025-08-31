@@ -4,12 +4,44 @@ from typing import Dict, List, Optional
 import json
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # Data file lives next to the API service code
 _DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _PLAN_FILE = _DATA_DIR / "plan.json"
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+def _iso(dt: datetime) -> str:
+    return dt.isoformat()
+
+def upsert_plan(plan: dict) -> dict:
+    # ... load existing if present (by id or by content-key you use)
+    existing = _load_existing_plan_somehow(plan)  # <-- your lookup
+
+    now = _now_utc()
+    if existing and existing.get("updated_at"):
+        try:
+            prev = datetime.fromisoformat(existing["updated_at"])
+            # ensure strictly increasing
+            if now <= prev:
+                now = prev + timedelta(microseconds=1)
+        except Exception:
+            # if parse fails just use now
+            pass
+
+    # set timestamps
+    plan["updated_at"] = _iso(now)
+    if not plan.get("created_at"):
+        plan["created_at"] = plan["updated_at"]
+
+    # ... persist and return
+    saved = _save_plan(plan)   # <-- your existing save routine
+    return saved
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

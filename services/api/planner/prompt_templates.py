@@ -6,19 +6,20 @@ from typing import Any, Mapping, List
 # Directory that contains the .md templates
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
-def _stringify(value: Any) -> str:
-    """Normalize values so lists render as newline-joined, etc."""
-    if value is None:
-        return ""
-    if isinstance(value, (list, tuple, set)):
-        return "\n".join(str(x) for x in value)
-    return str(value)
-
 def list_templates() -> List[str]:
     """Return available template filenames."""
     if not _TEMPLATES_DIR.exists():
         return []
     return sorted(p.name for p in _TEMPLATES_DIR.glob("*.md"))
+
+def _stringify(value: Any) -> str:
+    """Normalize values so lists render as newline-joined bullet lines, etc."""
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple, set)):
+        # each item on its own line, prefixed with "- "
+        return "\n".join(f"{x}" for x in value)
+    return str(value)
 
 def render_template(name: str, data: Mapping[str, Any]) -> str:
     """Load a template by name and render; raise if a key is missing."""

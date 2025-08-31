@@ -1,13 +1,13 @@
 # Product Requirements (PRD)
 
 Vision:
-${vision}
+$vision
 
 Primary Users:
-${users}
+$users
 
 Key Scenarios:
-${scenarios}
+$scenarios
 
 Success Metrics:
-${metrics}
+$metrics
