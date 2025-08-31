@@ -1,19 +1,13 @@
 # Product Requirements (PRD)
 
 Vision:
-- {{ vision }}
+$vision
 
 Primary Users:
-{% for u in users %}
-- {{ u }}
-{% endfor %}
+$users
 
 Key Scenarios:
-{% for s in scenarios %}
-- {{ s }}
-{% endfor %}
+$scenarios
 
 Success Metrics:
-{% for m in metrics %}
-- {{ m }}
-{% endfor %}
+$metrics

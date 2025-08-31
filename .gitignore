@@ -1,2 +1,12 @@
-
 .venv/
+# Python cache
+__pycache__/
+*.pyc
+
+# Generated docs & artifacts
+docs/plans/
+services/docs/adr/
+services/docs/api/generated/
+services/docs/plans/
+services/docs/prd/
+services/docs/stories/
