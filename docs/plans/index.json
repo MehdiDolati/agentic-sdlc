@@ -670,5 +670,32 @@
       "tasks": "docs/plans/TASKS-20250829-add-search-to-notes-list.md",
       "openapi": "docs/api/generated/openapi-20250829-add-search-to-notes-list.yaml"
     }
+  },
+  "20250901102421-build-a-notes-service-with-auth-d18d37": {
+    "runs": [
+      {
+        "run_id": "6b60f286",
+        "manifest": "docs\\plans\\20250901102421-build-a-notes-service-with-auth-d18d37\\runs\\6b60f286\\manifest.json",
+        "created_at": "2025-09-01T10:24:21Z"
+      }
+    ]
+  },
+  "20250901102421-create-a-hello-endpoint-5d9238": {
+    "runs": [
+      {
+        "run_id": "4e4708b9",
+        "manifest": "docs\\plans\\20250901102421-create-a-hello-endpoint-5d9238\\runs\\4e4708b9\\manifest.json",
+        "created_at": "2025-09-01T10:24:21Z"
+      }
+    ]
+  },
+  "20250901102421-build-a-notes-service-with-auth-4251e4": {
+    "runs": [
+      {
+        "run_id": "ccfe59ca",
+        "manifest": "docs\\plans\\20250901102421-build-a-notes-service-with-auth-4251e4\\runs\\ccfe59ca\\manifest.json",
+        "created_at": "2025-09-01T10:24:21Z"
+      }
+    ]
   }
 }
