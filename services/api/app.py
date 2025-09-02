@@ -13,6 +13,7 @@ import json
 import os
 import time
 import uuid
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Any
@@ -20,6 +21,9 @@ from pydantic import BaseModel, Field
 from services.api.routes.execute import router as execute_router
 from services.api.orchestrator.runner import run_steps
 from services.api.planner.prompt_templates import render_template
+from fastapi import Body,BackgroundTasks, FastAPI, HTTPException, status
+from fastapi.responses import JSONResponse
+
 # Try to import your real generator; if not present we’ll fallback below.
 try:
     from services.api.planner.openapi_gen import generate_openapi  # type: ignore
@@ -33,8 +37,6 @@ except Exception:  # fallback for tests
         def upsert_plan(self, plan: dict):
             return plan
     plan_store = _DummyPlanStore()
-from fastapi import BackgroundTasks, FastAPI, HTTPException, status
-from fastapi.responses import JSONResponse
 
 app = FastAPI(title="Agentic SDLC API", version="0.1.0")
 # Note: endpoints are defined directly in this module below
@@ -85,8 +87,7 @@ def _repo_root() -> Path:
         if val:
             return Path(val)
     # fallback: repo root
-    return Path(__file__).resolve().parents[1]
-
+    return Path(__file__).resolve().parents[2]
 def _store_root() -> Path:
     """Return the active store root (tests may retarget this)."""
     return _STORE_ROOT if _STORE_ROOT is not None else _repo_root()
@@ -180,6 +181,22 @@ components:
 security:
   - bearerAuth: []
 """
+
+def _write_json(repo_root: Path, rel: str, data: dict) -> None:
+    p = _ensure_parents(repo_root, rel)
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    
+def _docs_root(repo_root: Path) -> Path:
+    # We’re standardizing all generated docs under services/docs
+    return repo_root /  "docs"
+
+def _ensure_dir(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
+
+def _write_json(abs_path: Path, data: dict) -> None:
+    _ensure_dir(abs_path.parent)
+    abs_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
 
 # --------------------------------------------------------------------------------------
 # Planner integration
@@ -321,22 +338,36 @@ def create_request(req: RequestIn):
 
     # Now record the request in the plans index
     plan_id = f"{ts}-{slug}-{uuid.uuid4().hex[:6]}"
+    # Normalize artifacts to forward slashes for portability
+    norm_artifacts = {k: str(v).replace("\\", "/") for k, v in artifacts.items()}
+
     entry = {
         "id": plan_id,
         "created_at": ts,
         "request": req.text,
-        "artifacts": artifacts,
+        "artifacts": norm_artifacts,
     }
+
+    # Save to global index
     idx = _load_index(repo_root)
     idx[plan_id] = entry
     _save_index(repo_root, idx)
 
+    # ALSO persist a per-plan copy we can read during execution
+    import json
+    plan_dir = repo_root / "docs" / "plans" / plan_id
+    plan_dir.mkdir(parents=True, exist_ok=True)
+    (plan_dir / "plan.json").write_text(json.dumps(entry, indent=2), encoding="utf-8")
+
+
+
     return {
         "message": "Planned and generated artifacts",
         "plan_id": plan_id,
-        "artifacts": artifacts,
+        "artifacts": norm_artifacts,
         "request": req.text,
     }
+
     
 @app.get("/plans")
 def list_plans(
@@ -396,31 +427,81 @@ def get_plan(plan_id: str):
 # --------------------------------------------------------------------------------------
 def _run_plan(plan_id: str, run_id: str, repo_root: Path) -> None:
     """
-    Write a minimal run log and a manifest; never leave CI without a manifest.
+    Execute a plan run and persist:
+      - execution log: docs/plans/{plan_id}/runs/{run_id}/execution.log
+      - manifest:      docs/plans/{plan_id}/runs/{run_id}/manifest.json
+    Also append an entry under the plan's index with (run_id, log, manifest).
     """
-    run_dir = (repo_root / "docs" / "plans" / plan_id / "runs" / run_id)
-    run_dir.mkdir(parents=True, exist_ok=True)
+    # Load index -> get plan entry
+    idx = _load_index(repo_root)
+    entry = idx.get(plan_id)
+    if not entry:
+        # Nothing to run; still record a no-op manifest so the endpoint is consistent
+        entry = {"id": plan_id, "artifacts": {}}
+        idx[plan_id] = entry
 
-    manifest_path = run_dir / "manifest.json"
-    log_path = run_dir / "run.log"
+    # Paths
+    docs_root = _docs_root(repo_root)                        # .../services/docs
+    rel_run_dir = f"docs/plans/{plan_id}/runs/{run_id}"      # relative (as stored in manifest)
+    abs_run_dir = docs_root / "plans" / plan_id / "runs" / run_id
+    _ensure_dir(abs_run_dir)
 
-    data = {
-        "plan_id": plan_id,
+    abs_log = abs_run_dir / "execution.log"
+    rel_log = f"{rel_run_dir}/execution.log"
+
+    abs_manifest = abs_run_dir / "manifest.json"
+    rel_manifest = f"{rel_run_dir}/manifest.json"
+
+    # Start logging
+    now = datetime.now(timezone.utc).isoformat()
+    log_lines = []
+    def _log(line: str) -> None:
+        stamped = f"[{datetime.now(timezone.utc).isoformat()}] {line.rstrip()}"
+        log_lines.append(stamped)
+
+    _log(f"BEGIN run plan_id={plan_id} run_id={run_id}")
+    _log(f"created_at={now}")
+
+    # Collect artifacts this run "produces". For MVP we include the plan's known artifacts.
+    artifacts = []
+    prd_rel = (entry.get("artifacts") or {}).get("prd")
+    if prd_rel:
+        artifacts.append(prd_rel)
+        _log(f"artifact: {prd_rel}")
+    openapi_rel = (entry.get("artifacts") or {}).get("openapi")
+    if openapi_rel:
+        artifacts.append(openapi_rel)
+        _log(f"artifact: {openapi_rel}")
+
+    # If you already implemented step runner (write_file/patch_file/run_cmd), you can
+    # call it here and append artifacts + log its stdout/stderr into _log(...) lines.
+    # For Issue #10 requirements, recording existing artifacts + a real log file is enough.
+
+    _log("No step runner output captured (MVP logging).")
+    _log("END run")
+
+    # Write execution.log
+    _ensure_dir(abs_log.parent)
+    abs_log.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+    # Write manifest.json
+    manifest = {
         "run_id": run_id,
-        "status": "started",
+        "plan_id": plan_id,
+        "created_at": now,
+        "artifacts": artifacts,
+        "log_path": rel_log,
     }
-    # Write a "started" manifest immediately
-    manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-    try:
-        log_path.write_text("started\ncompleted\n", encoding="utf-8")
-        data["status"] = "completed"
-    except Exception as e:
-        # Ensure manifest exists even on failure
-        data["status"] = "error"
-        data["error"] = str(e)
-    finally:
-        manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    _write_json(abs_manifest, manifest)
+    # Save run pointer in index (append under entry['runs'])
+    runs = entry.setdefault("runs", [])
+    runs.append({
+        "run_id": run_id,
+        "created_at": now,
+        "manifest_path": rel_manifest,
+        "log_path": rel_log,
+    })
+    idx[plan_id] = entry
+    _save_index(repo_root, idx)
         
 @app.post("/plans", response_model=Plan, status_code=201)
 def create_or_update_plan(plan: Plan):
@@ -440,6 +521,37 @@ def execute_plan(plan_id: str, background: BackgroundTasks):
     # Otherwise, run in the background
     background.add_task(_run_plan, plan_id, run_id, repo_root)
     return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
+
+@app.get("/plans/{plan_id}/runs/{run_id}/manifest")
+def get_run_manifest(plan_id: str, run_id: str):
+    repo_root = _repo_root()
+    manifest_rel = f"docs/plans/{plan_id}/runs/{run_id}/manifest.json"
+    p = Path(repo_root) / manifest_rel
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="manifest not found")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+@app.get("/plans/{plan_id}/runs/{run_id}/logs")
+def get_run_logs(plan_id: str, run_id: str):
+    repo_root = _repo_root()
+    log_rel = f"docs/plans/{plan_id}/runs/{run_id}/log.ndjson"
+    p = Path(repo_root) / log_rel
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="log not found")
+    # Return an array of events for test convenience
+    events = []
+    with p.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                # skip malformed
+                pass
+    return {"events": events}
+
 
 # --------------------------------------------------------------------------------------
 # Simple "create" CRUD (used by tests in test_create_routes.py)

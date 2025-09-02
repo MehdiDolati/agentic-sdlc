@@ -1,7 +1,9 @@
-.venv/
+# Python
 # Python cache
 __pycache__/
 *.pyc
+*.py[cod]
+.venv/
 
 # Generated docs & artifacts
 docs/plans/
@@ -10,3 +12,6 @@ services/docs/api/generated/
 services/docs/plans/
 services/docs/prd/
 services/docs/stories/
+services/docs/plans/**/runs/
+services/docs/plans/*/
+!services/docs/plans/index.json
