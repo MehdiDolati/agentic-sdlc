@@ -87,8 +87,7 @@ def _repo_root() -> Path:
         if val:
             return Path(val)
     # fallback: repo root
-    return Path(__file__).resolve().parents[1]
-
+    return Path(__file__).resolve().parents[2]
 def _store_root() -> Path:
     """Return the active store root (tests may retarget this)."""
     return _STORE_ROOT if _STORE_ROOT is not None else _repo_root()
@@ -339,22 +338,36 @@ def create_request(req: RequestIn):
 
     # Now record the request in the plans index
     plan_id = f"{ts}-{slug}-{uuid.uuid4().hex[:6]}"
+    # Normalize artifacts to forward slashes for portability
+    norm_artifacts = {k: str(v).replace("\\", "/") for k, v in artifacts.items()}
+
     entry = {
         "id": plan_id,
         "created_at": ts,
         "request": req.text,
-        "artifacts": artifacts,
+        "artifacts": norm_artifacts,
     }
+
+    # Save to global index
     idx = _load_index(repo_root)
     idx[plan_id] = entry
     _save_index(repo_root, idx)
 
+    # ALSO persist a per-plan copy we can read during execution
+    import json
+    plan_dir = repo_root / "docs" / "plans" / plan_id
+    plan_dir.mkdir(parents=True, exist_ok=True)
+    (plan_dir / "plan.json").write_text(json.dumps(entry, indent=2), encoding="utf-8")
+
+
+
     return {
         "message": "Planned and generated artifacts",
         "plan_id": plan_id,
-        "artifacts": artifacts,
+        "artifacts": norm_artifacts,
         "request": req.text,
     }
+
     
 @app.get("/plans")
 def list_plans(
