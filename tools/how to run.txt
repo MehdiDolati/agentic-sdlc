@@ -28,3 +28,11 @@ $labels = @("area:planner","priority:normal")
 
 run tests locally:
  .\.venv\Scripts\python -m pytest -q services\api
+ 
+issue flow:
+1 - get issue and open branch
+
+2 - Push changes and create PR
+
+3 - Merge the PR and close the issue
+ 
