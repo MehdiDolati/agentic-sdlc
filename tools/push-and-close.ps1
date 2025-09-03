@@ -113,7 +113,9 @@ if ($Paths.Count -eq 1 -and $Paths[0] -eq ".") {
 # Only commit if there is something to commit
 git diff --cached --quiet
 if ($LASTEXITCODE -ne 0) {
-  $subject = "feat: resolve #$IssueNumber — $title"
+  # Build a safe ASCII-only subject; expand $title safely; escape any quotes
+  $subject = "feat: resolve #$IssueNumber - $($title)"
+  $subject = $subject -replace '"','\"'
   git commit -m "$subject" -m "Closes #$IssueNumber"
 } else {
   Write-Host "No staged changes to commit; continuing." -ForegroundColor Yellow

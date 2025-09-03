@@ -9,18 +9,17 @@ if str(_BASE_DIR) not in sys.path:
 # Module-level override the tests can point at
 _STORE_ROOT: Optional[Path] = None
 
-import json
-import os
-import time
-import uuid
-import subprocess
+import os, uuid, json, time, threading, subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import Callable, List, Dict, Optional, Any
 from pydantic import BaseModel, Field
+from fastapi import Query
 from services.api.planner.prompt_templates import render_template
 from fastapi import Body,BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
+
+
 
 # Try to import your real generator; if not present we’ll fallback below.
 try:
@@ -197,6 +196,63 @@ def _ensure_dir(p: Path) -> None:
 def _write_json(abs_path: Path, data: dict) -> None:
     _ensure_dir(abs_path.parent)
     abs_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    
+# ---------- Orchestrator helpers (timeouts/retries/cancel) ----------
+
+def _posix_rel(p: Path, root: Path) -> str:
+    """Relative path as forward-slashes (stable across OS)."""
+    return p.relative_to(root).as_posix()
+
+def _write_json(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+def _bootstrap_running_manifest(repo_root: Path, plan_id: str, run_id: str) -> Dict[str, Any]:
+    """
+    Create/overwrite a 'running' manifest immediately so background tests can
+    see status quickly.
+    """
+    docs_root = _docs_root(repo_root)  # your existing helper that returns repo_root / "docs"
+    run_dir = docs_root / "plans" / plan_id / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_path = run_dir / "manifest.json"
+    log_path      = run_dir / "execution.log"
+    cancel_flag   = run_dir / "cancel.flag"
+
+    now = datetime.now(timezone.utc).isoformat()
+    manifest = {
+        "plan_id": plan_id,
+        "run_id": run_id,
+        "status": "running",
+        "started_at": now,
+        "log_path": _posix_rel(log_path, repo_root),
+        "artifacts": [],
+        "steps": [],
+    }
+    _write_json(manifest_path, manifest)
+    # ensure log file exists
+    if not log_path.exists():
+        log_path.write_text("", encoding="utf-8")
+    # ensure cancel file does not exist at start
+    if cancel_flag.exists():
+        cancel_flag.unlink()
+    return manifest
+
+def _append_run_to_index(repo_root: Path, plan_id: str, run_id: str, rel_manifest: str, rel_log: str, status: str) -> None:
+    idx = _load_index(repo_root)
+    entry = idx.get(plan_id) or {"id": plan_id, "artifacts": {}}
+    runs = entry.get("runs", [])
+    runs.append({
+        "run_id": run_id,
+        "manifest_path": rel_manifest,
+        "log_path": rel_log,
+        "status": status,
+    })
+    entry["runs"] = runs
+    idx[plan_id] = entry
+    _save_index(repo_root, idx)
+
 
 
 # --------------------------------------------------------------------------------------
@@ -423,10 +479,136 @@ def get_plan(plan_id: str):
         raise HTTPException(status_code=404, detail="Plan not found")
     return idx[plan_id]
 
+@app.post("/plans/{plan_id}/runs/{run_id}/cancel")
+def cancel_run(plan_id: str, run_id: str):
+    repo_root = _repo_root()
+    docs_root = _docs_root(repo_root)
+    run_dir = docs_root / "plans" / plan_id / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "cancel.flag").write_text("cancel requested", encoding="utf-8")
+    # If manifest already exists, reflect 'running' -> 'cancelling' quickly (optional)
+    m = run_dir / "manifest.json"
+    if m.exists():
+        data = json.loads(m.read_text(encoding="utf-8"))
+        if data.get("status") == "running":
+            data["status"] = "cancelling"
+            _write_json(m, data)
+    return {"ok": True, "message": "Cancellation requested"}
+
+@app.get("/plans/{plan_id}/runs/{run_id}/manifest")
+def get_run_manifest(plan_id: str, run_id: str):
+    repo_root = _repo_root()
+    docs_root = _docs_root(repo_root)
+    m = docs_root / "plans" / plan_id / "runs" / run_id / "manifest.json"
+    if not m.exists():
+        return JSONResponse({"error": "manifest not found"}, status_code=404)
+    return JSONResponse(json.loads(m.read_text(encoding="utf-8")))
+
+
+def run_step(
+    name: str,
+    func: Callable[[Callable[[], bool]], Any],
+    *,
+    timeout_s: float = 5.0,
+    retries: int = 0,
+    backoff_s: float = 0.05,
+    log_file: Path,
+    cancel_file: Path
+) -> Dict[str, Any]:
+    """
+    Run a single step with:
+    - timeout per attempt
+    - retry/backoff on failure/timeout
+    - cooperative cancellation (func receives a should_cancel() callback)
+    Returns a dict describing the step result.
+    """
+    result: Dict[str, Any] = {
+        "name": name,
+        "status": "unknown",
+        "attempts": 0,
+        "timed_out": False,
+        "error": None,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "ended_at": None,
+    }
+
+    def should_cancel() -> bool:
+        return cancel_file.exists()
+
+    # thread wrapper to capture exceptions
+    class Holder:
+        exc: Optional[BaseException] = None
+
+    attempts_allowed = retries + 1
+    for attempt in range(1, attempts_allowed + 1):
+        if should_cancel():
+            result["status"] = "cancelled"
+            result["attempts"] = attempt - 1
+            result["ended_at"] = datetime.now(timezone.utc).isoformat()
+            log_file.write_text(log_file.read_text(encoding="utf-8") + f"[{name}] cancelled before attempt {attempt}\n", encoding="utf-8")
+            return result
+
+        holder = Holder()
+
+        def target():
+            try:
+                func(should_cancel)
+            except BaseException as e:
+                holder.exc = e
+
+        t = threading.Thread(target=target, daemon=True)
+        t.start()
+        t.join(timeout_s)
+        result["attempts"] = attempt
+
+        if t.is_alive():
+            # timeout
+            result["timed_out"] = True
+            # leave thread to die with the process; log and maybe retry
+            log_file.write_text(log_file.read_text(encoding="utf-8") + f"[{name}] attempt {attempt} timed out after {timeout_s}s\n", encoding="utf-8")
+            if attempt < attempts_allowed:
+                time.sleep(backoff_s * (2 ** (attempt - 1)))
+                continue
+            else:
+                result["status"] = "timeout"
+                result["ended_at"] = datetime.now(timezone.utc).isoformat()
+                return result
+
+        # thread finished; inspect error or success
+        if holder.exc is not None:
+            log_file.write_text(log_file.read_text(encoding="utf-8") + f"[{name}] attempt {attempt} error: {holder.exc}\n", encoding="utf-8")
+            if attempt < attempts_allowed:
+                time.sleep(backoff_s * (2 ** (attempt - 1)))
+                continue
+            else:
+                result["status"] = "error"
+                result["error"] = str(holder.exc)
+                result["ended_at"] = datetime.now(timezone.utc).isoformat()
+                return result
+
+        # success
+        log_file.write_text(log_file.read_text(encoding="utf-8") + f"[{name}] attempt {attempt} ok\n", encoding="utf-8")
+        result["status"] = "completed"
+        result["ended_at"] = datetime.now(timezone.utc).isoformat()
+        return result
+
+    # Should not reach here
+    result["status"] = "error"
+    result["error"] = "Unexpected step runner state"
+    result["ended_at"] = datetime.now(timezone.utc).isoformat()
+    return result
+
 # --------------------------------------------------------------------------------------
 # Execute plan (background)
 # --------------------------------------------------------------------------------------
 def _run_plan(plan_id: str, run_id: str, repo_root: Path) -> None:
+    """
+    Execute a plan run and persist:
+      - execution log: docs/plans/{plan_id}/runs/{run_id}/execution.log
+      - manifest:      docs/plans/{plan_id}/runs/{run_id}/manifest.json
+    Also append an entry under the plan's index with (run_id, log, manifest, status).
+    Supports cancellation, per-step timeout, retry/backoff.
+    """
     # Load index -> get plan entry
     idx = _load_index(repo_root)
     entry = idx.get(plan_id)
@@ -434,65 +616,88 @@ def _run_plan(plan_id: str, run_id: str, repo_root: Path) -> None:
         entry = {"id": plan_id, "artifacts": {}}
         idx[plan_id] = entry
 
-    # Paths
-    docs_root = _docs_root(repo_root)                        # .../docs
-    rel_run_dir = f"docs/plans/{plan_id}/runs/{run_id}"      # relative for manifest/index
-    abs_run_dir = docs_root / "plans" / plan_id / "runs" / run_id
-    _ensure_dir(abs_run_dir)
+    docs_root = _docs_root(repo_root)
+    run_dir = docs_root / "plans" / plan_id / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
 
-    abs_log = abs_run_dir / "execution.log"
-    rel_log = f"{rel_run_dir}/execution.log"
+    abs_log = run_dir / "execution.log"
+    abs_manifest = run_dir / "manifest.json"
+    cancel_flag = run_dir / "cancel.flag"
 
-    abs_manifest = abs_run_dir / "manifest.json"
-    rel_manifest = f"{rel_run_dir}/manifest.json"
-
-    # --- defensively ensure manifest has status: running ---
-    started_at = datetime.now(timezone.utc).isoformat()
-    running_manifest = {
-        "run_id": run_id,
-        "plan_id": plan_id,
-        "status": "running",
-        "started_at": started_at,
-        "log_path": f"{rel_run_dir}/execution.log",
-        # keep artifacts as we know them so far
-        "artifacts": _entry_artifacts_as_list(entry),
-    }
-    abs_manifest.write_text(json.dumps(running_manifest, indent=2), encoding="utf-8")
-
-    # --- write log with BEGIN/END markers ---
+    # Begin log + initial 'running' manifest
     with abs_log.open("a", encoding="utf-8") as lf:
         lf.write(f"BEGIN run {run_id}\n")
-        # ... (your step logs could go here)
+
+    started = datetime.now(timezone.utc).isoformat()
+
+    manifest: Dict[str, Any] = {
+        "plan_id": plan_id,
+        "run_id": run_id,
+        "status": "running",
+        "started_at": started,
+        "log_path": _posix_rel(abs_log, repo_root),
+        "artifacts": [],           # filled from index
+        "steps": [],               # step results appended below
+    }
+    # include artifacts known at plan time
+    arts = entry.get("artifacts") or {}
+    # persist as posix rel
+    for k in ["prd", "openapi", "adr", "stories", "tasks"]:
+        if k in arts and arts[k]:
+            manifest["artifacts"].append(arts[k])
+    _write_json(abs_manifest, manifest)
+
+    # define some "work" steps that regularly check for cancellation
+    def _busy_step(duration_s: float, should_cancel: Callable[[], bool]):
+        # do small sleeps so we can react to cancellation quickly
+        t_end = time.time() + duration_s
+        while time.time() < t_end:
+            if should_cancel():
+                return  # cooperatively stop
+            time.sleep(0.01)
+
+    # Three illustrative steps. Keep them short so tests remain fast.
+    steps_spec = [
+        ("prepare",   lambda sc: _busy_step(0.12, sc)),
+        ("generate",  lambda sc: _busy_step(0.15, sc)),
+        ("finalize",  lambda sc: _busy_step(0.10, sc)),
+    ]
+
+    overall_status = "completed"
+    for name, fn in steps_spec:
+        res = run_step(
+            name,
+            fn,
+            timeout_s=2.0,
+            retries=0,
+            backoff_s=0.02,
+            log_file=abs_log,
+            cancel_file=cancel_flag,
+        )
+        manifest["steps"].append(res)
+        # If cancelled/timeout/error: stop early and set final status
+        if res["status"] == "cancelled":
+            overall_status = "cancelled"
+            break
+        if res["status"] in ("timeout", "error"):
+            overall_status = "failed"
+            break
+
+        # persist manifest after each step
+        _write_json(abs_manifest, manifest)
+
+    # finalize manifest/status
+    manifest["status"] = overall_status
+    manifest["completed_at"] = datetime.now(timezone.utc).isoformat()
+    _write_json(abs_manifest, manifest)
+
+    with abs_log.open("a", encoding="utf-8") as lf:
         lf.write(f"END run {run_id}\n")
 
-    # Refresh artifacts from entry in case they were populated earlier
-    artifacts_list = _entry_artifacts_as_list(entry)
-
-    # --- finalize manifest with completed status ---
-    completed_at = datetime.now(timezone.utc).isoformat()
-    completed_manifest = {
-        "run_id": run_id,
-        "plan_id": plan_id,
-        "status": "completed",
-        "started_at": started_at,
-        "completed_at": completed_at,
-        "log_path": f"{rel_run_dir}/execution.log",
-        "artifacts": artifacts_list,
-    }
-    abs_manifest.write_text(json.dumps(completed_manifest, indent=2), encoding="utf-8")
-
-    # --- append run pointer to plans index ---
-    run_entry = {
-        "run_id": run_id,
-        "manifest_path": rel_manifest,
-        "log_path": rel_log,
-        "started_at": started_at,
-        "completed_at": completed_at,
-        "status": "completed",
-    }
-    runs = entry.setdefault("runs", [])
-    runs.append(run_entry)
-    _save_index(repo_root, idx)
+    # update index runs entry
+    rel_manifest = _posix_rel(abs_manifest, repo_root)
+    rel_log = _posix_rel(abs_log, repo_root)
+    _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, overall_status)
         
 @app.post("/plans", response_model=Plan, status_code=201)
 def create_or_update_plan(plan: Plan):
@@ -500,29 +705,24 @@ def create_or_update_plan(plan: Plan):
     return stored
 
 @app.post("/plans/{plan_id}/execute")
-def execute_plan(plan_id: str, background: BackgroundTasks):
+def execute_plan(
+    plan_id: str,
+    background: BackgroundTasks,
+    background_mode: bool = Query(False, alias="background")
+):
+    """
+    Kick off a run. By default (and on CI/pytest) we run inline so tests can read files immediately.
+    If ?background=1 is passed, we enqueue to BackgroundTasks AND bootstrap a 'running' manifest.
+    """
     repo_root = _repo_root()
     run_id = uuid.uuid4().hex[:8]
 
-    # Where the run’s files live (always the same)
-    docs_root = _docs_root(repo_root)
-    run_dir = docs_root / "plans" / plan_id / "runs" / run_id
-    _ensure_dir(run_dir)
-
-    manifest_path = run_dir / "manifest.json"
-
-    # Pre-create a manifest with 'running' so tests find 'status' immediately
-    manifest_path.write_text(
-        json.dumps({"run_id": run_id, "plan_id": plan_id, "status": "running"}, indent=2),
-        encoding="utf-8",
-    )
-
-    # On CI or when running pytest, run inline so the manifest is finalized immediately
-    if os.getenv("CI") or os.getenv("PYTEST_CURRENT_TEST"):
+    if (os.getenv("CI") or os.getenv("PYTEST_CURRENT_TEST")) and not background_mode:
         _run_plan(plan_id, run_id, repo_root)
         return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
 
-    # Otherwise, run in the background
+    # background path
+    _bootstrap_running_manifest(repo_root, plan_id, run_id)
     background.add_task(_run_plan, plan_id, run_id, repo_root)
     return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
 
