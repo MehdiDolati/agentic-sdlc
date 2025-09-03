@@ -4,6 +4,11 @@ from app import app
 
 client = TestClient(app)
 
+def _norm(p: str) -> str:
+    # turn any incoming path into forward-slash form for comparison
+    return str(p).replace("\\", "/")
+
+
 def _repo_root() -> Path:
     # tests live at services/api/tests; we want the repo root
     return Path(__file__).resolve().parents[3]
@@ -42,7 +47,9 @@ def test_execute_creates_log_and_manifest_and_lists_artifacts():
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["run_id"] == run_id
     assert manifest["plan_id"] == plan_id
-    assert manifest["log_path"].endswith(f"docs\\plans\\{plan_id}\\runs\\{run_id}\\execution.log")
+    assert _norm(manifest["log_path"]).endswith(f"docs/plans/{plan_id}/runs/{run_id}/execution.log")
+
+
 
     # artifacts should include at least the PRD and OpenAPI paths
     arts = set(manifest.get("artifacts", []))
@@ -69,5 +76,5 @@ def test_index_runs_array_is_appended_after_execute():
     assert any(r.get("run_id") == run_id for r in runs)
     # and that we recorded manifest/log paths
     run_entry = next(r for r in runs if r["run_id"] == run_id)
-    assert run_entry["manifest_path"].endswith(f"docs\\plans\\{plan_id}\\runs\\{run_id}\\manifest.json")
-    assert run_entry["log_path"].endswith(f"docs\\plans\\{plan_id}\\runs\\{run_id}\\execution.log")
+    assert _norm(run_entry["manifest_path"]).endswith(f"docs/plans/{plan_id}/runs/{run_id}/manifest.json")
+    assert _norm(run_entry["log_path"]).endswith(f"docs/plans/{plan_id}/runs/{run_id}/execution.log")
