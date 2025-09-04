@@ -24,8 +24,9 @@ RUN pip install --upgrade pip \
 COPY . .
 
 # Ensure entrypoint has Unix line endings and is executable (CI-safe)
-RUN sed -i 's/\r$//' services/api/docker/entrypoint.sh \
- && chmod 0755 services/api/docker/entrypoint.sh
+RUN set -eux; \
+  sed -i 's/\r$//' /app/services/api/docker/entrypoint.sh; \
+  chmod 0755 /app/services/api/docker/entrypoint.sh
 
 # normalize line endings and make entrypoint executable
 RUN set -eux; \
