@@ -16,5 +16,6 @@ services/docs/plans/**/runs/
 services/docs/plans/*/
 !services/docs/plans/index.json
 
+
 # Force LF for shell scripts
 *.sh text eol=lf
