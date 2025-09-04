@@ -30,7 +30,7 @@ RUN set -eux; \
 
 # normalize line endings and make entrypoint executable
 RUN set -eux; \
-	sed -i 's/\r$//' services/api/docker/entrypoint.sh && \
+    sed -i 's/\r$//' services/api/docker/entrypoint.sh && \
     chmod +x services/api/docker/entrypoint.sh
 
 # Create non-root user
@@ -44,5 +44,5 @@ ENV PORT=8080
 
 # NOTE:
 # Root filesystem will be made read-only via docker-compose.
-ENTRYPOINT ["/usr/bin/tini","-g","--","/app/services/api/docker/entrypoint.sh"]
-CMD ["python","-m","uvicorn","services.api.app:app","--host","0.0.0.0","--port","8080"]
++ENTRYPOINT ["/usr/bin/tini","-g","--","/bin/sh","/app/services/api/docker/entrypoint.sh"]
++CMD ["python","-m","uvicorn","services.api.app:app","--host","0.0.0.0","--port","8080"]

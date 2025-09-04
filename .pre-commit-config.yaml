@@ -1,0 +1,18 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0  # any valid tag; autoupdate will bump this
+    hooks:
+      - id: check-executables-have-shebangs
+      - id: check-yaml
+      - id: end-of-file-fixer
+
+  - repo: https://github.com/pre-commit/pygrep-hooks
+    rev: v1.10.0  # keep whatever valid tag you use
+    hooks:
+      - id: python-check-blanket-noqa
+      - id: python-use-type-annotations
+
+  - repo: https://github.com/Lucas-C/pre-commit-hooks
+    rev: v1.5.5
+    hooks:
+      - id: forbid-tabs

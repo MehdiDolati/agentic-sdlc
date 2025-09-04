@@ -42,11 +42,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Mirror compose env so entrypoint.sh sees exactly these:
-      POSTGRES_USER: notes
-      POSTGRES_PASSWORD: notes
-      POSTGRES_DB: notes
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: appdb
       # API container reads DATABASE_URL from env and/or compose:
-      DATABASE_URL: postgresql+psycopg://notes:notes@db:5432/notes
+      DATABASE_URL: postgresql+psycopg://app:app@db:5432/notes
       # Make compose more patient on CI
       COMPOSE_HTTP_TIMEOUT: "240"
     steps:
