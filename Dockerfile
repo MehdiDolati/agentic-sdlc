@@ -44,5 +44,5 @@ ENV PORT=8080
 
 # NOTE:
 # Root filesystem will be made read-only via docker-compose.
-+ENTRYPOINT ["/usr/bin/tini","-g","--","/bin/sh","/app/services/api/docker/entrypoint.sh"]
-+CMD ["python","-m","uvicorn","services.api.app:app","--host","0.0.0.0","--port","8080"]
+ENTRYPOINT ["/usr/bin/tini","-g","--","/bin/sh","/app/services/api/docker/entrypoint.sh"]
+CMD ["python","-m","uvicorn","services.api.app:app","--host","0.0.0.0","--port","8080"]
