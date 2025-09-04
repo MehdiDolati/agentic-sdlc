@@ -15,6 +15,7 @@ services/docs/stories/
 services/docs/plans/**/runs/
 services/docs/plans/*/
 !services/docs/plans/index.json
+docs/plans/index.json
 
 
 # Force LF for shell scripts

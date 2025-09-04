@@ -18,9 +18,14 @@ from fastapi import Query
 from services.api.planner.prompt_templates import render_template
 from fastapi import Body,BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
-from services.api.db import psycopg_conninfo_from_env, dsn_summary  # dsn_summary should redact pwd if you have it
+from services.api.db import psycopg_conninfo_from_env, dsn_summary
 import psycopg
-
+# DB: add these
+from sqlalchemy import (
+    create_engine, MetaData, Table, Column, String, JSON, DateTime,
+    select, insert, update as sa_update, delete as sa_delete, func
+)
+from sqlalchemy.engine import Engine
 
 # Try to import your real generator; if not present we’ll fallback below.
 try:
@@ -197,21 +202,7 @@ def _ensure_dir(p: Path) -> None:
 def _write_json(abs_path: Path, data: dict) -> None:
     _ensure_dir(abs_path.parent)
     abs_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-def ensure_notes_schema() -> None:
-    dsn = psycopg_conninfo_from_env()
-    with psycopg.connect(dsn) as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-            CREATE TABLE IF NOT EXISTS notes (
-              id SERIAL PRIMARY KEY,
-              title TEXT NOT NULL,
-              body  TEXT NOT NULL,
-              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            """)
-        conn.commit()
-        
+    
 # ---------- Orchestrator helpers (timeouts/retries/cancel) ----------
 
 def _posix_rel(p: Path, root: Path) -> str:
@@ -268,7 +259,77 @@ def _append_run_to_index(repo_root: Path, plan_id: str, run_id: str, rel_manifes
     idx[plan_id] = entry
     _save_index(repo_root, idx)
 
+# ---------- Notes DB (Postgres/SQLite via SQLAlchemy) ----------
+_NOTES_METADATA = MetaData()
 
+_NOTES_TABLE = Table(
+    "notes",
+    _NOTES_METADATA,
+    Column("id", String, primary_key=True),
+    Column("data", JSON, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+)
+
+def ensure_notes_schema(engine: Engine) -> None:
+    """Create the notes schema (idempotent) using our local SQLAlchemy metadata."""
+    _NOTES_METADATA.create_all(engine)
+
+
+def _database_url(repo_root: Path) -> str:
+    env = os.getenv("DATABASE_URL")
+    if env:
+        return env
+    # default to SQLite file under ./docs for dev/tests
+    return f"sqlite+pysqlite:///{(_docs_root(repo_root) / 'notes.db').resolve()}"
+
+def _create_engine(url: str) -> Engine:
+    return create_engine(url, future=True, echo=False)
+
+class NotesRepoDB:
+    def __init__(self, engine: Engine):
+        self.engine = engine
+        ensure_notes_schema(engine)
+
+    def list(self) -> list[dict]:
+        with self.engine.connect() as conn:
+            rows = conn.execute(select(_NOTES_TABLE.c.id, _NOTES_TABLE.c.data)).all()
+            return [{"id": rid, **(payload or {})} for rid, payload in rows]
+
+    def create(self, payload: dict) -> dict:
+        nid = uuid.uuid4().hex[:8]
+        to_store = dict(payload or {})
+        with self.engine.begin() as conn:
+            conn.execute(insert(_NOTES_TABLE).values(id=nid, data=to_store))
+        return {"id": nid, **to_store}
+
+    def get(self, note_id: str) -> dict | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                select(_NOTES_TABLE.c.id, _NOTES_TABLE.c.data).where(_NOTES_TABLE.c.id == note_id)
+            ).first()
+            if not row:
+                return None
+            rid, payload = row
+            return {"id": rid, **(payload or {})}
+
+    def update(self, note_id: str, payload: dict) -> dict | None:
+        to_store = dict(payload or {})
+        with self.engine.begin() as conn:
+            res = conn.execute(
+                sa_update(_NOTES_TABLE).where(_NOTES_TABLE.c.id == note_id).values(data=to_store)
+            )
+            if res.rowcount == 0:
+                return None
+        return {"id": note_id, **to_store}
+
+    def delete(self, note_id: str) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(sa_delete(_NOTES_TABLE).where(_NOTES_TABLE.c.id == note_id))
+
+# Initialize the repo once at import time
+_DB_ENGINE = _create_engine(_database_url(_repo_root()))
+_NOTES_REPO = NotesRepoDB(_DB_ENGINE)
+# ----------------------------------------------------------------
 
 # --------------------------------------------------------------------------------------
 # Planner integration

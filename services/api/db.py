@@ -1,46 +1,25 @@
-import os, time
-from fastapi import APIRouter, HTTPException
+# services/api/db.py
+from __future__ import annotations
+
+import os
+import re
+import time
 from typing import Optional
+
 import psycopg
-try:
-    import psycopg2
-except Exception as e:
-    psycopg2 = None
+
 
 REDACTED = "****"
 
-router = APIRouter(prefix="/db", tags=["db"])
-
-@router.get("/health")
-def db_health():
-    url_env = os.getenv("DB_URL")
-    if not (os.getenv("POSTGRES_CONNINFO") or os.getenv("DATABASE_URL") or url_env):
-        return {"status": "disabled"}
-    if psycopg2 is None:
-        raise HTTPException(status_code=500, detail="psycopg2 not installed")
-    try:
-        conn = psycopg2.connect(psycopg_conninfo_from_env())
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1")
-            row = cur.fetchone()
-        conn.close()
-        return {"status": "ok", "result": row[0]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"DB error: {e}")
-
-def _redact_password(uri: str) -> str:
-    # redact only the password section of a URI (…://user:PASSWORD@host/…)
-    return re.sub(r'(://[^:]+):[^@]*@', r'\1:****@', uri)
-
 def dsn_summary(url: str) -> str:
-    """Redact password for logs."""
+    """
+    Return a redacted version of a DB URL for logs (mask only the password).
+    Examples:
+      postgresql://user:pass@host:5432/db -> postgresql://user:****@host:5432/db
+    """
     if not url:
         return ""
-    # redact :password@ in URI
-    return url.replace(
-        url.split("@")[0],
-        url.split(":")[0] + f":{REDACTED}@" if "@" in url else url.split(":")[0] + f":{REDACTED}"
-    )
+    return re.sub(r"(://[^:]+):[^@]*@", r"\1:" + REDACTED + "@", url)
 
 def _normalize_db_url(url: str) -> str:
     """
@@ -48,7 +27,7 @@ def _normalize_db_url(url: str) -> str:
     - postgresql+psycopg://  -> postgresql://
     - postgres://            -> postgresql://
     """
-    u = url.strip()
+    u = (url or "").strip()
     if not u:
         return u
     if u.startswith("postgresql+psycopg://"):
@@ -59,18 +38,19 @@ def _normalize_db_url(url: str) -> str:
 
 def psycopg_conninfo_from_env() -> Optional[str]:
     """
-    Return a libpq-compatible conninfo/URI for psycopg.
+    Produce a libpq-compatible DSN for psycopg from DATABASE_URL (if set).
     Accepts SQLAlchemy-style 'postgresql+psycopg://' and normalizes it.
     """
-    url = os.getenv("DATABASE_URL", "").strip()
-    if not url:
+    raw = os.getenv("DATABASE_URL", "").strip()
+    if not raw:
         return None
-    # normalize SQLAlchemy dialect URI to plain libpq URI
-    if url.startswith("postgresql+psycopg://"):
-        url = "postgresql://" + url[len("postgresql+psycopg://"):]
-    return url
+    return _normalize_db_url(raw)
 
 def wait_for_db(max_attempts: int = 30, sleep_sec: float = 1.0, log=print) -> bool:
+    """
+    Poll the database until it's reachable (SELECT 1) or attempts exhausted.
+    Uses DATABASE_URL from the environment and psycopg.
+    """
     dsn = psycopg_conninfo_from_env()
     if not dsn:
         log("[db_init] DATABASE_URL is empty; cannot wait for DB")
@@ -83,7 +63,7 @@ def wait_for_db(max_attempts: int = 30, sleep_sec: float = 1.0, log=print) -> bo
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     cur.fetchone()
-            log(f"[db_init] DB ready")
+            log("[db_init] DB ready")
             return True
         except Exception as e:
             log(f"[db_init] waiting for db ({i}/{max_attempts})... {e}")
@@ -91,4 +71,3 @@ def wait_for_db(max_attempts: int = 30, sleep_sec: float = 1.0, log=print) -> bo
 
     log("[db_init] ERROR: DB not ready after retries")
     return False
-        
