@@ -23,6 +23,10 @@ RUN pip install --upgrade pip \
 # Copy the rest of the source
 COPY . .
 
+# Ensure entrypoint has Unix line endings and is executable (CI-safe)
+RUN sed -i 's/\r$//' services/api/docker/entrypoint.sh \
+ && chmod 0755 services/api/docker/entrypoint.sh
+
 # normalize line endings and make entrypoint executable
 RUN set -eux; \
 	sed -i 's/\r$//' services/api/docker/entrypoint.sh && \
@@ -39,5 +43,5 @@ ENV PORT=8080
 
 # NOTE:
 # Root filesystem will be made read-only via docker-compose.
-ENTRYPOINT ["/usr/bin/tini","--","/app/services/api/docker/entrypoint.sh"]
-CMD ["uvicorn", "services.api.app:app", "--host", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["/usr/bin/tini","-g","--","/app/services/api/docker/entrypoint.sh"]
+CMD ["python","-m","uvicorn","services.api.app:app","--host","0.0.0.0","--port","8080"]
