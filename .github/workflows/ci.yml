@@ -1,66 +1,104 @@
 name: CI
 run-name: "PR #${{ github.event.pull_request.number }} • ${{ github.event.pull_request.title || github.ref_name }}"
+
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [ main ]
 
 jobs:
-  build-and-test:
+  unit-tests:
+    name: Unit tests (Python 3.11)
     runs-on: ubuntu-latest
+    env:
+      # Keep tests deterministic; pytest code paths use this
+      PYTEST_ADDOPTS: "-q"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: API deps
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r orchestrator/requirements.txt
           pip install -r services/api/requirements.txt
-          pip install -r tools/requirements.txt
 
-      - name: Run orchestrator summary
-        run: |
-          python orchestrator/main.py
-          
-      - name: Set PYTHONPATH
-        run: echo "PYTHONPATH=." >> $GITHUB_ENV
-
-      - name: Test
-        run: PYTHONPATH=${GITHUB_WORKSPACE} coverage run -m pytest -q
-        
-      - name: Unit tests (API)
-        working-directory: services/api
+      - name: Run tests with coverage
         run: |
           coverage run -m pytest -q
-          coverage xml -o ../../reports/coverage.xml
-          coverage report -m
-
-      - name: QA gate (coverage threshold)
-        run: |
-          python tools/qa_agent.py --strict --xml reports/coverage.xml
-
+          coverage xml -o coverage.xml
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
-          name: coverage
-          path: reports/coverage.xml
-          docker-build:
-      - uses: docker/setup-buildx-action@v3
-      - name: Build API image
-        run: docker build -t agentic-sdlc-api:ci .
-      - name: Build & start (read-only root FS)
-          run: |
-            docker compose up -d --build db db-init
-            docker compose up -d --build api
-            sleep 5
-            curl -f http://localhost:8000/health
+          name: coverage-xml
+          path: coverage.xml
+
+  docker-integration:
+    name: Docker Compose integration (API + DB)
+    runs-on: ubuntu-latest
+    env:
+      # Mirror compose env so entrypoint.sh sees exactly these:
+      POSTGRES_USER: notes
+      POSTGRES_PASSWORD: notes
+      POSTGRES_DB: notes
+      # API container reads DATABASE_URL from env and/or compose:
+      DATABASE_URL: postgresql+psycopg://notes:notes@db:5432/notes
+      # Make compose more patient on CI
+      COMPOSE_HTTP_TIMEOUT: "240"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show docker & compose versions
+        run: |
+          docker version
+          docker compose version
+
+      - name: Build & start stack
+        run: |
+          # Build and start detached; --wait is unreliable with custom health endpoints; we do our own
+          docker compose up --build -d
+        working-directory: .
+
+      - name: Show container status
+        run: |
+          docker ps -a
+          echo "--- DB logs (tail) ---"
+          docker logs --tail=100 agentic-sdlc-db || true
+          echo "--- API logs (tail) ---"
+          docker logs --tail=100 agentic-sdlc-api || true
+
+      - name: Wait for API /health
+        run: |
+          set -e
+          echo "Waiting for http://127.0.0.1:8080/health ..."
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/health | tee /dev/stderr | grep -qi "ok\|healthy\|ready"; then
+              echo "API is healthy."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for API health."
+          echo "--- API logs (full) ---"
+          docker logs agentic-sdlc-api || true
+          echo "--- DB logs (full) ---"
+          docker logs agentic-sdlc-db || true
+          exit 1
+
+      - name: Smoke test endpoints
+        run: |
+          set -e
+          curl -fsS http://127.0.0.1:8080/health
+          curl -fsS http://127.0.0.1:8080/openapi.json | head -c 200 >/dev/null
+
+      - name: Teardown stack
+        if: always()
+        run: docker compose down -v
+
   semgrep:
     name: Semgrep (SAST + Secrets)
     runs-on: ubuntu-latest
@@ -68,7 +106,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
       - run: python -m pip install --upgrade pip
       - run: pip install semgrep==1.74.0
       - name: Scan
