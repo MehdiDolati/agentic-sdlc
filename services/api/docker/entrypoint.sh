@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+﻿#!/usr/bin/env sh
 set -eu
 
 # Enable extra logging with DEBUG_ENTRYPOINT=1

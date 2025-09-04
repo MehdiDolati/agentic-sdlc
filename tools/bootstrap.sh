@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -euo pipefail
 echo "Bootstrapping local dev..."
 python3 -m venv .venv && source .venv/bin/activate
