@@ -24,7 +24,8 @@ RUN pip install --upgrade pip \
 COPY . .
 
 # normalize line endings and make entrypoint executable
-RUN sed -i 's/\r$//' services/api/docker/entrypoint.sh && \
+RUN set -eux; \
+	sed -i 's/\r$//' services/api/docker/entrypoint.sh && \
     chmod +x services/api/docker/entrypoint.sh
 
 # Create non-root user
