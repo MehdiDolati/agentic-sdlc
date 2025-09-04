@@ -2,71 +2,66 @@ version: "3.9"
 
 services:
   db:
-    # ...your existing settings...
-    security_opt:
-      - no-new-privileges:true
+    image: postgres:16-alpine
+    container_name: agentic-sdlc-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
     read_only: true
     tmpfs:
-      - /var/run/postgresql
+      # runtime sockets / pid files
+      - /run
       - /tmp
-    # ensure data stays writable via a volume (you likely already have this):
+      - /var/run/postgresql  
     volumes:
+      # primary data dir must be read-write
       - pgdata:/var/lib/postgresql/data
-    image: postgres:15-alpine
-    env_file: .env
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1 || exit 1"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-
-  db-init:
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp
-    environment:
-      # prevents Python from writing .pyc files to the (now read-only) root fs
-      PYTHONDONTWRITEBYTECODE: "1"
-    build: .
-    image: agentic-sdlc-api:dev
-    env_file: .env
-    depends_on:
-      db:
-        condition: service_healthy
-    entrypoint: ["python", "services/api/tools/db_init.py"]
-    restart: "no"
-
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-appdb} -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
   api:
     build: .
     image: agentic-sdlc-api:dev
-    env_file: .env
+    container_name: agentic-sdlc-api
     depends_on:
       db:
         condition: service_healthy
-      db-init:
-        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://app:app@db:5432/appdb
+      POSTGRES_CONNINFO: host=db port=5432 user=app password=app dbname=appdb  # used by psycopg
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: app
+      PGPASSWORD: app
+      PGDATABASE: appdb
+      UVICORN_HOST: "0.0.0.0"
+      UVICORN_PORT: "8080"
     ports:
-      - "8080:8080"
+      - "${API_PORT:-8080}:8080"
+    # Run DB init/migrations, then start uvicorn
+    command: >
+      sh -c "python services/api/tools/db_init.py &&
+             uvicorn services.api.app:app
+               --host 0.0.0.0
+               --port 8080"
+    # Hardened: read-only root FS; explicitly provide writable mounts
     read_only: true
-    tmpfs:
-      - /tmp
-    volumes:
-      - ./docs:/app/docs
-      - ./plans:/app/plans
     security_opt:
       - no-new-privileges:true
-    command: ["uvicorn", "services.api.app:app", "--host", "0.0.0.0", "--port", "8080"]
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz').read()"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+    cap_drop:
+      - ALL
+    # Code is mounted read-only; /app/docs is writable so the app can emit artifacts
+    volumes:
+      - .:/app:ro
+      - ./docs:/app/docs:rw
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
 
 volumes:
-  pgdata:
+  pgdata: {}
