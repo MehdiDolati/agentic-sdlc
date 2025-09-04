@@ -55,6 +55,12 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: Build API image
         run: docker build -t agentic-sdlc-api:ci .
+      - name: Build & start (read-only root FS)
+          run: |
+            docker compose up -d --build db db-init
+            docker compose up -d --build api
+            sleep 5
+            curl -f http://localhost:8000/health
   semgrep:
     name: Semgrep (SAST + Secrets)
     runs-on: ubuntu-latest

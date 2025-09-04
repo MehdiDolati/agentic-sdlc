@@ -18,7 +18,8 @@ from fastapi import Query
 from services.api.planner.prompt_templates import render_template
 from fastapi import Body,BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
-
+from services.api.db import psycopg_conninfo_from_env, dsn_summary  # dsn_summary should redact pwd if you have it
+import psycopg
 
 
 # Try to import your real generator; if not present we’ll fallback below.
@@ -196,7 +197,21 @@ def _ensure_dir(p: Path) -> None:
 def _write_json(abs_path: Path, data: dict) -> None:
     _ensure_dir(abs_path.parent)
     abs_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    
+
+def ensure_notes_schema() -> None:
+    dsn = psycopg_conninfo_from_env()
+    with psycopg.connect(dsn) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS notes (
+              id SERIAL PRIMARY KEY,
+              title TEXT NOT NULL,
+              body  TEXT NOT NULL,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """)
+        conn.commit()
+        
 # ---------- Orchestrator helpers (timeouts/retries/cancel) ----------
 
 def _posix_rel(p: Path, root: Path) -> str:
@@ -274,6 +289,12 @@ class RequestIn(BaseModel):
 # --------------------------------------------------------------------------------------
 @app.get("/health")
 def health():
+    if os.getenv("STARTUP_DEBUG"):
+        try:
+            dsn = psycopg_conninfo_from_env()
+            print(f"[app] normalized DSN: {dsn_summary(str(dsn))}")
+        except Exception as e:
+            print(f"[app] DSN normalization failed: {e!r}")
     return {"status": "ok"}
 
 

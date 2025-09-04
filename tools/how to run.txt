@@ -1,11 +1,11 @@
 # full run: venv + unit tests + docker up + smoke + docker down
-.\scripts\local-ci.ps1
+.\tools\local-ci.ps1
 
 # keep containers running after smoke
-.\scripts\local-ci.ps1 -KeepRunning
+.\tools\local-ci.ps1 -KeepRunning
 
 # only run Python unit tests (skip docker)
-.\scripts\local-ci.ps1 -SkipDocker
+.\tools\local-ci.ps1 -SkipDocker
 
 
 auto-issue example at the begining:
@@ -28,3 +28,11 @@ $labels = @("area:planner","priority:normal")
 
 run tests locally:
  .\.venv\Scripts\python -m pytest -q services\api
+ 
+ issue flow:
+1 - get issue and open branch
+.\tools\auto-issue.ps1 -Repo "MehdiDolati/agentic-sdlc" -IssueNumber 14
+2 - Push changes and create PR
+.\tools\push-and-close.ps1 -Repo "MehdiDolati/agentic-sdlc" -IssueNumber 14
+3 - Merge the PR and close the issue
+.\tools\finish-issue.ps1 -Repo "MehdiDolati/agentic-sdlc" -IssueNumber 14
