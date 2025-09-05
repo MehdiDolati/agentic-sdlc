@@ -42,11 +42,12 @@ function Ensure-NoNewPriv($serviceName) {
 
 $changed = $false
 Ensure-NoNewPriv "db"
+Ensure-NoNewPriv "api"
 Ensure-NoNewPriv "db-init"
 
 if ($script:changed) {
   Set-Content $compose $script:y -Encoding UTF8
-  Write-Host "Updated security_opt for db/db-init." -ForegroundColor Green
+  Write-Host "Updated security_opt for services." -ForegroundColor Green
 } else {
   Write-Host "No changes needed (already hardened)." -ForegroundColor DarkYellow
 }
