@@ -87,6 +87,32 @@ if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
 $dirty = git status --porcelain
 if ($dirty) { Fail "Working tree is dirty. Commit or stash before running auto-issue." }
 
+# --- NEW: Sync main before branching -----------------------------------------
+try {
+  Write-Host "[auto-issue] Fetching from origin..."
+  & git fetch --prune origin | Out-Null
+
+  # Make sure local 'main' exists and tracks origin/main
+  $hasLocalMain = (& git show-ref --verify --quiet refs/heads/main); $hasLocalMain = ($LASTEXITCODE -eq 0)
+  if (-not $hasLocalMain) {
+    Write-Host "[auto-issue] Creating local 'main' to track 'origin/main'..."
+    & git checkout -b main origin/main | Out-Null
+  }
+
+  Write-Host "[auto-issue] Switching to 'main'..."
+  & git switch main | Out-Null
+
+  Write-Host "[auto-issue] Fast-forwarding 'main' from origin/main..."
+  & git pull --ff-only origin main | Out-Null
+
+  # Optional: verify we are on main and up-to-date
+  $cur = (& git rev-parse --abbrev-ref HEAD).Trim()
+  if ($cur -ne 'main') { Fail "Failed to switch to 'main' (current: $cur)" }
+} catch {
+  Fail ("Failed to sync 'main': {0}" -f $_.Exception.Message)
+}
+# -----------------------------------------------------------------------------
+
 # --- Call dispatcher inline (no child process / no timeout) ------------------
 try {
   $dispatchArgs = @{
