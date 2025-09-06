@@ -49,7 +49,20 @@ except Exception:  # fallback for tests
             return plan
     plan_store = _DummyPlanStore()
 
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+import markdown as _markdown
+
 app = FastAPI(title="Agentic SDLC API", version="0.1.0")
+
+# --- UI wiring (templates + static) ---
+_THIS_DIR = Path(__file__).resolve().parent
+_TEMPLATES_DIR = _THIS_DIR / "templates"
+_STATIC_DIR = _THIS_DIR / "static"
+
+templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
 
 class Artifact(BaseModel):
     id: Optional[str] = None
@@ -105,6 +118,17 @@ def _retarget_store(p: Path) -> None:
     """Used by tests to point the store at a temp dir."""
     global _STORE_ROOT
     _STORE_ROOT = Path(p)
+
+def _read_text_if_exists(p: Path) -> Optional[str]:
+    try:
+        return p.read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+def _render_markdown(md: Optional[str]) -> Optional[str]:
+    if not md:
+        return None
+    return _markdown.markdown(md, extensions=["fenced_code", "tables", "toc"])
 
 def _plans_index_path(repo_root: Path) -> Path:
     return repo_root / "docs" / "plans" / "index.json"
@@ -1101,3 +1125,134 @@ def orchestrator_run(payload: Dict[str, Any]):
     results = run_steps(steps, cwd=_repo_root(), dry_run=dry_run)
     # serialize dataclasses
     return [r.__dict__ for r in results]
+
+from fastapi import Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+
+@app.get("/", include_in_schema=False)
+def ui_root():
+    return RedirectResponse(url="/ui/plans")
+
+@app.get("/ui/plans", response_class=HTMLResponse, include_in_schema=False)
+def ui_plans(request: Request,
+             q: Optional[str] = Query(None, alias="q"),
+             sort: str = Query("created_at"),
+             order: str = Query("desc"),
+             limit: int = Query(20, ge=1, le=100),
+             offset: int = Query(0, ge=0)):
+    """
+    Server-rendered plan list. Uses same backing index as /plans API.
+    """
+    repo_root = _repo_root()
+    idx = _load_index(repo_root)
+    items = list(idx.values())
+
+    # mimic /plans search subset (simple contains on request + artifact paths)
+    if q:
+        ql = q.lower()
+        def _matches(e: Dict[str, Any]) -> bool:
+            if ql in (e.get("request") or "").lower():
+                return True
+            arts = e.get("artifacts") or {}
+            for _, v in arts.items():
+                if ql in str(v).lower():
+                    return True
+            return False
+        items = [e for e in items if _matches(e)]
+
+    # sort
+    reverse = (order or "desc").lower() == "desc"
+    items.sort(key=lambda e: _sort_key(e, sort or "created_at"), reverse=reverse)
+
+    total = len(items)
+    page_items = items[offset: offset + limit]
+
+    ctx = {
+        "request": request,
+        "title": "Plans",
+        "plans": page_items,
+        "total": total,
+        "page": (offset // limit) + 1,
+        "limit": limit,
+        "offset": offset,
+        "q": q or "",
+        "sort": sort or "created_at",
+        "order": order or "desc",
+    }
+
+    # If HTMX paginates/searches we only re-render the table fragment
+    if request.headers.get("HX-Request") == "true":
+        return templates.TemplateResponse("plans_list_table.html", ctx)
+    return templates.TemplateResponse("plans_list.html", ctx)
+
+@app.get("/ui/plans/{plan_id}", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_detail(request: Request, plan_id: str):
+    repo_root = _repo_root()
+    plan_dir = repo_root / "docs" / "plans" / plan_id
+    plan_json = plan_dir / "plan.json"
+    if not plan_json.exists():
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    plan = json.loads(plan_json.read_text(encoding="utf-8"))
+    artifacts = plan.get("artifacts") or {}
+
+    prd_rel = artifacts.get("prd")
+    adr_rel = artifacts.get("adr")
+    openapi_rel = artifacts.get("openapi")
+
+    prd_html = _render_markdown(_read_text_if_exists(repo_root / prd_rel)) if prd_rel else None
+    adr_html = _render_markdown(_read_text_if_exists(repo_root / adr_rel)) if adr_rel else None
+    openapi_text = _read_text_if_exists(repo_root / openapi_rel) if openapi_rel else None
+
+    ctx = {
+        "request": request,
+        "title": f"Plan {plan_id}",
+        "plan": plan,
+        "prd_rel": prd_rel, "prd_html": prd_html,
+        "adr_rel": adr_rel, "adr_html": adr_html,
+        "openapi_rel": openapi_rel, "openapi_text": openapi_text,
+    }
+    return templates.TemplateResponse("plan_detail.html", ctx)
+
+# HTMX partials for detail sections
+@app.get("/ui/plans/{plan_id}/sections/prd", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_prd(request: Request, plan_id: str):
+    repo_root = _repo_root()
+    plan_dir = repo_root / "docs" / "plans" / plan_id
+    plan_json = plan_dir / "plan.json"
+    if not plan_json.exists():
+        raise HTTPException(status_code=404, detail="Plan not found")
+    plan = json.loads(plan_json.read_text(encoding="utf-8"))
+    prd_rel = (plan.get("artifacts") or {}).get("prd")
+    prd_html = _render_markdown(_read_text_if_exists(repo_root / prd_rel)) if prd_rel else None
+    return templates.TemplateResponse("section_prd.html", {
+        "request": request, "prd_rel": prd_rel, "prd_html": prd_html
+    })
+
+@app.get("/ui/plans/{plan_id}/sections/adr", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_adr(request: Request, plan_id: str):
+    repo_root = _repo_root()
+    plan_dir = repo_root / "docs" / "plans" / plan_id
+    plan_json = plan_dir / "plan.json"
+    if not plan_json.exists():
+        raise HTTPException(status_code=404, detail="Plan not found")
+    plan = json.loads(plan_json.read_text(encoding="utf-8"))
+    adr_rel = (plan.get("artifacts") or {}).get("adr")
+    adr_html = _render_markdown(_read_text_if_exists(repo_root / adr_rel)) if adr_rel else None
+    return templates.TemplateResponse("section_adr.html", {
+        "request": request, "adr_rel": adr_rel, "adr_html": adr_html
+    })
+
+@app.get("/ui/plans/{plan_id}/sections/openapi", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_openapi(request: Request, plan_id: str):
+    repo_root = _repo_root()
+    plan_dir = repo_root / "docs" / "plans" / plan_id
+    plan_json = plan_dir / "plan.json"
+    if not plan_json.exists():
+        raise HTTPException(status_code=404, detail="Plan not found")
+    plan = json.loads(plan_json.read_text(encoding="utf-8"))
+    openapi_rel = (plan.get("artifacts") or {}).get("openapi")
+    openapi_text = _read_text_if_exists(repo_root / openapi_rel) if openapi_rel else None
+    return templates.TemplateResponse("section_openapi.html", {
+        "request": request, "openapi_rel": openapi_rel, "openapi_text": openapi_text or "(no OpenAPI yet)"
+    })

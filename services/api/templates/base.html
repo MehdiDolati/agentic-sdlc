@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ title or "Planner UI" }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link href="{{ url_for('static', path='style.css') }}" rel="stylesheet" />
+    <script src="https://unpkg.com/htmx.org@1.9.12" defer integrity="sha384-0o0vW5KkqLQhGxSsJmK3Zt1i8q9dZ/3t9XQwP0V8H4s8U7bW1W86vZ3Y8XgP7Xxj" crossorigin="anonymous"></script>
+  </head>
+  <body>
+    <header>
+      <a href="/ui/plans"><strong>Agentic SDLC — Planner</strong></a>
+      <span class="badge">MVP</span>
+    </header>
+    <div class="container">
+      {% block content %}{% endblock %}
+    </div>
+  </body>
+</html>
