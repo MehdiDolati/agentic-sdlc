@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Plans</h1>
+
+<div class="card" style="margin-top:12px;">
+  <form id="searchForm"
+        hx-get="/ui/plans"
+        hx-target="#results"
+        hx-push-url="true"
+        hx-trigger="submit, keyup delay:300ms from:#q">
+    <div class="grid grid-2">
+      <input id="q" name="q" value="{{ q or '' }}" placeholder="Search (goal, artifacts)...">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <select name="sort">
+          <option value="created_at" {{ 'selected' if sort=='created_at' else '' }}>Sort by created_at</option>
+          <option value="request" {{ 'selected' if sort=='request' else '' }}>Sort by request</option>
+        </select>
+        <select name="order">
+          <option value="desc" {{ 'selected' if order=='desc' else '' }}>Desc</option>
+          <option value="asc"  {{ 'selected' if order=='asc' else '' }}>Asc</option>
+        </select>
+        <input type="number" name="limit" value="{{ limit }}" min="1" max="100" style="width:100px;">
+        <button type="submit">Apply</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div id="results" hx-swap="outerHTML" style="margin-top:12px;">
+  {% include "plans_list_table.html" %}
+</div>
+{% endblock %}
