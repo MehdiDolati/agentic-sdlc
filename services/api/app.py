@@ -2,6 +2,7 @@
 from __future__ import annotations
 from pathlib import Path
 import sys
+import re
 _BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
     sys.path.insert(0, str(_BASE_DIR))
@@ -12,7 +13,7 @@ _STORE_ROOT: Optional[Path] = None
 import os, uuid, json, time, threading, subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, List, Dict, Optional, Any
+from typing import Callable, List, Dict, Optional, Any, Tuple
 from pydantic import BaseModel, Field
 from fastapi import Query
 from services.api.planner.prompt_templates import render_template
@@ -123,6 +124,112 @@ def _save_index(repo_root: Path, idx: Dict[str, dict]) -> None:
     path = _plans_index_path(repo_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8")
+
+# ---------- Plans search/filter helpers ----------
+
+_ARTIFACT_EXT_MAP = {
+    "prd": {".md", ".markdown"},
+    "openapi": {".yaml", ".yml", ".json"},
+    "doc": {".md", ".markdown", ".rst"},
+    "code": {".py", ".ts", ".js", ".go", ".java", ".cs", ".rb"},
+}
+
+def _to_dt(ts: str) -> Optional[datetime]:
+    # ts in our index is "%Y%m%d%H%M%S" (UTC) from create_request()
+    try:
+        return datetime.strptime(ts, "%Y%m%d%H%M%S")
+    except Exception:
+        return None
+
+def _artifact_type_match(artifacts: Dict[str, str], want: str) -> bool:
+    """Match by artifact key or by file extension class."""
+    want = want.strip().lower()
+    if not want or not artifacts:
+        return True
+    # key match (e.g., "prd" or "openapi")
+    if want in artifacts:
+        return True
+    # extension class match
+    exts = _ARTIFACT_EXT_MAP.get(want)
+    if not exts:
+        # treat want as a raw extension like ".md" or "md"
+        raw = want if want.startswith(".") else f".{want}"
+        exts = {raw.lower()}
+    for _, path in artifacts.items():
+        p = str(path).lower()
+        for ext in exts:
+            if p.endswith(ext):
+                return True
+    return False
+
+def _text_contains(hay: str, needle: str) -> bool:
+    return needle.lower() in hay.lower()
+
+def _entry_matches_q(entry: Dict[str, Any], q: str) -> bool:
+    """Full-text-ish search across goal/request, artifacts, and common step/summary fields."""
+    if not q:
+        return True
+    fields: List[str] = []
+    # goal / request
+    if entry.get("request"):
+        fields.append(str(entry["request"]))
+    # artifacts: keys + paths
+    arts = entry.get("artifacts") or {}
+    for k, v in arts.items():
+        fields.append(str(k))
+        fields.append(str(v))
+    # optional fields some pipelines may add
+    for k in ("summary", "details", "steps", "notes", "title"):
+        if k in entry and isinstance(entry[k], str):
+            fields.append(entry[k])
+        elif k in entry and isinstance(entry[k], list):
+            try:
+                fields.append(" ".join(map(str, entry[k])))
+            except Exception:
+                pass
+    blob = " \n ".join(fields)
+    return _text_contains(blob, q)
+
+def _filter_entry(entry: Dict[str, Any],
+                  q: str,
+                  owner: Optional[str],
+                  status: Optional[str],
+                  artifact_type: Optional[str],
+                  created_from: Optional[datetime],
+                  created_to: Optional[datetime]) -> bool:
+    if not _entry_matches_q(entry, q or ""):
+        return False
+    if owner:
+        e_owner = str(entry.get("owner", "")).strip().lower()
+        if e_owner != owner.strip().lower():
+            return False
+    if status:
+        e_status = str(entry.get("status", "")).strip().lower()
+        if e_status != status.strip().lower():
+            return False
+    if artifact_type:
+        if not _artifact_type_match(entry.get("artifacts") or {}, artifact_type):
+            return False
+    if created_from or created_to:
+        dt = _to_dt(entry.get("created_at", "") or "")
+        if dt is None:
+            return False
+        if created_from and dt < created_from:
+            return False
+        if created_to and dt > created_to:
+            return False
+    return True
+
+def _sort_key(entry: Dict[str, Any], key: str) -> Any:
+    k = key.strip().lower()
+    if k in ("created_at", "created"):
+        dt = _to_dt(entry.get("created_at", "") or "")
+        # sort newest first by default later
+        return dt or datetime.min
+    if k in ("owner", "status", "request", "id"):
+        return str(entry.get(k, "")).lower()
+    # fallback: by created_at then id
+    return (_to_dt(entry.get("created_at", "") or "") or datetime.min, str(entry.get("id", "")))
 
 def _slugify(text: str) -> str:
     import re
@@ -265,6 +372,32 @@ def _append_run_to_index(repo_root: Path, plan_id: str, run_id: str, rel_manifes
     entry["runs"] = runs
     idx[plan_id] = entry
     _save_index(repo_root, idx)
+
+# near your helpers (where _sort_key lives)
+def _sort_key(entry: Dict[str, Any], key: Any) -> Any:
+    # Coerce FastAPI Query(...) default or tuple/list to a plain string
+    k = key
+    if isinstance(k, (list, tuple)):
+        k = k[0] if k else "created_at"
+    # FastAPI's Query object has a `.default` with the actual default value
+    if hasattr(k, "default"):
+        default_val = getattr(k, "default")
+        if isinstance(default_val, str):
+            k = default_val
+    if not isinstance(k, str):
+        k = "created_at"
+
+    k = k.strip().lower()
+
+    if k in {"created_at", "created"}:
+        return entry.get("created_at", "")
+    if k in {"request", "goal"}:
+        return entry.get("request", "")
+    if k == "id":
+        return entry.get("id", "")
+
+    # fall back to top-level field if present
+    return entry.get(k, "")
 
 # ---------- Notes DB (Postgres/SQLite via SQLAlchemy) ----------
 _NOTES_METADATA = MetaData()
@@ -533,51 +666,109 @@ def create_request(req: RequestIn):
         "artifacts": norm_artifacts,
         "request": req.text,
     }
-    
+
 @app.get("/plans")
 def list_plans(
-    offset: int = 0,
-    limit: int = 50,
     q: Optional[str] = None,
+    owner: Optional[str] = None,
+    status: Optional[str] = None,
+    artifact_type: Optional[str] = None,
+    created_from: Optional[str] = None,  # ISO-like "YYYY-MM-DD" or full "YYYY-MM-DDTHH:MM:SS"
+    created_to: Optional[str] = None,
+    sort: str | tuple[str] = Query("created_at"),
+    direction: str = Query("desc"),
+    order: str = "desc",                 # asc | desc
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    limit: int | None = Query(None, ge=1, le=200),
+    offset: int | None = Query(None, ge=0),
 ):
-    repo_root = _store_root()
-    idx = _load_index(repo_root)
-    items = list(idx.values())
-    items.sort(key=lambda e: e.get("created_at", ""), reverse=True)
+    """
+    Search & filter plans:
+      - q: full-text search across request, artifacts (keys & paths), and optional fields (summary/steps/etc)
+      - owner: exact match on entry.owner (if present)
+      - status: exact match on entry.status (if present)
+      - artifact_type: key ("prd", "openapi") or extension group ("doc","code") or raw ext (".md"/"md")
+      - created_from/created_to: inclusive bounds. Accepts YYYY-MM-DD or full timestamp; entries use UTC "%Y%m%d%H%M%S"
+      - sort: created_at|owner|status|request|id
+      - order: asc|desc
+      - pagination: page/page_size
+    """
+    repo_root = _repo_root()
+    idx = _load_index(repo_root)  # dict[plan_id] -> entry
 
-    if q:
-        ql = q.lower()
-        items = [
-            it for it in items
-            if ql in (it.get("request", "") or "").lower()
-            or ql in (it.get("id", "") or "").lower()
-        ]
+    # Parse date filters
+    def _parse_date(s: Optional[str]) -> Optional[datetime]:
+        if not s:
+            return None
+        s = s.strip()
+        # Accept common shapes
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y%m%d%H%M%S"):
+            try:
+                return datetime.strptime(s, fmt)
+            except Exception:
+                continue
+        # try only date digits (YYYYMMDD)
+        if re.fullmatch(r"\d{8}", s):
+            try:
+                return datetime.strptime(s, "%Y%m%d")
+            except Exception:
+                pass
+        return None
 
-    if offset < 0:
-        offset = 0
-    if limit < 0:
-        limit = 0
-    if limit > 200:
-        limit = 200
+    dt_from = _parse_date(created_from)
+    dt_to = _parse_date(created_to)
 
-    total = len(items)
+    # Filter
+    entries = list(idx.values())
+    filtered = [
+        e for e in entries
+        if _filter_entry(e, q, owner, status, artifact_type, dt_from, dt_to)
+    ]
 
-    # ✅ bypass test expectation: return [] if nothing
-    if total == 0:
-        return []
+    # Sort
+    reverse = (order or "desc").lower() != "asc"
+    sort: str = Query("created_at", enum=["created_at", "owner", "status", "request", "id"]),
+    order: str = Query("desc", enum=["asc", "desc"]),
+    sort_field = sort  # whatever FastAPI injects
+        # Map legacy limit/offset to page/page_size if supplied
+    if limit is not None:
+        page_size = limit
+    if offset is not None:
+        page = (offset // page_size) + 1
+    filtered.sort(key=lambda e: _sort_key(e, sort_field), reverse=reverse)
+    # Pagination
+    try:
+        page_i = max(1, int(page))
+    except Exception:
+        page_i = 1
+    try:
+        size = max(1, min(200, int(page_size)))
+    except Exception:
+        size = 20
 
-    if limit == 0:
-        page = items[offset:]
-    else:
-        page = items[offset:offset + limit]
+    # existing variables:
+    # filtered -> list after filters
+    # page, page_size, total -> ints
+    
+    total = len(filtered)
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_items = filtered[start:end]
 
     return {
-        "plans": page,
+        # legacy fields expected by tests
+        "plans": page_items,
+        "limit": page_size,
+        "offset": start,
+
+        # your newer fields
+        "items": page_items,
         "total": total,
-        "offset": offset,
-        "limit": limit,
-        "q": q,
+        "page": page,
+        "page_size": page_size,
     }
+
 
 @app.get("/plans/{plan_id}")
 def get_plan(plan_id: str):
