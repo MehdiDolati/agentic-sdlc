@@ -64,6 +64,30 @@ _STATIC_DIR = _THIS_DIR / "static"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+# at top
+import os
+from pathlib import Path
+
+def _writable_repo_root() -> Path:
+    # Prefer env override (used in docker/CI)
+    env_root = os.getenv("REPO_ROOT")
+    if env_root:
+        p = Path(env_root)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    # Default to repository root (current /app in image). If not writable, use /tmp.
+    p = Path.cwd()
+    try:
+        (p / ".write_test").write_text("ok", encoding="utf-8")
+        (p / ".write_test").unlink(missing_ok=True)
+        return p
+    except Exception:
+        tmp = Path("/tmp/agentic-sdlc")
+        tmp.mkdir(parents=True, exist_ok=True)
+        return tmp
+
+_repo_root = _writable_repo_root()
 
 class Artifact(BaseModel):
     id: Optional[str] = None
