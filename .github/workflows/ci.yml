@@ -102,7 +102,10 @@ jobs:
           -H 'Content-Type: application/json' \
           -d '{"text":"UI smoke seed plan"}' > /tmp/seed.json
           cat /tmp/seed.json
-
+      - name: Show API logs on failure
+        if: failure()
+        run: |
+          docker compose logs api --tail=500
       - name: Extract plan_id
         run: |
           set -e
