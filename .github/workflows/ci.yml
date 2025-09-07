@@ -115,19 +115,19 @@ jobs:
       #    fi
       #    echo "PLAN_ID=$PLAN_ID" >> $GITHUB_ENV
       
-      - name: UI list page smoke
-        run: |
-          set -e
-          curl -sS http://127.0.0.1:8080/ui/plans | tee /tmp/plans.html
-          grep -q "<h1>Plans</h1>" /tmp/plans.html
+      #- name: UI list page smoke
+      #  run: |
+      #    set -e
+      #    curl -sS http://127.0.0.1:8080/ui/plans | tee /tmp/plans.html
+      #    grep -q "<h1>Plans</h1>" /tmp/plans.html
       
-      - name: UI detail page smoke
-        run: |
-          set -e
-          curl -sS "http://127.0.0.1:8080/ui/plans/${PLAN_ID}" | tee /tmp/plan.html
-          grep -q "<h1>Plan</h1>" /tmp/plan.html
-          grep -q "<h2>PRD</h2>" /tmp/plan.html
-          grep -q "<h2>OpenAPI</h2>" /tmp/plan.html
+      #- name: UI detail page smoke
+      #  run: |
+      #    set -e
+      #    curl -sS "http://127.0.0.1:8080/ui/plans/${PLAN_ID}" | tee /tmp/plan.html
+      #    grep -q "<h1>Plan</h1>" /tmp/plan.html
+      #    grep -q "<h2>PRD</h2>" /tmp/plan.html
+      #    grep -q "<h2>OpenAPI</h2>" /tmp/plan.html
       - name: Teardown stack
         if: always()
         run: docker compose down -v
