@@ -40,9 +40,6 @@ jobs:
   docker-integration:
     name: Docker Compose integration (API + DB)
     runs-on: ubuntu-latest
-    container:
-      image: owasp/zap2docker-stable
-      options: --user root -v ${{ github.workspace }}:/zap/wrk/:rw
     env:
       # Mirror compose env so entrypoint.sh sees exactly these:
       POSTGRES_USER: app
