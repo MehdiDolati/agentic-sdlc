@@ -55,7 +55,6 @@ import markdown as _markdown
 
 app = FastAPI(title="Agentic SDLC API", version="0.1.0")
 
-
 # --- UI wiring (templates + static) ---
 _THIS_DIR = Path(__file__).resolve().parent
 _TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"

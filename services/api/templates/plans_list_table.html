@@ -1,0 +1,33 @@
+<div class="card">
+  <div class="meta">Total: {{ total }} • Page {{ page }} • Showing {{ plans|length }}</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Created</th>
+        <th>Request</th>
+        <th>Artifacts</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for p in plans %}
+      <tr>
+        <td><span class="meta">{{ p["created_at"] }}</span></td>
+        <td><a href="/ui/plans/{{ p['id'] }}">{{ p["request"] }}</a></td>
+        <td class="meta">
+          {% for k, v in (p.get("artifacts") or {}).items() %}
+            <span class="badge">{{ k }}</span>
+          {% endfor %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+    {% set prev_off = (offset - limit) if offset - limit >= 0 else 0 %}
+    {% set next_off = offset + limit %}
+    <a class="badge" hx-get="/ui/plans?q={{ q|urlencode }}&sort={{ sort }}&order={{ order }}&limit={{ limit }}&offset={{ prev_off }}" hx-target="#results" hx-push-url="true">Prev</a>
+    {% if next_off < total %}
+    <a class="badge" hx-get="/ui/plans?q={{ q|urlencode }}&sort={{ sort }}&order={{ order }}&limit={{ limit }}&offset={{ next_off }}" hx-target="#results" hx-push-url="true">Next</a>
+    {% endif %}
+  </div>
+</div>
