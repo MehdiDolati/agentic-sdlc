@@ -60,10 +60,11 @@ services:
     # Code is mounted read-only; /app/docs is writable so the app can emit artifacts
     volumes:
       - .:/app:ro
-      - ./docs:/app/docs:rw
+      - plans_data:/app/docs
     tmpfs:
       - /tmp
     restart: unless-stopped
 
 volumes:
   pgdata: {}
+  plans_data: {}
