@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Plan</h1>
+<h1>Plan {{ plan.id }}</h1>  <!-- optional, keep your current one -->
+<a href="/ui/plans">← All plans</a>
+<h1>{{ plan["request"] }}</h1>
+<h2>OpenAPI</h2>
+<div class="meta">ID: {{ plan["id"] }} • Created: {{ plan["created_at"] }}</div>
+
+<div class="card" style="margin-top:12px;">
+  <div><strong>Artifacts</strong></div>
+  <div class="tabbar">
+    {% if prd_html %}<a href="#prd" hx-get="/ui/plans/{{ plan['id'] }}/sections/prd" hx-target="#section" hx-push-url="true">PRD</a>{% endif %}
+    {% if adr_html %}<a href="#adr" hx-get="/ui/plans/{{ plan['id'] }}/sections/adr" hx-target="#section" hx-push-url="true">ADR</a>{% endif %}
+    {% if openapi_text %}<a href="#openapi" hx-get="/ui/plans/{{ plan['id'] }}/sections/openapi" hx-target="#section" hx-push-url="true">OpenAPI</a>{% endif %}
+  </div>
+  <div id="section">
+    {% if prd_html %}
+      {% include "section_prd.html" %}
+    {% elif adr_html %}
+      {% include "section_adr.html" %}
+    {% elif openapi_text %}
+      {% include "section_openapi.html" %}
+    {% else %}
+      <div class="meta">No artifacts found yet.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -57,12 +57,37 @@ app = FastAPI(title="Agentic SDLC API", version="0.1.0")
 
 # --- UI wiring (templates + static) ---
 _THIS_DIR = Path(__file__).resolve().parent
-_TEMPLATES_DIR = _THIS_DIR / "templates"
+_TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
+templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 _STATIC_DIR = _THIS_DIR / "static"
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+# at top
+import os
+from pathlib import Path
+
+def _writable_repo_root() -> Path:
+    # Prefer env override (used in docker/CI)
+    env_root = os.getenv("REPO_ROOT")
+    if env_root:
+        p = Path(env_root)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    # Default to repository root (current /app in image). If not writable, use /tmp.
+    p = Path.cwd()
+    try:
+        (p / ".write_test").write_text("ok", encoding="utf-8")
+        (p / ".write_test").unlink(missing_ok=True)
+        return p
+    except Exception:
+        tmp = Path("/tmp/agentic-sdlc")
+        tmp.mkdir(parents=True, exist_ok=True)
+        return tmp
+
+_repo_root = _writable_repo_root()
 
 class Artifact(BaseModel):
     id: Optional[str] = None
@@ -245,15 +270,18 @@ def _filter_entry(entry: Dict[str, Any],
     return True
 
 def _sort_key(entry: Dict[str, Any], key: str) -> Any:
-    k = key.strip().lower()
-    if k in ("created_at", "created"):
-        dt = _to_dt(entry.get("created_at", "") or "")
-        # sort newest first by default later
-        return dt or datetime.min
-    if k in ("owner", "status", "request", "id"):
-        return str(entry.get(k, "")).lower()
-    # fallback: by created_at then id
-    return (_to_dt(entry.get("created_at", "") or "") or datetime.min, str(entry.get("id", "")))
+    """
+    Stable sort key. Use a secondary field to break ties so asc/desc differ.
+    """
+    k = (key or "").strip().lower()
+    # timestamps can collide -> tie-break by id
+    if k in {"created_at", "updated_at"}:
+        return (entry.get(k, "") or "", entry.get("id", "") or "")
+    # text fields -> case-insensitive + id
+    if k in {"request", "owner", "status"}:
+        return ((entry.get(k, "") or "").lower(), entry.get("id", "") or "")
+    # default -> value + id to keep stability
+    return (entry.get(k, ""), entry.get("id", "") or "")
 
 def _slugify(text: str) -> str:
     import re
@@ -716,7 +744,7 @@ def list_plans(
       - created_from/created_to: inclusive bounds. Accepts YYYY-MM-DD or full timestamp; entries use UTC "%Y%m%d%H%M%S"
       - sort: created_at|owner|status|request|id
       - order: asc|desc
-      - pagination: page/page_size
+      - pagination: page/page_size (limit/offset supported for legacy)
     """
     repo_root = _repo_root()
     idx = _load_index(repo_root)  # dict[plan_id] -> entry
@@ -726,13 +754,11 @@ def list_plans(
         if not s:
             return None
         s = s.strip()
-        # Accept common shapes
         for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y%m%d%H%M%S"):
             try:
                 return datetime.strptime(s, fmt)
             except Exception:
                 continue
-        # try only date digits (YYYYMMDD)
         if re.fullmatch(r"\d{8}", s):
             try:
                 return datetime.strptime(s, "%Y%m%d")
@@ -750,18 +776,31 @@ def list_plans(
         if _filter_entry(e, q, owner, status, artifact_type, dt_from, dt_to)
     ]
 
-    # Sort
-    reverse = (order or "desc").lower() != "asc"
-    sort: str = Query("created_at", enum=["created_at", "owner", "status", "request", "id"]),
-    order: str = Query("desc", enum=["asc", "desc"]),
-    sort_field = sort  # whatever FastAPI injects
-        # Map legacy limit/offset to page/page_size if supplied
+    # ---- Sorting (stable with id tiebreaker) ----
+    # Accept both "order" and legacy "direction", prefer "order"
+    order_val = (order or direction or "desc").lower()
+    reverse = order_val == "desc"
+
+    sort_field = (sort[0] if isinstance(sort, tuple) else sort) or "created_at"
+    sort_field = str(sort_field).lower()
+    if sort_field not in {"created_at", "owner", "status", "request", "id"}:
+        sort_field = "created_at"
+
+    def _sv(e: dict, field: str):
+        v = e.get(field)
+        # Keep strings as-is (created_at, id, etc. are strings in our index)
+        # For None, use empty string so comparisons work.
+        return v if isinstance(v, str) else ("" if v is None else str(v))
+
+    # key is a tuple: (primary_field, id) so order flips between asc/desc even when primary is equal
+    filtered.sort(key=lambda e: (_sv(e, sort_field), _sv(e, "id")), reverse=reverse)
+
+    # ---- Pagination (map legacy limit/offset) ----
     if limit is not None:
         page_size = limit
     if offset is not None:
-        page = (offset // page_size) + 1
-    filtered.sort(key=lambda e: _sort_key(e, sort_field), reverse=reverse)
-    # Pagination
+        page = (offset // max(1, page_size)) + 1
+
     try:
         page_i = max(1, int(page))
     except Exception:
@@ -771,27 +810,24 @@ def list_plans(
     except Exception:
         size = 20
 
-    # existing variables:
-    # filtered -> list after filters
-    # page, page_size, total -> ints
-    
     total = len(filtered)
-    start = (page - 1) * page_size
-    end = start + page_size
+    start = (page_i - 1) * size
+    end = start + size
     page_items = filtered[start:end]
 
     return {
         # legacy fields expected by tests
         "plans": page_items,
-        "limit": page_size,
+        "limit": size,
         "offset": start,
 
-        # your newer fields
+        # newer fields
         "items": page_items,
         "total": total,
-        "page": page,
-        "page_size": page_size,
+        "page": page_i,
+        "page_size": size,
     }
+
 
 
 @app.get("/plans/{plan_id}")
