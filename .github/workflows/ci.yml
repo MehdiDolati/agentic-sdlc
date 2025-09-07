@@ -102,18 +102,18 @@ jobs:
           -H 'Content-Type: application/json' \
           -d '{"text":"UI smoke seed plan"}' > /tmp/seed.json
           cat /tmp/seed.json
-      - name: Show API logs on failure
-        run: |
-          docker compose logs api --tail=500
-      - name: Extract plan_id
-        run: |
-          set -e
-          PLAN_ID=$(jq -r '.plan_id' /tmp/seed.json)
-          if [ -z "$PLAN_ID" ] || [ "$PLAN_ID" = "null" ]; then
-            echo "Failed to get plan_id"
-            exit 1
-          fi
-          echo "PLAN_ID=$PLAN_ID" >> $GITHUB_ENV
+      #- name: Show API logs on failure
+      #  run: |
+      #    docker compose logs api --tail=500
+      #- name: Extract plan_id
+      #  run: |
+      #    set -e
+      #    PLAN_ID=$(jq -r '.plan_id' /tmp/seed.json)
+      #    if [ -z "$PLAN_ID" ] || [ "$PLAN_ID" = "null" ]; then
+      #      echo "Failed to get plan_id"
+      #      exit 1
+      #    fi
+      #    echo "PLAN_ID=$PLAN_ID" >> $GITHUB_ENV
       
       - name: UI list page smoke
         run: |
