@@ -95,9 +95,6 @@ jobs:
           curl -fsS http://127.0.0.1:8080/health
           curl -fsS http://127.0.0.1:8080/openapi.json | head -c 200 >/dev/null
 
-      - name: Teardown stack
-        if: always()
-        run: docker compose down -v
       - name: Seed a plan
         run: |
           set -e
@@ -129,8 +126,10 @@ jobs:
           grep -q "<h1>Plan</h1>" /tmp/plan.html
           grep -q "<h2>PRD</h2>" /tmp/plan.html
           grep -q "<h2>OpenAPI</h2>" /tmp/plan.html
-
-
+      - name: Teardown stack
+        if: always()
+        run: docker compose down -v
+        
   semgrep:
     name: Semgrep (SAST + Secrets)
     runs-on: ubuntu-latest
