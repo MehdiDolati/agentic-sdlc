@@ -98,6 +98,38 @@ jobs:
       - name: Teardown stack
         if: always()
         run: docker compose down -v
+      - name: Seed a plan
+        run: |
+          set -e
+          curl -sS -X POST http://127.0.0.1:8080/requests \
+          -H 'Content-Type: application/json' \
+          -d '{"text":"UI smoke seed plan"}' > /tmp/seed.json
+          cat /tmp/seed.json
+
+      - name: Extract plan_id
+        run: |
+          set -e
+          PLAN_ID=$(jq -r '.plan_id' /tmp/seed.json)
+          if [ -z "$PLAN_ID" ] || [ "$PLAN_ID" = "null" ]; then
+            echo "Failed to get plan_id"
+            exit 1
+          fi
+          echo "PLAN_ID=$PLAN_ID" >> $GITHUB_ENV
+      
+      - name: UI list page smoke
+        run: |
+          set -e
+          curl -sS http://127.0.0.1:8080/ui/plans | tee /tmp/plans.html
+          grep -q "<h1>Plans</h1>" /tmp/plans.html
+      
+      - name: UI detail page smoke
+        run: |
+          set -e
+          curl -sS "http://127.0.0.1:8080/ui/plans/${PLAN_ID}" | tee /tmp/plan.html
+          grep -q "<h1>Plan</h1>" /tmp/plan.html
+          grep -q "<h2>PRD</h2>" /tmp/plan.html
+          grep -q "<h2>OpenAPI</h2>" /tmp/plan.html
+
 
   semgrep:
     name: Semgrep (SAST + Secrets)
@@ -113,3 +145,4 @@ jobs:
         run: |
           semgrep --config p/default --config p/secrets --error \
                   --exclude .venv --exclude node_modules --exclude reports
+                  

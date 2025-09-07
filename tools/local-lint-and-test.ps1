@@ -56,6 +56,62 @@ Section "Unit tests (pytest)"
 & $python -m pytest -q services\api
 if ($LASTEXITCODE -ne 0) { Fail "Unit tests failed." }
 
+Write-Host "`n== UI route smoke =="
+python - <<'PY'
+import requests, os
+base = os.environ.get("API_BASE","http://127.0.0.1:8080")
+try:
+    r = requests.get(base + "/ui/plans", timeout=3)
+    print("GET /ui/plans ->", r.status_code)
+except Exception as e:
+    print("UI smoke skipped (server not running):", e)
+PY
+Write-Host ""
+Write-Host "== UI smoke (docker + curl) =="
+
+# Build & start (best-effort; leave running briefly for smoke)
+docker compose up -d --build
+
+# Wait for API to be healthy
+$healthUrl = "http://127.0.0.1:8080/health"
+$max = 60
+for ($i=0; $i -lt $max; $i++) {
+  try {
+    $r = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 2
+    if ($r.StatusCode -eq 200) { break }
+  } catch {}
+  Start-Sleep -Seconds 1
+}
+if ($i -ge $max) {
+  Write-Error "Timed out waiting for API health."
+  exit 1
+}
+
+# Seed a plan to ensure UI has content
+$reqBody = @{ text = "UI smoke seed plan" } | ConvertTo-Json
+$resp = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/requests" -Body $reqBody -ContentType "application/json"
+$planId = $resp.plan_id
+if (-not $planId) { Write-Error "Failed to create plan for UI smoke."; exit 1 }
+
+# Check list page contains the header
+$listHtml = Invoke-WebRequest -Uri "http://127.0.0.1:8080/ui/plans" -UseBasicParsing
+if ($listHtml.Content -notmatch "<h1>Plans</h1>") {
+  Write-Error "UI /ui/plans missing header"
+  exit 1
+}
+
+# Check detail page contains the header + PRD/OpenAPI sections
+$detailHtml = Invoke-WebRequest -Uri "http://127.0.0.1:8080/ui/plans/$planId" -UseBasicParsing
+$must = @("<h1>Plan</h1>", "<h2>PRD</h2>", "<h2>OpenAPI</h2>")
+foreach ($m in $must) {
+  if ($detailHtml.Content -notmatch [regex]::Escape($m)) {
+    Write-Error "UI /ui/plans/$planId missing: $m"
+    exit 1
+  }
+}
+
+Write-Host "UI smoke passed."
+
 # Optional Docker smoke
 if ($WithDockerSmoke) {
   Section "Docker smoke (compose up + health probe)"
