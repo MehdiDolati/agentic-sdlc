@@ -12,3 +12,4 @@ psycopg[binary]==3.1.19
 SQLAlchemy==2.0.32
 jinja2
 markdown
+pydantic[email]
