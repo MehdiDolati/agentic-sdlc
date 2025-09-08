@@ -37,14 +37,15 @@ $pr = gh pr list -R $Repo --head $branch --state open --json number,title | Conv
 if (-not $pr) {
   Write-Host "No open PR found. Creating one…"
   # If IssueNumber is provided, link it in the body so GitHub can auto-close on merge
-  $body = if ($PSBoundParameters.ContainsKey('IssueNumber')) { "Fixes #$IssueNumber" } else { "" }
+
+  $body = if ($PSBoundParameters.ContainsKey('IssueNumber')) { "Fixes #${IssueNumber}" } else { "" }
   $created = gh pr create -R $Repo --fill --base main --head $branch --body $body --json number,title,url | ConvertFrom-Json
   if (-not $created) { Fail "Failed to create PR for '$branch'." }
   $prNum = $created.number
-  Write-Host "Created PR #$prNum - $($created.title)"
+  Write-Host "Created PR #${prNum} - $($created.title)"
 } else {
   $prNum = $pr[0].number
-  Write-Host "Found PR #$prNum - $($pr[0].title)"
+  Write-Host "Found PR #${prNum} - $($pr[0].title)"
 }
 
 # Optionally wait for checks to pass
@@ -52,7 +53,7 @@ if ($WaitForChecks) {
   Write-Host "Waiting for status checks to complete…"
   gh pr checks $prNum -R $Repo --watch
   if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Unable to verify/close issue #${IssueNumber}: $($_.Exception.Message)"
+    Write-Warning "Status checks for PR #${prNum} did not pass or timed out. Aborting merge."
     exit 1
   }
 }
@@ -100,7 +101,7 @@ if ($PSBoundParameters.ContainsKey('IssueNumber')) {
       gh issue close $IssueNumber -R $Repo --comment "Closed via merge of PR #$prNum"
     }
   } catch {
-    Write-Warning "Unable to verify/close issue #$IssueNumber: $($_.Exception.Message)"
+    Write-Warning "Unable to verify/close issue #${IssueNumber}: $($_.Exception.Message)"
   }
 }
 
