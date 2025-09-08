@@ -52,7 +52,7 @@ if ($WaitForChecks) {
   Write-Host "Waiting for status checks to complete…"
   gh pr checks $prNum -R $Repo --watch
   if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Checks did not pass or timed out. Aborting merge."
+    Write-Warning "Unable to verify/close issue #${IssueNumber}: $($_.Exception.Message)"
     exit 1
   }
 }
