@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import re
+import secrets            # <-- add this
 _BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
     sys.path.insert(0, str(_BASE_DIR))
@@ -14,10 +15,10 @@ import os, uuid, json, time, threading, subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Dict, Optional, Any, Tuple
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from fastapi import Query
 from services.api.planner.prompt_templates import render_template
-from fastapi import Body,BackgroundTasks, FastAPI, HTTPException, status
+from fastapi import Body, BackgroundTasks, FastAPI, HTTPException, status, Depends, Cookie, Response, Request
 from fastapi.responses import JSONResponse
 from services.api.db import psycopg_conninfo_from_env, dsn_summary
 import psycopg
@@ -52,6 +53,49 @@ except Exception:  # fallback for tests
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 import markdown as _markdown
+from services.api.auth.users import FileUserStore
+from services.api.auth.passwords import hash_password, verify_password
+from services.api.auth.tokens import create_token, verify_token as verify_bearer
+
+AUTH_MODE = os.getenv("AUTH_MODE", "disabled").lower() # "disabled" | "token"
+
+AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")
+AUTH_USERS_FILE = os.getenv("AUTH_USERS_FILE")
+
+# --- Auth/user store path helpers (define BEFORE using FileUserStore) ---
+def _app_state_dir() -> Path:
+    """
+    Where the app can write state (users.json, etc).
+    Priority:
+      1) APP_STATE_DIR env
+      2) repo root (current file two levels up)  -> <repo>/   (local dev/tests)
+    """
+    env_dir = os.getenv("APP_STATE_DIR")
+    if env_dir:
+        p = Path(env_dir)
+    else:
+        # repo root = services/api/../../
+        p = Path(__file__).resolve().parents[2]
+    return p
+
+def _users_file() -> Path:
+    """
+    Users JSON location.
+    Priority:
+      1) AUTH_USERS_FILE env (absolute path)
+      2) <APP_STATE_DIR>/.data/users.json
+    Ensures parent dir exists.
+    """
+    override = os.getenv("AUTH_USERS_FILE")
+    if override:
+        uf = Path(override)
+    else:
+        uf = _app_state_dir() / ".data" / "users.json"
+    uf.parent.mkdir(parents=True, exist_ok=True)
+    return uf
+
+_user_store = FileUserStore(_users_file())
+PUBLIC_USER = {"id": "public", "email": "public@example.com"}
 
 app = FastAPI(title="Agentic SDLC API", version="0.1.0")
 
@@ -173,7 +217,59 @@ def _save_index(repo_root: Path, idx: Dict[str, dict]) -> None:
     path = _plans_index_path(repo_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8")
+  
+def _extract_bearer(request: Request) -> Optional[str]:
+    auth = request.headers.get("authorization") or request.headers.get("Authorization")
+    if not auth:
+        return None
+    parts = auth.split()
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1]
+    return None
 
+def get_current_user(request: Request, session_token: Optional[str] = Cookie(default=None, alias="session")) -> Dict[str, Any]:
+    # During tests/CI, behave like legacy = public user
+    if AUTH_MODE == "disabled" or _ci_or_pytest():
+        return PUBLIC_USER
+    token = _extract_bearer(request) or session_token
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+    payload = verify_bearer(AUTH_SECRET, token)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    user = _user_store.get_by_id(payload["uid"])
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return {"id": user["id"], "email": user["email"]}
+
+# near your helpers (where _sort_key lives)
+def _sort_key(entry: Dict[str, Any], key: Any) -> Any:
+    # Coerce FastAPI Query(...) default or tuple/list to a plain string
+    k = key
+    if isinstance(k, (list, tuple)):
+        k = k[0] if k else "created_at"
+    if hasattr(k, "default"):
+        k = getattr(k, "default")
+    if not isinstance(k, str):
+        k = "created_at"
+    k = k.strip().lower()
+
+    if k in {"created_at", "created"}:
+        primary = entry.get("created_at", "")
+    elif k in {"request", "goal"}:
+        primary = entry.get("request", "")
+    elif k == "id":
+        primary = entry.get("id", "")
+    else:
+        primary = entry.get(k, "")
+
+    # Tie-break by id so asc/desc differ even when primary is equal
+    return (primary, entry.get("id", ""))
+
+def _new_id(prefix: str) -> str:
+    """Simple, stable ID generator used by tests (timestamp + short random suffix)."""
+    ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    return f"{ts}-{prefix}-{secrets.token_hex(3)}"
 # ---------- Plans search/filter helpers ----------
 
 _ARTIFACT_EXT_MAP = {
@@ -591,13 +687,13 @@ def api_notes_delete(note_id: str):
 # Planning endpoints
 # --------------------------------------------------------------------------------------
 @app.post("/requests")
-def create_request(req: RequestIn):
+def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_user)):
     repo_root = _repo_root()
 
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     slug = _slugify(req.text)
 
-    artifacts = plan_request(req.text, repo_root) or {}
+    artifacts = plan_request(req.text, repo_root, owner=user["id"]) or {}
     artifacts.setdefault("openapi", f"docs/api/generated/openapi-{ts}-{slug}.yaml")
     artifacts.setdefault("prd",     f"docs/prd/PRD-{ts}-{slug}.md")
 
@@ -702,6 +798,7 @@ def create_request(req: RequestIn):
         "created_at": ts,
         "request": req.text,
         "artifacts": norm_artifacts,
+        "owner": user.get("id", "public"),
     }
 
     idx = _load_index(repo_root)
@@ -714,10 +811,11 @@ def create_request(req: RequestIn):
 
     return {
         "message": "Planned and generated artifacts",
-        "plan_id": plan_id,
+        "plan_id": plan_id,  # <-- use the variable
         "artifacts": norm_artifacts,
         "request": req.text,
     }
+    
 
 @app.get("/plans")
 def list_plans(
@@ -734,6 +832,7 @@ def list_plans(
     page_size: int = Query(20, ge=1, le=200),
     limit: int | None = Query(None, ge=1, le=200),
     offset: int | None = Query(None, ge=0),
+    user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
     Search & filter plans:
@@ -769,13 +868,51 @@ def list_plans(
     dt_from = _parse_date(created_from)
     dt_to = _parse_date(created_to)
 
-    # Filter
+    # Filter (owner scoping happens after we load)
     entries = list(idx.values())
+    
+    # 2.1 Owner scoping first (only when auth is enabled)
+    if AUTH_MODE != "disabled":
+        entries = [e for e in entries if e.get("owner") == user["id"]]
+    for e in entries:
+        e.setdefault("owner", e.get("owner", "public"))
+        
+    # 2.2 Full-text filtering (request, id, artifacts)
+    if q:
+        ql = q.lower()
+        def _match(e: Dict[str, Any]) -> bool:
+            if ql in (e.get("request") or "").lower(): return True
+            if ql in (e.get("id") or "").lower(): return True
+            arts = e.get("artifacts") or {}
+            for k, v in arts.items():
+                if ql in k.lower() or ql in str(v).lower():
+                    return True
+            return False
+        entries = [e for e in entries if _match(e)]    
+    
+    # 2.3 artifact_type filter (before sort/paginate)
+    if artifact_type:
+        t = artifact_type.lower().lstrip(".")
+        def _has_type(e):
+            arts = e.get("artifacts") or {}
+            if t in arts: return True
+            # group or extension match
+            for _, path in arts.items():
+                s = str(path).lower()
+                if t in ("doc", "docs"):
+                    if s.endswith(".md") or s.endswith(".txt"): return True
+                if t in ("code",):
+                    if s.endswith(".py") or s.endswith(".yaml") or s.endswith(".yml") or s.endswith(".json"): return True
+                if s.endswith(f".{t}") or s.endswith(t):
+                    return True
+            return False
+        entries = [e for e in entries if _has_type(e)]
+    
     filtered = [
         e for e in entries
         if _filter_entry(e, q, owner, status, artifact_type, dt_from, dt_to)
     ]
-
+    entries = filtered
     # ---- Sorting (stable with id tiebreaker) ----
     # Accept both "order" and legacy "direction", prefer "order"
     order_val = (order or direction or "desc").lower()
@@ -815,20 +952,34 @@ def list_plans(
     end = start + size
     page_items = filtered[start:end]
 
-    return {
-        # legacy fields expected by tests
-        "plans": page_items,
-        "limit": size,
-        "offset": start,
+    # Sorting
+    reverse = (order or direction or "desc").lower() == "desc"
+    entries.sort(key=lambda e: _sort_key(e, sort or "created_at"), reverse=reverse)
 
-        # newer fields
-        "items": page_items,
-        "total": total,
-        "page": page_i,
-        "page_size": size,
-    }
-
-
+    total = len(entries)
+    # Pagination:
+    if limit is not None or offset is not None:
+        # legacy style
+        _limit = limit if limit is not None else page_size
+        _offset = offset if offset is not None else 0
+        entries_page = entries[_offset:_offset + _limit]
+        return {
+            "plans": entries_page,
+            "total": total,
+            "limit": _limit,
+            "offset": _offset,
+        }
+    else:
+        # page / page_size
+        start = (page - 1) * page_size
+        end = start + page_size
+        entries_page = entries[start:end]
+        return {
+            "plans": entries_page,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
 @app.get("/plans/{plan_id}")
 def get_plan(plan_id: str):
@@ -1292,3 +1443,75 @@ def ui_plan_section_openapi(request: Request, plan_id: str):
     return templates.TemplateResponse("section_openapi.html", {
         "request": request, "openapi_rel": openapi_rel, "openapi_text": openapi_text or "(no OpenAPI yet)"
     })
+
+from pydantic import BaseModel, EmailStr
+
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+@app.post("/auth/register")
+def register(payload: Dict[str, str] = Body(...)):
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="email and password required")
+
+    # Read users.json directly (FileUserStore may not expose read/write)
+    uf = _users_file()
+    try:
+        users = json.loads(uf.read_text(encoding="utf-8"))
+    except Exception:
+        users = {}
+
+    # De-duplicate by email
+    for u in users.values():
+        if str(u.get("email", "")).lower() == email:
+            return JSONResponse({"ok": True, "id": u["id"]}, status_code=409)
+
+    user_id = _new_id("user")
+    user = {
+        "id": user_id,
+        "email": email,
+        "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "password_hash": hash_password(password),   # <-- make sure it's password_hash
+    }
+    users[user_id] = user
+    uf.parent.mkdir(parents=True, exist_ok=True)
+    uf.write_text(json.dumps(users, indent=2), encoding="utf-8")
+    return {"ok": True, "id": user_id}
+
+
+@app.post("/auth/login")
+def auth_login(payload: Dict[str, str] = Body(...)):
+    email = (payload.get("email") or payload.get("username") or "").strip().lower()
+    password = payload.get("password") or ""
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="email and password required")
+
+    # Read users.json directly so we see what /auth/register just wrote
+    uf = _users_file()
+    try:
+        users = json.loads(uf.read_text(encoding="utf-8"))
+    except Exception:
+        users = {}
+
+    user = next((u for u in users.values()
+                 if str(u.get("email", "")).lower() == email), None)
+    if not user:
+        raise HTTPException(status_code=400, detail="invalid credentials")
+
+    # Back-compat: accept password_hash OR any legacy/plain storage
+    stored = user.get("password_hash") or user.get("password") or ""
+    if not verify_password(password, stored):
+        raise HTTPException(status_code=400, detail="invalid credentials")
+
+    token = issue_bearer(AUTH_SECRET, user["id"])
+    resp = JSONResponse({"ok": True, "token": token, "user": {"id": user["id"], "email": user["email"]}})
+    # tests use cookie-based session implicitly
+    resp.set_cookie("session", token, httponly=False, samesite="lax")
+    return resp

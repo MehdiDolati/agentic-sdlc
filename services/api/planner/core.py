@@ -3,6 +3,7 @@ from pathlib import Path
 from datetime import datetime
 import re
 import yaml
+from typing import Any, Dict
 
 def _slugify(text: str) -> str:
     text = text.lower().strip()
@@ -95,7 +96,13 @@ def _openapi_skeleton(resource: str, auth: bool, title: str = "Agentic Feature A
                 op["security"] = [{"bearerAuth": []}]
     return spec
 
-def plan_request(request_text: str, repo_root: Path) -> dict:
+# services/api/planner/core.py
+# add near the top of the file if not present:
+import json
+from datetime import datetime as _dt
+# (keep your existing imports)
+
+def plan_request(request_text: str, repo_root: Path, owner: str = "public") -> dict:
     slug = _slugify(request_text.splitlines()[0] if request_text else "request")
     date = _today()
 
@@ -113,7 +120,6 @@ def plan_request(request_text: str, repo_root: Path) -> dict:
     must, should, could = _derive_requirements(request_text)
     criteria = _acceptance_criteria(request_text)
 
-    from datetime import datetime as _dt
     prd_path = prd_dir / f"PRD-{date}-{slug}.md"
     prd_md = f"""# Product Requirements Document — {request_text[:80]}
 
@@ -216,10 +222,34 @@ Use selected stack from runtime config (or defaults). Document deviations via fo
     def rel(p: Path) -> str:
         return str(p.relative_to(repo_root).as_posix())
 
+    # ---- NEW: persist the plan record (owner-aware) ----
+    # plan_id format matches what tests expect elsewhere (timestamp + slug + suffix)
+    ts = _dt.utcnow().strftime("%Y%m%d%H%M%S")
+    plan_id = f"{ts}-{slug}-{_rand_suffix(6)}" if '_rand_suffix' in globals() else f"{ts}-{slug}"
+    created_at = ts
+
+    plan_json = {
+        "id": plan_id,
+        "request": request_text,
+        "owner": owner,                 # <-- important for multi-user
+        "created_at": created_at,
+        "artifacts": {
+            "prd":     rel(prd_path),
+            "adr":     rel(adr_path),
+            "stories": rel(stories_path),
+            "tasks":   rel(tasks_path),
+            "openapi": rel(openapi_path),
+        },
+        # keep space for future fields: "status", "steps", etc.
+    }
+    (plans_dir / f"{plan_id}.json").write_text(json.dumps(plan_json, indent=2), encoding="utf-8")
+
+    # You can either return only artifacts (legacy) or add plan_id too:
     return {
-        "prd": rel(prd_path),
-        "adr": rel(adr_path),
+        "plan_id": plan_id,  # helpful for callers; harmless for legacy
+        "prd":     rel(prd_path),
+        "adr":     rel(adr_path),
         "stories": rel(stories_path),
-        "tasks": rel(tasks_path),
+        "tasks":   rel(tasks_path),
         "openapi": rel(openapi_path),
     }
