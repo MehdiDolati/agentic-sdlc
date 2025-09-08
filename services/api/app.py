@@ -1464,8 +1464,8 @@ def ui_plans(request: Request,
 
     # If HTMX paginates/searches we only re-render the table fragment
     if request.headers.get("HX-Request") == "true":
-        return templates.TemplateResponse("plans_list_table.html", ctx)
-    return templates.TemplateResponse("plans_list.html", ctx)
+        return templates.TemplateResponse(request,"plans_list_table.html", ctx)
+    return templates.TemplateResponse(request,"plans_list.html", ctx)
 
 @app.get("/ui/plans/{plan_id}", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_detail(request: Request, plan_id: str):
@@ -1494,7 +1494,7 @@ def ui_plan_detail(request: Request, plan_id: str):
         "adr_rel": adr_rel, "adr_html": adr_html,
         "openapi_rel": openapi_rel, "openapi_text": openapi_text,
     }
-    return templates.TemplateResponse("plan_detail.html", ctx)
+    return templates.TemplateResponse(request,"plan_detail.html", ctx)
 
 # HTMX partials for detail sections
 @app.get("/ui/plans/{plan_id}/sections/prd", response_class=HTMLResponse, include_in_schema=False)
@@ -1507,7 +1507,7 @@ def ui_plan_section_prd(request: Request, plan_id: str):
     plan = json.loads(plan_json.read_text(encoding="utf-8"))
     prd_rel = (plan.get("artifacts") or {}).get("prd")
     prd_html = _render_markdown(_read_text_if_exists(repo_root / prd_rel)) if prd_rel else None
-    return templates.TemplateResponse("section_prd.html", {
+    return templates.TemplateResponse(request,"section_prd.html", {
         "request": request, "prd_rel": prd_rel, "prd_html": prd_html
     })
 
@@ -1521,7 +1521,7 @@ def ui_plan_section_adr(request: Request, plan_id: str):
     plan = json.loads(plan_json.read_text(encoding="utf-8"))
     adr_rel = (plan.get("artifacts") or {}).get("adr")
     adr_html = _render_markdown(_read_text_if_exists(repo_root / adr_rel)) if adr_rel else None
-    return templates.TemplateResponse("section_adr.html", {
+    return templates.TemplateResponse(request,"section_adr.html", {
         "request": request, "adr_rel": adr_rel, "adr_html": adr_html
     })
 
@@ -1535,7 +1535,7 @@ def ui_plan_section_openapi(request: Request, plan_id: str):
     plan = json.loads(plan_json.read_text(encoding="utf-8"))
     openapi_rel = (plan.get("artifacts") or {}).get("openapi")
     openapi_text = _read_text_if_exists(repo_root / openapi_rel) if openapi_rel else None
-    return templates.TemplateResponse("section_openapi.html", {
+    return templates.TemplateResponse(request,"section_openapi.html", {
         "request": request, "openapi_rel": openapi_rel, "openapi_text": openapi_text or "(no OpenAPI yet)"
     })
 
