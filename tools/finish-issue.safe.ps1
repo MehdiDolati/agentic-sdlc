@@ -37,6 +37,7 @@ $pr = gh pr list -R $Repo --head $branch --state open --json number,title | Conv
 if (-not $pr) {
   Write-Host "No open PR found. Creating one…"
   # If IssueNumber is provided, link it in the body so GitHub can auto-close on merge
+
   $body = if ($PSBoundParameters.ContainsKey('IssueNumber')) { "Fixes #${IssueNumber}" } else { "" }
   $created = gh pr create -R $Repo --fill --base main --head $branch --body $body --json number,title,url | ConvertFrom-Json
   if (-not $created) { Fail "Failed to create PR for '$branch'." }
