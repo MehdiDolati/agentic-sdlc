@@ -18,6 +18,34 @@ def create_token(secret: str, user_id: str, email: str, ttl_seconds: int = 3600)
     sig = _sign(secret, payload_b64)
     return f"{payload_b64}.{sig}"
 
+# -- token parsing -------------------------------------------------------------
+def read_token(secret: str, token: str) -> Optional[Dict[str, Any]]:
+    """
+    Validates and returns the JWT-like payload we create in create_token().
+    Our format is: <base64url(payload)>.<hex_signature>
+    """
+    try:
+        payload_b64, sig = token.split(".", 1)
+    except ValueError:
+        return None
+
+    # verify signature
+    if not hmac.compare_digest(_sign(secret, payload_b64), sig):
+        return None
+
+    # decode payload
+    try:
+        raw = base64.urlsafe_b64decode(payload_b64 + "==")
+        data = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+
+    # expiry check
+    if int(data.get("exp", 0)) < int(time.time()):
+        return None
+
+    return data
+
 def verify_token(secret: str, token: str) -> Optional[Dict[str, Any]]:
     try:
         payload_b64, sig = token.split(".", 1)
@@ -29,3 +57,8 @@ def verify_token(secret: str, token: str) -> Optional[Dict[str, Any]]:
         return payload
     except Exception:
         return None
+
+# --- compat wrapper (used by tests/old call sites) ---
+def issue_bearer(secret: str, user_id: str, email: str) -> str:
+    # Delegate to the real token builder
+    return create_token(secret, user_id, email)

@@ -18,7 +18,7 @@ from typing import Callable, List, Dict, Optional, Any, Tuple
 from pydantic import BaseModel, Field, EmailStr
 from fastapi import Query
 from services.api.planner.prompt_templates import render_template
-from fastapi import Body, BackgroundTasks, FastAPI, HTTPException, status, Depends, Cookie, Response, Request
+from fastapi import Header, Body, BackgroundTasks, FastAPI, HTTPException, status, Depends, Cookie, Response, Request
 from fastapi.responses import JSONResponse
 from services.api.db import psycopg_conninfo_from_env, dsn_summary
 import psycopg
@@ -55,7 +55,7 @@ from fastapi.staticfiles import StaticFiles
 import markdown as _markdown
 from services.api.auth.users import FileUserStore
 from services.api.auth.passwords import hash_password, verify_password
-from services.api.auth.tokens import create_token, verify_token as verify_bearer
+from services.api.auth.tokens import create_token, issue_bearer, read_token, verify_token as verify_bearer
 
 AUTH_MODE = os.getenv("AUTH_MODE", "disabled").lower() # "disabled" | "token"
 
@@ -171,14 +171,25 @@ def _write_text_abs(abs_path: Path, content: str) -> None:
 # --------------------------------------------------------------------------------------
 # Utilities
 # --------------------------------------------------------------------------------------
+# near your other helpers
 def _repo_root() -> Path:
-    # Keep in sync with tests' _retarget_store(...)
-    for key in ("AGENTIC_PLANS_ROOT", "PLANS_STORE_ROOT", "PLANS_ROOT", "PLANS_DIR"):
-        val = os.getenv(key)
+    # Prefer the repo root injected by tests (via _setup_app)
+    try:
+        rr = getattr(app.state, "repo_root", None)
+        if rr:
+            return Path(rr)
+    except Exception:
+        pass
+
+    # Optional env overrides (useful for manual runs)
+    for env_var in ("APP_REPO_ROOT", "REPO_ROOT"):
+        val = os.getenv(env_var)
         if val:
             return Path(val)
-    # fallback: repo root
-    return Path(__file__).resolve().parents[2]
+
+    # Fallback
+    return Path.cwd()
+
 def _store_root() -> Path:
     """Return the active store root (tests may retarget this)."""
     return _STORE_ROOT if _STORE_ROOT is not None else _repo_root()
@@ -227,20 +238,32 @@ def _extract_bearer(request: Request) -> Optional[str]:
         return parts[1]
     return None
 
-def get_current_user(request: Request, session_token: Optional[str] = Cookie(default=None, alias="session")) -> Dict[str, Any]:
-    # During tests/CI, behave like legacy = public user
-    if AUTH_MODE == "disabled" or _ci_or_pytest():
-        return PUBLIC_USER
-    token = _extract_bearer(request) or session_token
-    if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
-    payload = verify_bearer(AUTH_SECRET, token)
-    if not payload:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
-    user = _user_store.get_by_id(payload["uid"])
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    return {"id": user["id"], "email": user["email"]}
+def get_current_user(
+    request: Request,
+    authorization: str = Header(default=""),
+    session: Optional[str] = Cookie(default=None),
+) -> Dict[str, Any]:
+    """
+    Returns {id, email}. If a valid Bearer token (or session cookie) is present,
+    hydrate from the token; otherwise fall back to the public user.
+    """
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(None, 1)[1].strip()
+    elif session:
+        token = session
+
+    if token:
+        data = read_token(AUTH_SECRET, token)
+        if data and data.get("uid"):
+            return {
+                "id": data["uid"],
+                "email": (data.get("email") or "").strip().lower(),
+            }
+
+    # default public user
+    return {"id": "public", "email": "public@example.com"}
+
 
 # near your helpers (where _sort_key lives)
 def _sort_key(entry: Dict[str, Any], key: Any) -> Any:
@@ -266,11 +289,59 @@ def _sort_key(entry: Dict[str, Any], key: Any) -> Any:
     # Tie-break by id so asc/desc differ even when primary is equal
     return (primary, entry.get("id", ""))
 
+def _authed_user_id(request: Request) -> str | None:
+    tok = _extract_bearer_from_request(request)
+    if not tok:
+        return None
+    try:
+        return parse_token(AUTH_SECRET, tok).get("uid")
+    except Exception:
+        return None
+
 def _new_id(prefix: str) -> str:
-    """Simple, stable ID generator used by tests (timestamp + short random suffix)."""
+    """Generate IDs. Tests require user IDs to start with 'u_'."""
+    if prefix == "user":
+        # e.g. u_3f8a2a4b9c1d  (hex, deterministic-enough and short)
+        return f"u_{secrets.token_hex(6)}"
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     return f"{ts}-{prefix}-{secrets.token_hex(3)}"
+
 # ---------- Plans search/filter helpers ----------
+
+import json, time, hmac, hashlib, base64
+from fastapi import Request
+
+def _b64u(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+def _b64u_decode(s: str) -> bytes:
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode((s + pad).encode("ascii"))
+
+def _sign(secret: str, msg: str) -> str:
+    return _b64u(hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).digest())
+
+def parse_token(secret: str, token: str) -> dict:
+    """Verify and decode our compact token from create_token()."""
+    try:
+        payload_b64, sig = token.split(".", 1)
+        if not hmac.compare_digest(sig, _sign(secret, payload_b64)):
+            raise ValueError("bad sig")
+        payload = json.loads(_b64u_decode(payload_b64))
+        if int(payload.get("exp", 0)) < int(time.time()):
+            raise ValueError("expired")
+        return payload
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="invalid token") from e
+
+def _extract_bearer_from_request(req: Request) -> str | None:
+    auth = req.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        return auth.split(" ", 1)[1].strip()
+    # tests also accept cookie-based session
+    if "session" in req.cookies:
+        return req.cookies["session"]
+    return None
 
 _ARTIFACT_EXT_MAP = {
     "prd": {".md", ".markdown"},
@@ -689,7 +760,6 @@ def api_notes_delete(note_id: str):
 @app.post("/requests")
 def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_user)):
     repo_root = _repo_root()
-
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     slug = _slugify(req.text)
 
@@ -784,12 +854,14 @@ def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_us
         )
 
     
+        # --- Persist artifacts ---
     print(f"Writing PRD file at: {prd_path}")
     _write_text_file(prd_path, prd_md)
 
     print(f"Writing OpenAPI file at: {openapi_path}")
     _write_text_file(openapi_path, openapi_yaml)
 
+    # --- Plan index entry (scoped to owner) ---
     plan_id = f"{ts}-{slug}-{uuid.uuid4().hex[:6]}"
     norm_artifacts = {k: str(v).replace("\\", "/") for k, v in artifacts.items()}
 
@@ -798,25 +870,26 @@ def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_us
         "created_at": ts,
         "request": req.text,
         "artifacts": norm_artifacts,
-        "owner": user.get("id", "public"),
+        "status": "draft",
+        "owner": user["id"],
     }
 
     idx = _load_index(repo_root)
     idx[plan_id] = entry
     _save_index(repo_root, idx)
 
-    plan_dir = repo_root / "docs" / "plans" / plan_id
+    # Optional: per-plan file (handy for debugging/UI)
+    plan_dir = Path(repo_root) / "docs" / "plans" / plan_id
     plan_dir.mkdir(parents=True, exist_ok=True)
     (plan_dir / "plan.json").write_text(json.dumps(entry, indent=2), encoding="utf-8")
 
     return {
         "message": "Planned and generated artifacts",
-        "plan_id": plan_id,  # <-- use the variable
+        "plan_id": plan_id,
         "artifacts": norm_artifacts,
         "request": req.text,
     }
     
-
 @app.get("/plans")
 def list_plans(
     q: Optional[str] = None,
@@ -871,11 +944,33 @@ def list_plans(
     # Filter (owner scoping happens after we load)
     entries = list(idx.values())
     
-    # 2.1 Owner scoping first (only when auth is enabled)
     if AUTH_MODE != "disabled":
         entries = [e for e in entries if e.get("owner") == user["id"]]
+
     for e in entries:
-        e.setdefault("owner", e.get("owner", "public"))
+        if "owner" not in e:
+            e["owner"] = "public"
+
+    
+    # keep this shape in /plans
+    if AUTH_MODE != "disabled":
+        entries = [e for e in entries if e.get("owner") == user["id"]]
+
+    for e in entries:
+        if "owner" not in e:
+            e["owner"] = "public"
+
+    
+    
+    # 2.1 Owner scoping first (only when auth is enabled)
+        # 2.1 Owner scoping first (when a real user is present)
+    # If Authorization was provided, get_current_user will set a non-"public" id.
+    if user and user.get("id") and user["id"] != "public":
+        entries = [e for e in entries if e.get("owner") == user["id"]]
+
+    # Ensure every entry has an owner field, but don't overwrite real owners.
+    for e in entries:
+        e.setdefault("owner", "public")
         
     # 2.2 Full-text filtering (request, id, artifacts)
     if q:
@@ -1510,8 +1605,18 @@ def auth_login(payload: Dict[str, str] = Body(...)):
     if not verify_password(password, stored):
         raise HTTPException(status_code=400, detail="invalid credentials")
 
-    token = issue_bearer(AUTH_SECRET, user["id"])
-    resp = JSONResponse({"ok": True, "token": token, "user": {"id": user["id"], "email": user["email"]}})
+    token = issue_bearer(AUTH_SECRET, user["id"], user["email"])
+    resp = JSONResponse({
+        "ok": True,
+        "access_token": token,          # <-- required by tests
+        "token": token,                 # <-- keep if other code uses it
+        "token_type": "bearer",         # <-- nice-to-have; some clients expect it
+        "user": {"id": user["id"], "email": user["email"]},
+    })
     # tests use cookie-based session implicitly
     resp.set_cookie("session", token, httponly=False, samesite="lax")
     return resp
+
+@app.get("/auth/me")
+def auth_me(user: Dict[str, Any] = Depends(get_current_user)):
+    return {"id": user.get("id"), "email": user.get("email")}
