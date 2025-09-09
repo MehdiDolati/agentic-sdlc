@@ -7,18 +7,15 @@ RETRIES = int(os.getenv("DB_INIT_RETRIES", "30"))
 DELAY = float(os.getenv("DB_INIT_DELAY", "1.0"))
 
 SQL = """
-CREATE TABLE IF NOT EXISTS notes(
+CREATE TABLE IF NOT EXISTS runs(
   id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  content TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS plans(
-  id TEXT PRIMARY KEY,
-  request TEXT NOT NULL,
-  owner   TEXT NOT NULL,
-  artifacts JSONB NOT NULL,
-  status  TEXT NOT NULL DEFAULT 'new',
+  plan_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  manifest_path TEXT,
+  log_path TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 """
