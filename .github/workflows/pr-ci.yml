@@ -57,10 +57,11 @@ jobs:
         id: plan
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
+          PYTHONPATH: ${{ github.workspace }}
           # Make planner generation deterministic (no external LLM in CI)
           LLM_PROVIDER: ""
         run: |
-          python scripts/ci_planner.py
+          PYTHONPATH=. python scripts/ci_planner.py
         continue-on-error: false
 
       - name: Upload docs artifacts
