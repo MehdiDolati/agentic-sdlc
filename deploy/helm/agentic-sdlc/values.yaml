@@ -1,0 +1,53 @@
+image:
+  repository: ghcr.io/OWNER/agentic-sdlc
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: false
+  className: nginx
+  hosts:
+    - host: planner.local
+      paths:
+        - /
+  tls: [] # e.g., [{ hosts: ["planner.example.com"], secretName: planner-tls }]
+
+resources: {}
+#  limits:
+#    cpu: 500m
+#    memory: 512Mi
+#  requests:
+#    cpu: 100m
+#    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+env:
+  # Choose SQLite (default) or Postgres. If Postgres, set DATABASE_URL below.
+  LLM_PROVIDER: ""        # deterministic PRD/OpenAPI in cluster
+  DATABASE_URL: ""        # e.g., postgresql://user:pass@host:5432/db
+  # Optional: for SQLite storage path (inside mounted PVC)
+  SQLITE_PATH: "/app/docs/plans/plans.db"
+
+persistence:
+  enabled: true
+  accessModes: ["ReadWriteOnce"]
+  size: 2Gi
+  storageClass: ""  # set to your cluster SC if needed
+  mountPath: /app/docs
+
+secretEnv: {}
+  # POSTGRES_PASSWORD: "change-me"  # example if you pass secrets via env
+
+config:
+  # You can add additional config entries that become env vars
+  additionalEnv: {}
