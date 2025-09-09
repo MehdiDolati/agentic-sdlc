@@ -19,8 +19,9 @@ from pydantic import BaseModel, Field, EmailStr
 from fastapi import Query
 from services.api.planner.prompt_templates import render_template
 from fastapi import Header, Body, BackgroundTasks, FastAPI, HTTPException, status, Depends, Cookie, Response, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from services.api.db import psycopg_conninfo_from_env, dsn_summary
+from difflib import HtmlDiff
 import psycopg
 # DB: add these
 from sqlalchemy import (
@@ -108,10 +109,99 @@ _STATIC_DIR = _THIS_DIR / "static"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
-# at top
-import os
-from pathlib import Path
+# -------------------- Artifact rendering helpers --------------------
+def _render_artifact_html(kind: str, text: str) -> str:
+    """Render artifact content for UI.
+    - markdown kinds (prd, adr, stories, tasks) → markdown -> HTML
+    - yaml/json/plain (openapi, code blocks)   → <pre><code>
+    """
+    kind = (kind or "").lower()
+    if kind in {"prd", "adr", "stories", "tasks"}:
+        return _render_markdown(text)
+    # default: code block
+    esc = (
+        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    )
+    return f"<pre><code>{esc}</code></pre>"
 
+def _safe_read_rel(repo_root: Path, rel_path: Optional[str]) -> str:
+    if not rel_path:
+        return ""
+    p = (repo_root / rel_path)
+    try:
+        return p.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+def _artifact_rel_from_plan(plan: Dict[str, Any], kind: str) -> Optional[str]:
+    arts = (plan or {}).get("artifacts") or {}
+    return arts.get(kind)
+
+# -------------------- Artifact view endpoints --------------------
+@app.get("/ui/plans/{plan_id}/artifacts/{kind}", response_class=HTMLResponse, include_in_schema=False)
+def ui_artifact_view(request: Request, plan_id: str, kind: str):
+    repo_root = _repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _artifact_rel_from_plan(plan, kind)
+    content = _safe_read_rel(repo_root, rel)
+    html = _render_artifact_html(kind, content) if content else "<em>(no content)</em>"
+    return templates.TemplateResponse(
+        request, "artifact_view.html",
+        {"request": request, "plan": plan, "kind": kind.upper(), "rel_path": rel, "content_html": html},
+    )
+
+# -------------------- Artifact diff endpoint --------------------
+@app.get("/ui/plans/{plan_id}/artifacts/{kind}/diff", response_class=HTMLResponse, include_in_schema=False)
+def ui_artifact_diff(request: Request, plan_id: str, kind: str,
+                     frm: Optional[str] = None, to: Optional[str] = None):
+    """Visual side-by-side diff between two artifact files.
+       - If frm/to are given, treat them as repo-relative file paths.
+       - If omitted, try to diff the latest two files of this kind by mtime.
+    """
+    repo_root = _repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    # Resolve candidate files
+    if not frm or not to:
+        # Auto-pick two most recent files for kind
+        kind = kind.lower()
+        base = {
+            "prd": repo_root / "docs" / "prd",
+            "adr": repo_root / "docs" / "adrs",
+            "stories": repo_root / "docs" / "stories",
+            "tasks": repo_root / "docs" / "tasks",
+            "openapi": repo_root / "docs" / "api" / "generated",
+        }.get(kind, repo_root)
+        patterns = ["*.md"] if kind in {"prd", "adr", "stories", "tasks"} else ["*.yaml", "*.yml", "*.json"]
+        files = []
+        for pat in patterns:
+            files.extend(sorted(base.rglob(pat), key=lambda p: p.stat().st_mtime, reverse=True))
+        if len(files) >= 2:
+            frm = str(files[1].relative_to(repo_root))
+            to  = str(files[0].relative_to(repo_root))
+    if not frm or not to:
+        return templates.TemplateResponse(
+            request, "artifact_diff.html",
+            {"request": request, "plan": plan, "kind": kind.upper(),
+             "from_path": frm, "to_path": to, "diff_html": "<em>(no files to diff)</em>"},
+        )
+
+    # Read and diff
+    a = _safe_read_rel(repo_root, frm).splitlines()
+    b = _safe_read_rel(repo_root, to).splitlines()
+    hd = HtmlDiff(wrapcolumn=80)
+    diff_html = hd.make_table(a, b, frm, to, context=True, numlines=2)
+    return templates.TemplateResponse(
+        request, "artifact_diff.html",
+        {"request": request, "plan": plan, "kind": kind.upper(),
+         "from_path": frm, "to_path": to, "diff_html": diff_html},
+    )
 def _writable_repo_root() -> Path:
     # Prefer env override (used in docker/CI)
     env_root = os.getenv("REPO_ROOT")
