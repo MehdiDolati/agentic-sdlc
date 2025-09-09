@@ -35,8 +35,10 @@ jobs:
           set -eux
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           # Ensure CI has basics for this repo
+          python -m pip install --upgrade pip
           pip install pytest jinja2 fastapi uvicorn sqlalchemy pydantic pyyaml httpx ruff
-
+          # Postgres client (only needed if tests/settings enable PG); optional import should prevent crashes
+          pip install "psycopg[binary]"
       - name: Ruff (lint)
         id: lint
         continue-on-error: true
@@ -72,33 +74,37 @@ jobs:
             docs/tasks/**/*.md
             docs/plans/index.json
 
+      - name: Expose planner outputs to env
+        if: always()
+        run: |
+          {
+            echo "PLAN_ID=${{ steps.plan.outputs.plan_id }}";
+            echo "PRD_PATH=${{ steps.plan.outputs.prd_path }}";
+            echo "OPENAPI_PATH=${{ steps.plan.outputs.openapi_path }}";
+            echo "ADR_PATH=${{ steps.plan.outputs.adr_path }}";
+            echo "STORIES_PATH=${{ steps.plan.outputs.stories_path }}";
+            echo "TASKS_PATH=${{ steps.plan.outputs.tasks_path }}";
+          } >> "$GITHUB_ENV"
+
       - name: Create/Update "Planner" check run
         if: always()
         uses: actions/github-script@v7
         with:
           script: |
-            const core = require('@actions/core');
-            const plan_id = core.getInput('plan_id') || process.env.plan_id || (await core.summary.stringify());
-            const outputs = `Plan ID: ${process.env.PLAN_ID || ''}\n` +
+            // core, github, context are injected — do NOT re-declare/import them
+            const fs = require('fs');
+            let summary = '';
+            try {
+              summary = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, 'utf8');
+            } catch {}
+
+            const outputs =
+              `Plan ID: ${process.env.PLAN_ID || ''}\n` +
               `PRD: ${process.env.PRD_PATH || ''}\n` +
               `OpenAPI: ${process.env.OPENAPI_PATH || ''}\n` +
               `ADR: ${process.env.ADR_PATH || ''}\n` +
               `Stories: ${process.env.STORIES_PATH || ''}\n` +
               `Tasks: ${process.env.TASKS_PATH || ''}\n`;
-
-            // Pull outputs from previous step
-            const planStep = await github.rest.actions.getJobForWorkflowRun({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              job_id: context.runId
-            }).catch(() => null);
-
-            // Build a concise summary from $GITHUB_STEP_SUMMARY file
-            const fs = require('fs');
-            let summary = '';
-            try {
-              summary = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, 'utf8');
-            } catch (e) {}
 
             await github.rest.checks.create({
               owner: context.repo.owner,
@@ -113,15 +119,3 @@ jobs:
                 text: outputs
               }
             });
-
-      - name: Expose planner outputs to env for check run
-        if: always()
-        run: |
-          {
-            echo "PLAN_ID=${{ steps.plan.outputs.plan_id }}";
-            echo "PRD_PATH=${{ steps.plan.outputs.prd_path }}";
-            echo "OPENAPI_PATH=${{ steps.plan.outputs.openapi_path }}";
-            echo "ADR_PATH=${{ steps.plan.outputs.adr_path }}";
-            echo "STORIES_PATH=${{ steps.plan.outputs.stories_path }}";
-            echo "TASKS_PATH=${{ steps.plan.outputs.tasks_path }}";
-          } >> $GITHUB_ENV

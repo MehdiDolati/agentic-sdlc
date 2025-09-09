@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>{{ kind }}</h2>
+  {% if rel_path %}
+    <p><small><code>{{ rel_path }}</code></small></p>
+  {% endif %}
+  <div class="content">
+    {{ content_html | safe }}
+  </div>
+</div>
+{% endblock %}
