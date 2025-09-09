@@ -1263,22 +1263,57 @@ def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_us
     prd_path = Path(repo_root) / artifacts["prd"]
     prd_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Start with deterministic PRD
-    try:
-        prd_md = render_template("prd.md", {
-            "vision": req.text,
-            "users": ["End user", "Admin"],
-            "scenarios": ["Create note", "List notes", "Delete note"],
-            "metrics": ["Lead time", "Error rate"],
-        })
-    except Exception:
-        prd_md = (
-            "# Product Requirements (PRD)\n\n"
-            f"Vision: {req.text}\n\n"
-            "## Stack Summary\n- FastAPI\n- SQLite\n\n"
-            "## Acceptance Gates\n- All routes return expected codes\n"
-        )
+    # --- Single vs Multi-agent planning ---
+    # Enable multi-agent via env PLANNER_MODE=multi or query ?multi=1 (keeps backwards compatibility)
+    from services.api.planner.agents import multi_agent_plan  # local import to keep import time light
+    use_multi = (os.getenv("PLANNER_MODE", "").strip().lower() == "multi") or bool(int(getattr(req, "multi", 0)))
 
+    # Precompute deterministic defaults (keeps behavior identical when single-agent)
+    # Reuse the planner's fallback to keep both paths identical
+    from services.api.planner.agents import _fallback_openapi_yaml as _oas_fallback
+
+
+    if use_multi:
+        outs = multi_agent_plan(req.text)
+        prd_md = outs["prd_md"]
+        openapi_yaml = outs["openapi_yaml"]
+        adr_md = outs["adr_md"]
+        # ensure artifact paths (ADR new)
+        artifacts.setdefault("adr", f"docs/adrs/ADR-{ts}-{slug}.md")
+    else:
+        # --- existing single-agent deterministic blocks (unchanged) ---
+        try:
+            prd_md = render_template("prd.md", {
+                "vision": req.text,
+                "users": ["End user", "Admin"],
+                "scenarios": ["Create note", "List notes", "Delete note"],
+                "metrics": ["Lead time", "Error rate"],
+            })
+        except Exception:
+            prd_md = (
+                "# Product Requirements (PRD)\n\n"
+                f"Vision: {req.text}\n\n"
+                "## Stack Summary\n- FastAPI\n- SQLite\n\n"
+                "## Acceptance Gates\n- All routes return expected codes\n"
+            )
+        if generate_openapi is not None:
+            try:
+                blueprint = {
+                    "title": "Notes Service",
+                    "auth": "bearer",
+                    "paths": [
+                        {"method": "GET", "path": "/api/notes"},
+                        {"method": "POST", "path": "/api/notes"},
+                        {"method": "GET", "path": "/api/notes/{id}"},
+                        {"method": "DELETE", "path": "/api/notes/{id}"},
+                    ],
+                }
+                openapi_yaml = generate_openapi(blueprint)
+            except Exception:
+                openapi_yaml = _fallback_openapi_yaml()
+        else:
+            openapi_yaml = _fallback_openapi_yaml()
+        adr_md = None  # single-agent mode doesn't create ADR by default
     openapi_path = Path(repo_root) / artifacts["openapi"]
     openapi_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1354,6 +1389,11 @@ def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_us
     print(f"Writing OpenAPI file at: {openapi_path}")
     _write_text_file(openapi_path, openapi_yaml)
 
+    if use_multi and artifacts.get("adr"):
+        adr_path = Path(repo_root) / artifacts["adr"]
+        adr_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"Writing ADR file at: {adr_path}")
+        _write_text_file(adr_path, adr_md or "# ADR\n")
     # New: write ADR / Stories / Tasks placeholders (deterministic content)
     adr_path = Path(repo_root) / artifacts["adr"]
     adr_path.parent.mkdir(parents=True, exist_ok=True)
