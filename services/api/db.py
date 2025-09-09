@@ -4,10 +4,13 @@ from __future__ import annotations
 import os
 import re
 import time
-from typing import Optional
-
-import psycopg
-
+from typing import Optional, Tuple
+# psycopg is only needed when we actually connect to Postgres.
+# Make it optional so SQLite test runs don't fail at import time.
+try:
+    import psycopg  # type: ignore
+except Exception:  # ImportError on CI if not installed
+    psycopg = None  # type: ignore
 
 REDACTED = "****"
 
@@ -59,6 +62,8 @@ def wait_for_db(max_attempts: int = 30, sleep_sec: float = 1.0, log=print) -> bo
     log(f"[db_init] normalized DSN (redacted): {dsn_summary(dsn)}")
     for i in range(1, max_attempts + 1):
         try:
+            if psycopg is None:
+                raise RuntimeError("psycopg not installed; Postgres not available in this environment")
             with psycopg.connect(dsn) as conn:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
