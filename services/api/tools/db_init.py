@@ -12,6 +12,15 @@ CREATE TABLE IF NOT EXISTS notes(
   title TEXT NOT NULL,
   content TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS plans(
+  id TEXT PRIMARY KEY,
+  request TEXT NOT NULL,
+  owner   TEXT NOT NULL,
+  artifacts JSONB NOT NULL,
+  status  TEXT NOT NULL DEFAULT 'new',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 """
 
 def run():
