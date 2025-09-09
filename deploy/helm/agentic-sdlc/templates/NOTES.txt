@@ -1,0 +1,7 @@
+Planner deployed.
+
+Service:
+  kubectl get svc -n {{ .Release.Namespace }} {{ include "agentic-sdlc.fullname" . }}
+
+If ingress.enabled=true, browse:
+  http{{ if .Values.ingress.tls }}s{{ end }}://{{ (index .Values.ingress.hosts 0).host }}

@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agentic-sdlc.fullname" . }}
+  labels:
+    {{- include "agentic-sdlc.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "agentic-sdlc.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agentic-sdlc.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: LLM_PROVIDER
+              value: "{{ .Values.env.LLM_PROVIDER }}"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            {{- if .Values.env.DATABASE_URL }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agentic-sdlc.fullname" . }}-secrets
+                  key: DATABASE_URL
+            {{- else }}
+            # Default to SQLite in a PVC for persistence
+            - name: DATABASE_URL
+              value: "sqlite:///{{ .Values.env.SQLITE_PATH }}"
+            {{- end }}
+            {{- range $k, $v := .Values.config.additionalEnv }}
+            - name: {{ $k }}
+              value: "{{ $v }}"
+            {{- end }}
+            {{- range $k, $v := .Values.secretEnv }}
+            - name: {{ $k }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agentic-sdlc.fullname" $ }}
+                  key: {{ $k }}
+            {{- end }}
+          volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: docs
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: docs
+          persistentVolumeClaim:
+            claimName: {{ include "agentic-sdlc.fullname" . }}-docs
+        {{- end }}
