@@ -72,7 +72,7 @@ jobs:
             docs/tasks/**/*.md
             docs/plans/index.json
 
-            - name: Expose planner outputs to env
+      - name: Expose planner outputs to env
         if: always()
         run: |
           {
