@@ -1,4 +1,4 @@
 # ADR: Create a hello endpoint
 
 Status: Proposed
-Date: 20250909203151
+Date: 20250909205753
