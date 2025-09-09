@@ -1,4 +1,4 @@
-# ADR: Build a notes service with auth
+# ADR: Create a hello endpoint
 
 Status: Proposed
-Date: 20250909151955
+Date: 20250909200233
