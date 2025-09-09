@@ -26,18 +26,19 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('services/api/requirements.txt', 'requirements*.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
       - name: Install deps
         run: |
           set -eux
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # Ensure CI has basics for this repo
           python -m pip install --upgrade pip
-          pip install pytest jinja2 fastapi uvicorn sqlalchemy pydantic pyyaml httpx ruff
-          # Postgres client (only needed if tests/settings enable PG); optional import should prevent crashes
+          # Install the app's requirements (this includes Markdown, FastAPI, etc.)
+          pip install -r services/api/requirements.txt
+          # Ensure tools used in CI are available (ruff may not be pinned in reqs)
+          pip install ruff pytest
+          # Postgres client (needed when Postgres paths are exercised)
           pip install "psycopg[binary]"
       - name: Ruff (lint)
         id: lint
@@ -56,6 +57,8 @@ jobs:
         id: plan
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
+          # Make planner generation deterministic (no external LLM in CI)
+          LLM_PROVIDER: ""
         run: |
           python scripts/ci_planner.py
         continue-on-error: false
