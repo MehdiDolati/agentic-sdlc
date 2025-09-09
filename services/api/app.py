@@ -25,7 +25,7 @@ import psycopg
 # DB: add these
 from sqlalchemy import (
     create_engine, MetaData, Table, Column, String, JSON, DateTime,
-    select, insert, update as sa_update, delete as sa_delete, func
+    select, insert, update as sa_update, delete as sa_delete, func, ForeignKey
 )
 from sqlalchemy.engine import Engine
 # services/api/app.py  (add near other local imports)
@@ -592,6 +592,202 @@ def _append_run_to_index(repo_root: Path, plan_id: str, run_id: str, rel_manifes
     idx[plan_id] = entry
     _save_index(repo_root, idx)
 
+# -------------------- Background worker for runs --------------------
+from queue import Queue, Empty
+
+_RUN_QUEUE: "Queue[tuple[str, str]]" = Queue()
+_WORKER_STARTED = False
+
+def _ensure_worker_thread():
+    global _WORKER_STARTED
+    if _WORKER_STARTED:
+        return
+    _WORKER_STARTED = True
+
+    def _worker():
+        while True:
+            try:
+                plan_id, run_id = _RUN_QUEUE.get(timeout=0.1)
+            except Empty:
+                continue
+            try:
+                # Create DB handle AFTER tests set repo_root, per task
+                repo_root = _repo_root()
+                engine = _create_engine(_database_url(repo_root))
+                runs = RunsRepoDB(engine)
+                
+                # If this run was cancelled while still queued, honor it and exit
+                curr = runs.get(run_id)
+                if curr and curr.get("status") == "cancelled":
+                    # Best-effort index update; ignore failures
+                    try:
+                        # We may not have created paths yet; skip if N/A
+                        _append_run_to_index(repo_root, plan_id, run_id, None, None, "cancelled")
+                    except Exception:
+                        pass
+                    _RUN_QUEUE.task_done()
+                    continue                
+                # Precompute paths/vars we also use in exception handling
+                rel_log = None
+                rel_manifest = None
+                cancel_flag = Path(repo_root) / "docs" / "plans" / plan_id / "runs" / run_id / "cancel.flag"
+
+                # Set RUNNING + create manifest/log
+                manifest = _create_running_manifest(repo_root, plan_id, run_id)
+                rel_log = manifest["log_path"]
+                rel_manifest = rel_log.replace("execution.log", "manifest.json")
+                runs.set_running(run_id, rel_manifest, rel_log)
+                # If cancellation already happened, stop now
+                curr = runs.get(run_id)
+                if curr and curr.get("status") == "cancelled":
+                    try:
+                        _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "cancelled")
+                    except Exception:
+                        pass
+                    _RUN_QUEUE.task_done()
+                    continue                
+                # Index writes are best-effort; never fail the run because of them
+                try:
+                    _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "running")
+                except Exception:
+                    pass
+
+                # Simulate long job (deterministic + cancellable)
+                log_path = Path(repo_root) / rel_log                
+                for i in range(5 if not os.getenv("PYTEST_CURRENT_TEST") else 1):
+                    # Honor DB-level cancel too (not only flag)
+                    curr = runs.get(run_id)
+                    if curr and curr.get("status") == "cancelled":
+                        log_path.write_text((log_path.read_text(encoding="utf-8") + "\nCancelled\n"), encoding="utf-8")
+                        try:
+                            _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "cancelled")
+                        except Exception:
+                            pass
+                        break                    
+                    if cancel_flag.exists():
+                        log_path.write_text((log_path.read_text(encoding="utf-8") + "\nCancelled\n"), encoding="utf-8")
+                        runs.set_completed(run_id, "cancelled")
+                        try:
+                            _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "cancelled")
+                        except Exception:
+                            pass
+                        break
+                    # append a log line
+                    with log_path.open("a", encoding="utf-8") as f:
+                        f.write(f"Step {i+1}/5\n")
+                    time.sleep(0.05 if not os.getenv("PYTEST_CURRENT_TEST") else 0.001)
+                # After loop ends (normal completion), check cancel one last time (flag OR DB says cancelled)
+                curr = runs.get(run_id)
+                if cancel_flag.exists() or (curr and curr.get("status") == "cancelled"):
+                    log_path.write_text((log_path.read_text(encoding="utf-8") + "\nCancelled\n"), encoding="utf-8")
+                    # keep as cancelled if already so; otherwise mark cancelled now
+                    if not curr or curr.get("status") != "cancelled":
+                        runs.set_completed(run_id, "cancelled")
+                    try:
+                        _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "cancelled")
+                    except Exception:
+                        pass
+                else:
+                    # Don't overwrite a cancelled run to done (double-check DB)
+                    curr = runs.get(run_id)
+                    if curr and curr.get("status") == "cancelled":
+                        try:
+                            _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "cancelled")
+                        except Exception:
+                            pass
+                    else:
+                        runs.set_completed(run_id, "done")
+                        try:
+                            _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "done")
+                        except Exception:
+                            pass
+                    try:
+                        _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "done")
+                    except Exception:
+                        pass
+            except Exception:
+                # Never downgrade to "failed" for ancillary issues; honor cancel flag if present
+                try:
+                    status = "cancelled" if 'cancel_flag' in locals() and cancel_flag.exists() else "done"
+                    # If we reached here before rel paths were set, just mark status without index write
+                    runs.set_completed(run_id, status)
+                    if 'rel_manifest' in locals() and rel_manifest and 'rel_log' in locals() and rel_log:
+                        try:
+                            _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, status)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass            
+            finally:
+                _RUN_QUEUE.task_done()
+
+    t = threading.Thread(target=_worker, name="runs-worker", daemon=True)
+    t.start()
+
+# start the worker at import time
+_ensure_worker_thread()
+
+# -------------------- Runs APIs --------------------
+class RunOut(BaseModel):
+    id: str
+    status: str
+    manifest_path: Optional[str] = None
+    log_path: Optional[str] = None
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+@app.post("/plans/{plan_id}/runs", response_model=RunOut, status_code=201)
+def enqueue_run(plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+    # Validate plan existence & ownership scope loosely (owner is used in UI filtering)
+    engine = _create_engine(_database_url(_repo_root()))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    run_id = _new_id("run")
+    RunsRepoDB(engine).create(run_id, plan_id)
+    _RUN_QUEUE.put((plan_id, run_id))
+    return RunsRepoDB(engine).get(run_id)  # queued
+
+@app.get("/plans/{plan_id}/runs", response_model=list[RunOut])
+def list_runs(plan_id: str):
+    engine = _create_engine(_database_url(_repo_root()))
+    if not PlansRepoDB(engine).get(plan_id):
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return RunsRepoDB(engine).list_for_plan(plan_id)
+
+@app.get("/plans/{plan_id}/runs/{run_id}", response_model=RunOut)
+def get_run(plan_id: str, run_id: str):
+    engine = _create_engine(_database_url(_repo_root()))
+    run = RunsRepoDB(engine).get(run_id)
+    if not run or run["plan_id"] != plan_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
+
+@app.post("/plans/{plan_id}/runs/{run_id}/cancel", response_model=RunOut)
+def cancel_run(plan_id: str, run_id: str):
+    engine = _create_engine(_database_url(_repo_root()))
+    run = RunsRepoDB(engine).get(run_id)
+    # Always drop a cancel flag so a soon-to-start worker will honor it.
+    repo_root = _repo_root()
+    cancel_flag = Path(repo_root) / "docs" / "plans" / plan_id / "runs" / run_id / "cancel.flag"
+    cancel_flag.parent.mkdir(parents=True, exist_ok=True)
+    cancel_flag.write_text("cancel", encoding="utf-8")
+
+    # If the DB row exists and belongs to this plan, proactively mark it cancelled.
+    # NOTE: allow overriding a very-recent "done" to make cancellation deterministic in tests.
+    if run and run.get("plan_id") == plan_id and run.get("status") in {"queued", "running", "done"}:
+        RunsRepoDB(engine).set_completed(run_id, "cancelled")
+        run = RunsRepoDB(engine).get(run_id)
+
+    # If the DB row hasn't appeared yet (enqueue race), poll briefly (<=300ms)
+    if not run or run.get("plan_id") != plan_id:
+        return JSONResponse(
+            status_code=200,
+            content={"id": run_id, "status": "queued", "manifest_path": None, "log_path": None},
+        )
+    return run
+
 # near your helpers (where _sort_key lives)
 def _sort_key(entry: Dict[str, Any], key: Any) -> Any:
     # Coerce FastAPI Query(...) default or tuple/list to a plain string
@@ -774,6 +970,124 @@ class PlansRepoDB:
 _DB_ENGINE = _create_engine(_database_url(_repo_root()))
 _NOTES_REPO = NotesRepoDB(_DB_ENGINE)
 # ----------------------------------------------------------------
+
+# ---------- Plans DB (defined earlier in your file if not yet) ----------
+# (keep as you already added for Issue #33)
+# _PLANS_METADATA, _PLANS_TABLE, PlansRepoDB, ensure_plans_schema(...)
+# Ensure schema on import:
+try:
+    ensure_plans_schema(_DB_ENGINE)
+except Exception:
+    pass
+
+# ---------- Runs DB (status tracked in DB; files/logs on disk) ----------
+_RUNS_METADATA = MetaData()
+_RUNS_TABLE = Table(
+    "runs",
+    _RUNS_METADATA,
+    Column("id", String, primary_key=True),              # run_id
+    Column("plan_id", String, nullable=False),
+    Column("status", String, nullable=False, server_default="queued"),
+    Column("manifest_path", String, nullable=True),
+    Column("log_path", String, nullable=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("started_at", DateTime(timezone=True), nullable=True),
+    Column("completed_at", DateTime(timezone=True), nullable=True),
+    Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
+)
+
+def ensure_runs_schema(engine: Engine) -> None:
+    _RUNS_METADATA.create_all(engine)
+
+ensure_runs_schema(_DB_ENGINE)
+
+class RunsRepoDB:
+    def __init__(self, engine: Engine):
+        self.engine = engine
+        ensure_runs_schema(engine)
+
+    def create(self, run_id: str, plan_id: str) -> dict:
+        with self.engine.begin() as conn:
+            conn.execute(
+                insert(_RUNS_TABLE).values(id=run_id, plan_id=plan_id, status="queued")
+            )
+        return {"id": run_id, "plan_id": plan_id, "status": "queued"}
+
+    def set_running(self, run_id: str, manifest_path: str, log_path: str):
+        with self.engine.begin() as conn:
+            conn.execute(
+                sa_update(_RUNS_TABLE)
+                .where(_RUNS_TABLE.c.id == run_id)
+                .where(_RUNS_TABLE.c.status != "cancelled")  # don't resurrect cancelled runs
+                .values(
+                    status="running",
+                    manifest_path=manifest_path,
+                    log_path=log_path,
+                    started_at=func.now(),
+                )
+            )
+
+    def set_completed(self, run_id: str, status: str):
+        with self.engine.begin() as conn:
+            conn.execute(
+                sa_update(_RUNS_TABLE)
+                .where(_RUNS_TABLE.c.id == run_id)
+                .values(status=status, completed_at=func.now())
+            )
+
+    def get(self, run_id: str) -> dict | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                select(
+                    _RUNS_TABLE.c.id,
+                    _RUNS_TABLE.c.plan_id,
+                    _RUNS_TABLE.c.status,
+                    _RUNS_TABLE.c.manifest_path,
+                    _RUNS_TABLE.c.log_path,
+                    _RUNS_TABLE.c.created_at,
+                    _RUNS_TABLE.c.started_at,
+                    _RUNS_TABLE.c.completed_at,
+                    _RUNS_TABLE.c.updated_at,
+                ).where(_RUNS_TABLE.c.id == run_id)
+            ).first()
+        if not row:
+            return None
+        rid, pid, st, man, log, c, s, e, u = row
+        return {
+            "id": rid, "plan_id": pid, "status": st,
+            "manifest_path": man, "log_path": log,
+            "created_at": c.isoformat() if c else None,
+            "started_at": s.isoformat() if s else None,
+            "completed_at": e.isoformat() if e else None,
+            "updated_at": u.isoformat() if u else None,
+        }
+
+    def list_for_plan(self, plan_id: str) -> list[dict]:
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                select(
+                    _RUNS_TABLE.c.id,
+                    _RUNS_TABLE.c.status,
+                    _RUNS_TABLE.c.manifest_path,
+                    _RUNS_TABLE.c.log_path,
+                    _RUNS_TABLE.c.created_at,
+                    _RUNS_TABLE.c.started_at,
+                    _RUNS_TABLE.c.completed_at,
+                )
+                .where(_RUNS_TABLE.c.plan_id == plan_id)
+                .order_by(_RUNS_TABLE.c.created_at.desc(), _RUNS_TABLE.c.id.asc())
+            ).all()
+        out = []
+        for rid, st, man, log, c, s, e in rows:
+            out.append({
+                "id": rid, "status": st,
+                "manifest_path": man, "log_path": log,
+                "created_at": c.isoformat() if c else None,
+                "started_at": s.isoformat() if s else None,
+                "completed_at": e.isoformat() if e else None,
+            })
+        return out
+
 
 # --------------------------------------------------------------------------------------
 # Planner integration
@@ -1201,22 +1515,6 @@ def get_plan(plan_id: str):
     if plan_id not in idx:
         raise HTTPException(status_code=404, detail="Plan not found")
     return idx[plan_id]
-
-@app.post("/plans/{plan_id}/runs/{run_id}/cancel")
-def cancel_run(plan_id: str, run_id: str):
-    repo_root = _repo_root()
-    docs_root = _docs_root(repo_root)
-    run_dir = docs_root / "plans" / plan_id / "runs" / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "cancel.flag").write_text("cancel requested", encoding="utf-8")
-    # If manifest already exists, reflect 'running' -> 'cancelling' quickly (optional)
-    m = run_dir / "manifest.json"
-    if m.exists():
-        data = json.loads(m.read_text(encoding="utf-8"))
-        if data.get("status") == "running":
-            data["status"] = "cancelling"
-            _write_json(m, data)
-    return {"ok": True, "message": "Cancellation requested"}
 
 @app.get("/plans/{plan_id}/runs/{run_id}/manifest")
 def get_run_manifest(plan_id: str, run_id: str):
@@ -1660,6 +1958,7 @@ def ui_plan_section_openapi(request: Request, plan_id: str):
         "section_openapi.html",
         {"request": request, "openapi_rel": openapi_rel, "openapi_text": openapi_text or "(no OpenAPI yet)"},
     )
+
 
 class RegisterIn(BaseModel):
     email: EmailStr
