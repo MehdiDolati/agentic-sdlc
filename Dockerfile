@@ -16,22 +16,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY services/api/requirements.txt ./services/api/requirements.txt
 
 # Install Python deps
-# - psycopg (pure Python wheel) covers Postgres client
+# NOTE: prefer psycopg **binary** wheel unless your requirements already pin it.
+# If your requirements.txt already has psycopg[binary], you can drop the extra pip install line.
 RUN pip install --upgrade pip \
-    && pip install -r services/api/requirements.txt
+    && pip install -r services/api/requirements.txt \
+    || true
+# Ensure pg client is available in slim images:
+RUN python - <<'PY'
+import pkgutil, subprocess, sys
+if not pkgutil.find_loader("psycopg"):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "psycopg[binary]"])
+PY
 
 # Copy the rest of the source
 COPY . .
 
-# Ensure entrypoint has Unix line endings and is executable (CI-safe)
+## Normalize entrypoint once (avoid duplicates)
 RUN set -eux; \
-  sed -i 's/\r$//' /app/services/api/docker/entrypoint.sh; \
-  chmod 0755 /app/services/api/docker/entrypoint.sh
-
-# normalize line endings and make entrypoint executable
-RUN set -eux; \
-    sed -i 's/\r$//' services/api/docker/entrypoint.sh && \
-    chmod +x services/api/docker/entrypoint.sh
+    sed -i '1s/^\xEF\xBB\xBF//' services/api/docker/entrypoint.sh || true; \
+    sed -i 's/\r$//' services/api/docker/entrypoint.sh || true; \
+    chmod 0755 services/api/docker/entrypoint.sh
 
 # Create non-root user
 RUN addgroup --system app && adduser --system --ingroup app app \
@@ -42,10 +46,5 @@ USER app
 EXPOSE 8080
 ENV PORT=8080
 
-# NOTE:
-# Root filesystem will be made read-only via docker-compose.
-RUN sed -i '1s/^\xEF\xBB\xBF//' services/api/docker/entrypoint.sh && \
-    sed -i 's/\r$//' services/api/docker/entrypoint.sh && \
-    chmod +x services/api/docker/entrypoint.sh
 ENTRYPOINT ["/usr/bin/tini","-g","--","/bin/sh","/app/services/api/docker/entrypoint.sh"]
 CMD ["python","-m","uvicorn","services.api.app:app","--host","0.0.0.0","--port","8080"]

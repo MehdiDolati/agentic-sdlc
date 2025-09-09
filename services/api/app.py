@@ -1646,16 +1646,6 @@ def get_plan(plan_id: str):
         raise HTTPException(status_code=404, detail="Plan not found")
     return idx[plan_id]
 
-@app.get("/plans/{plan_id}/runs/{run_id}/manifest")
-def get_run_manifest(plan_id: str, run_id: str):
-    repo_root = _repo_root()
-    docs_root = _docs_root(repo_root)
-    m = docs_root / "plans" / plan_id / "runs" / run_id / "manifest.json"
-    if not m.exists():
-        return JSONResponse({"error": "manifest not found"}, status_code=404)
-    return JSONResponse(json.loads(m.read_text(encoding="utf-8")))
-
-
 def run_step(
     name: str,
     func: Callable[[Callable[[], bool]], Any],
