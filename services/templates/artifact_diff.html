@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>{{ kind }} Diff</h2>
+  <p><small>From: <code>{{ from_path or "(auto)" }}</code> → To: <code>{{ to_path or "(auto)" }}</code></small></p>
+  <div class="content">
+    {{ diff_html | safe }}
+  </div>
+</div>
+{% endblock %}
