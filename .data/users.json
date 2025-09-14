@@ -1,4 +1,9 @@
 {
   "version": 1,
-  "users": []
+  "users": [],
+  "20250914134234-u-f2f661": {
+    "id": "20250914134234-u-f2f661",
+    "email": "u1@example.com",
+    "password_hash": "f64551fcd6f07823cb87971cfb91446425da18286b3ab1ef935e0cbd7a69f68a"
+  }
 }

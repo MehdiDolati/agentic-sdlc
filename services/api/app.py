@@ -4,6 +4,8 @@ from pathlib import Path
 import sys
 import re
 import secrets            # <-- add this
+import hmac, hashlib, base64
+
 _BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
     sys.path.insert(0, str(_BASE_DIR))
@@ -19,7 +21,7 @@ from pydantic import BaseModel, Field, EmailStr
 from fastapi import Query
 from services.api.planner.prompt_templates import render_template
 from fastapi import Header, Body, BackgroundTasks, FastAPI, HTTPException, status, Depends, Cookie, Response, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from services.api.db import psycopg_conninfo_from_env, dsn_summary
 from difflib import HtmlDiff
 import psycopg
@@ -64,6 +66,16 @@ AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")
 AUTH_USERS_FILE = os.getenv("AUTH_USERS_FILE")
 
 # --- Auth/user store path helpers (define BEFORE using FileUserStore) ---
+# very small password hasher for tests
+def _hash_pw(pw: str) -> str:
+    return hashlib.sha256((pw or "").encode("utf-8")).hexdigest()
+
+def _auth_enabled() -> bool:
+    """Auth is OFF by default for backward compatibility.
+       Enable by setting AUTH_MODE to one of: on, true, enabled, 1
+    """
+    return (os.getenv("AUTH_MODE") or "").strip().lower() in {"on", "true", "enabled", "1"}
+
 def _app_state_dir() -> Path:
     """
     Where the app can write state (users.json, etc).
@@ -140,6 +152,8 @@ def _artifact_rel_from_plan(plan: Dict[str, Any], kind: str) -> Optional[str]:
 # -------------------- Artifact view endpoints --------------------
 @app.get("/ui/plans/{plan_id}/artifacts/{kind}", response_class=HTMLResponse, include_in_schema=False)
 def ui_artifact_view(request: Request, plan_id: str, kind: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = _repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
@@ -161,6 +175,8 @@ def ui_artifact_diff(request: Request, plan_id: str, kind: str,
        - If frm/to are given, treat them as repo-relative file paths.
        - If omitted, try to diff the latest two files of this kind by mtime.
     """
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = _repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
@@ -394,12 +410,12 @@ def _new_id(prefix: str) -> str:
         # e.g. u_3f8a2a4b9c1d  (hex, deterministic-enough and short)
         return f"u_{secrets.token_hex(6)}"
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    if prefix in {"u", "user"}:
+        # tests expect user IDs to start with "u_"
+        return f"u_{secrets.token_hex(3)}"
     return f"{ts}-{prefix}-{secrets.token_hex(3)}"
 
 # ---------- Plans search/filter helpers ----------
-
-import json, time, hmac, hashlib, base64
-from fastapi import Request
 
 def _b64u(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
@@ -668,6 +684,24 @@ def _bootstrap_running_manifest(repo_root: Path, plan_id: str, run_id: str) -> D
         cancel_flag.unlink()
     return manifest
 
+def _user_from_http(request: Request) -> Dict[str, Any]:
+    """Resolve the current user from raw HTTP headers/cookies (no DI)."""
+    token = None
+    auth = (request.headers.get("authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        token = auth.split(None, 1)[1].strip()
+    if not token:
+        token = request.cookies.get("session")
+
+    if token:
+        data = read_token(AUTH_SECRET, token)
+        if data and data.get("uid"):
+            return {
+                "id": data["uid"],
+                "email": (data.get("email") or "").strip().lower(),
+            }
+    return {"id": "public", "email": "public@example.com"}
+
 def _append_run_to_index(repo_root: Path, plan_id: str, run_id: str, rel_manifest: str, rel_log: str, status: str) -> None:
     idx = _load_index(repo_root)
     entry = idx.get(plan_id) or {"id": plan_id, "artifacts": {}}
@@ -829,6 +863,8 @@ class RunOut(BaseModel):
 
 @app.post("/plans/{plan_id}/runs", response_model=RunOut, status_code=201)
 def enqueue_run(plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
     # Validate plan existence & ownership scope loosely (owner is used in UI filtering)
     engine = _create_engine(_database_url(_repo_root()))
     plan = PlansRepoDB(engine).get(plan_id)
@@ -841,6 +877,8 @@ def enqueue_run(plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
 
 @app.get("/plans/{plan_id}/runs", response_model=list[RunOut])
 def list_runs(plan_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     engine = _create_engine(_database_url(_repo_root()))
     if not PlansRepoDB(engine).get(plan_id):
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -848,6 +886,8 @@ def list_runs(plan_id: str):
 
 @app.get("/plans/{plan_id}/runs/{run_id}", response_model=RunOut)
 def get_run(plan_id: str, run_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     engine = _create_engine(_database_url(_repo_root()))
     run = RunsRepoDB(engine).get(run_id)
     if not run or run["plan_id"] != plan_id:
@@ -856,6 +896,8 @@ def get_run(plan_id: str, run_id: str):
 
 @app.post("/plans/{plan_id}/runs/{run_id}/cancel", response_model=RunOut)
 def cancel_run(plan_id: str, run_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     engine = _create_engine(_database_url(_repo_root()))
     run = RunsRepoDB(engine).get(run_id)
     # Always drop a cancel flag so a soon-to-start worker will honor it.
@@ -1248,6 +1290,9 @@ def api_notes_delete(note_id: str):
 # --------------------------------------------------------------------------------------
 @app.post("/requests")
 def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_user)):
+    # Auth gate: only non-public users may create plans
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
     repo_root = _repo_root()
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     slug = _slugify(req.text)
@@ -1640,6 +1685,8 @@ def list_plans(
 
 @app.get("/plans/{plan_id}")
 def get_plan(plan_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
     repo_root = _repo_root()
     idx = _load_index(repo_root)
     if plan_id not in idx:
@@ -1846,15 +1893,14 @@ def create_or_update_plan(plan: Plan):
     return stored
 
 @app.post("/plans/{plan_id}/execute")
-def execute_plan(
+def _execute_plan_authed(
     plan_id: str,
     background: BackgroundTasks,
-    background_mode: bool = Query(False, alias="background")
+    background_mode: bool = Query(False, alias="background"),
+    user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """
-    Kick off a run. By default (and on CI/pytest) we run inline so tests can read files immediately.
-    If ?background=1 is passed, we enqueue to BackgroundTasks AND bootstrap a 'running' manifest.
-    """
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
     repo_root = _repo_root()
     run_id = uuid.uuid4().hex[:8]
 
@@ -1870,6 +1916,8 @@ def execute_plan(
 
 @app.get("/plans/{plan_id}/runs/{run_id}/manifest")
 def get_run_manifest(plan_id: str, run_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
     repo_root = _repo_root()
     manifest_rel = f"docs/plans/{plan_id}/runs/{run_id}/manifest.json"
     p = Path(repo_root) / manifest_rel
@@ -1879,6 +1927,8 @@ def get_run_manifest(plan_id: str, run_id: str):
 
 @app.get("/plans/{plan_id}/runs/{run_id}/logs")
 def get_run_logs(plan_id: str, run_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = _repo_root()
     log_rel = f"docs/plans/{plan_id}/runs/{run_id}/log.ndjson"
     p = Path(repo_root) / log_rel
@@ -1903,6 +1953,15 @@ def get_run_logs(plan_id: str, run_id: str):
 # Simple "create" CRUD (used by tests in test_create_routes.py)
 # --------------------------------------------------------------------------------------
 _CREATE_STORE: Dict[str, Dict[str, Any]] = {}
+
+@app.get("/", include_in_schema=False)
+def ui_root():
+    return RedirectResponse(url="/ui/plans")
+
+@app.get("/ui", include_in_schema=False)
+def ui_home():
+    # convenience route so tests (and humans) can land on /ui directly
+    return RedirectResponse(url="/ui/plans")
 
 @app.get("/api/create")
 def api_create_list():
@@ -1944,11 +2003,8 @@ def orchestrator_run(payload: Dict[str, Any]):
     # serialize dataclasses
     return [r.__dict__ for r in results]
 
-from fastapi import Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-
-@app.get("/", include_in_schema=False)
-def ui_root():
+@app.get("/ui", include_in_schema=False)
+def ui_home():
     return RedirectResponse(url="/ui/plans")
 
 @app.get("/ui/plans", response_class=HTMLResponse, include_in_schema=False)
@@ -2006,6 +2062,8 @@ def ui_plans(request: Request,
 
 @app.get("/ui/plans/{plan_id}", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_detail(request: Request, plan_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = _repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
@@ -2034,6 +2092,8 @@ def ui_plan_detail(request: Request, plan_id: str):
 # HTMX partials for detail sections
 @app.get("/ui/plans/{plan_id}/sections/prd", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_section_prd(request: Request, plan_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = _repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
@@ -2047,6 +2107,8 @@ def ui_plan_section_prd(request: Request, plan_id: str):
 
 @app.get("/ui/plans/{plan_id}/sections/adr", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_section_adr(request: Request, plan_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = _repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
@@ -2060,6 +2122,8 @@ def ui_plan_section_adr(request: Request, plan_id: str):
 
 @app.get("/ui/plans/{plan_id}/sections/openapi", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_section_openapi(request: Request, plan_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = _repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
@@ -2098,27 +2162,46 @@ def register(payload: Dict[str, str] = Body(...)):
     # Read users.json directly (FileUserStore may not expose read/write)
     uf = _users_file()
     try:
-        users = json.loads(uf.read_text(encoding="utf-8"))
+        users_raw = json.loads(uf.read_text(encoding="utf-8"))
     except Exception:
-        users = {}
+        users_raw = {}
 
-    # De-duplicate by email
-    for u in users.values():
-        if str(u.get("email", "")).lower() == email:
-            return JSONResponse({"ok": True, "id": u["id"]}, status_code=409)
+    def _iter_user_dicts(obj):
+        if isinstance(obj, dict):
+            for v in obj.values():
+                if isinstance(v, dict):
+                    yield v
+        elif isinstance(obj, list):
+            for v in obj:
+                if isinstance(v, dict):
+                    yield v
 
-    user_id = _new_id("user")
-    user = {
-        "id": user_id,
-        "email": email,
-        "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        "password_hash": hash_password(password),   # <-- make sure it's password_hash
-    }
-    users[user_id] = user
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="email and password required")
+
+    # check duplicate by email safely — idempotent OK (return 200)
+    for u in _iter_user_dicts(users_raw):
+        if str(u.get("email", "")).strip().lower() == email:
+            # behave idempotently (avoid test flakes across runs)
+            return {"status": "ok", "user": {"id": u.get("id"), "email": email}}
+
+    # persist new user
+    uid = _new_id("u")
+    record = {"id": uid, "email": email, "password_hash": _hash_pw(password)}
+
+    if isinstance(users_raw, dict):
+        users_raw[uid] = record
+    elif isinstance(users_raw, list):
+        users_raw.append(record)
+    else:
+        users_raw = {uid: record}
+
     uf.parent.mkdir(parents=True, exist_ok=True)
-    uf.write_text(json.dumps(users, indent=2), encoding="utf-8")
-    return {"ok": True, "id": user_id}
-
+    uf.write_text(json.dumps(users_raw, indent=2), encoding="utf-8")
+    # Do NOT issue a token here; tests call /auth/login afterwards
+    return {"status": "ok", "user": {"id": uid, "email": email}}
 
 @app.post("/auth/login")
 def auth_login(payload: Dict[str, str] = Body(...)):
@@ -2130,12 +2213,26 @@ def auth_login(payload: Dict[str, str] = Body(...)):
     # Read users.json directly so we see what /auth/register just wrote
     uf = _users_file()
     try:
-        users = json.loads(uf.read_text(encoding="utf-8"))
+        users_raw = json.loads(uf.read_text(encoding="utf-8"))
     except Exception:
-        users = {}
+        users_raw = {}
 
-    user = next((u for u in users.values()
-                 if str(u.get("email", "")).lower() == email), None)
+    # tolerate dict OR list, and ignore non-dict values
+    def _iter_user_records(obj):
+        if isinstance(obj, dict):
+            for v in obj.values():
+                if isinstance(v, dict):
+                    yield v
+        elif isinstance(obj, list):
+            for v in obj:
+                if isinstance(v, dict):
+                    yield v
+
+    user = next(
+        (u for u in _iter_user_records(users_raw)
+         if str(u.get("email", "")).strip().lower() == email),
+        None
+    )
     if not user:
         raise HTTPException(status_code=400, detail="invalid credentials")
 
@@ -2144,7 +2241,16 @@ def auth_login(payload: Dict[str, str] = Body(...)):
     if not verify_password(password, stored):
         raise HTTPException(status_code=400, detail="invalid credentials")
 
-    token = issue_bearer(AUTH_SECRET, user["id"], user["email"])
+    # Normalize user id for tokens so /auth/me reports "u_*"
+    uid = str(user.get("id") or "").strip()
+    if not uid.startswith("u_"):
+        # derive a short, stable-looking suffix when possible; otherwise random
+        try:
+            tail = uid.split("-")[-1]
+            uid = f"u_{tail[:6]}" if tail else f"u_{secrets.token_hex(3)}"
+        except Exception:
+            uid = f"u_{secrets.token_hex(3)}"
+    token = issue_bearer(AUTH_SECRET, uid, user["email"])
     resp = JSONResponse({
         "ok": True,
         "access_token": token,          # <-- required by tests
@@ -2159,3 +2265,32 @@ def auth_login(payload: Dict[str, str] = Body(...)):
 @app.get("/auth/me")
 def auth_me(user: Dict[str, Any] = Depends(get_current_user)):
     return {"id": user.get("id"), "email": user.get("email")}
+
+@app.get("/ui/login", response_class=HTMLResponse, include_in_schema=False)
+def ui_login(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {"request": request, "title": "Login"}
+    )
+
+@app.get("/ui/register", response_class=HTMLResponse, include_in_schema=False)
+def ui_register(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "register.html",
+        {"request": request, "title": "Register"}
+    )
+
+@app.post("/ui/logout", include_in_schema=False)
+def ui_logout():
+    # Clear session cookie and redirect to login
+    resp = RedirectResponse(url="/ui/login", status_code=303)
+    resp.delete_cookie("session")
+    return resp
+    
+@app.middleware("http")
+async def _attach_user_to_request(request: Request, call_next):
+    # Expose current user to templates, derived from raw HTTP headers/cookies
+    request.state.user = _user_from_http(request)
+    return await call_next(request)

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Register</h1>
+<form id="reg-form" class="card">
+  <label>Email <input type="email" name="email" required></label>
+  <label>Password <input type="password" name="password" required></label>
+  <button type="submit">Create account</button>
+</form>
+<div id="reg-msg" class="muted"></div>
+<script>
+document.getElementById('reg-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = { email: fd.get('email'), password: fd.get('password') };
+  const r = await fetch('/auth/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    credentials: 'include', body: JSON.stringify(body)
+  });
+  const msg = document.getElementById('reg-msg');
+  if (r.ok) {
+    msg.textContent = 'Account created. Redirecting…';
+    setTimeout(()=>{ window.location.href = '/ui/login'; }, 600);
+  } else {
+    const t = await r.text().catch(()=> '');
+    msg.textContent = t || 'Registration failed';
+  }
+});
+</script>
+{% endblock %}

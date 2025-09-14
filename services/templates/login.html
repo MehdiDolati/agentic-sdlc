@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Login</h1>
+<form id="login-form" class="card">
+  <label>Email <input type="email" name="email" required></label>
+  <label>Password <input type="password" name="password" required></label>
+  <button type="submit">Login</button>
+</form>
+<div id="login-msg" class="muted"></div>
+<script>
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = { email: fd.get('email'), password: fd.get('password') };
+  const r = await fetch('/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    credentials: 'include', body: JSON.stringify(body)
+  });
+  const msg = document.getElementById('login-msg');
+  if (r.ok) {
+    window.location.href = '/ui/plans';
+  } else {
+    const t = await r.text().catch(()=> '');
+    msg.textContent = t || 'Login failed';
+  }
+});
+</script>
+{% endblock %}
