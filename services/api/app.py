@@ -2283,8 +2283,7 @@ def ui_register(request: Request):
     )
 
 @app.post("/ui/logout", include_in_schema=False)
-def ui_logout():
-    # Clear session cookie and redirect to login
+def ui_logout_post():
     resp = RedirectResponse(url="/ui/login", status_code=303)
     resp.delete_cookie("session")
     return resp

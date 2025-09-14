@@ -75,8 +75,8 @@ async function setupAuthForms() {
       });
       const msg = document.getElementById("register-msg");
       if (ok) {
-        msg.textContent = "Account created. Redirecting to login…";
-        setTimeout(() => (window.location.href = "/ui/login"), 600);
+        msg.textContent = "Account created. Redirecting…";
+	    window.location.assign("/ui/login");
       } else {
         msg.textContent = data?.detail || `Register failed (${status})`;
       }

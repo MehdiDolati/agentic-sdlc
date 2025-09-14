@@ -12,9 +12,7 @@
   <nav style="display:inline-block;">
     {% if request.state.user and request.state.user.id != 'public' %}
       <span>Signed in as {{ request.state.user.email }}</span>
-      <form method="post" action="/ui/logout" style="display:inline;margin-left:.75rem">
-        <button type="submit">Logout</button>
-      </form>
+      <a href="/ui/logout" style="margin-left:.75rem">Logout</a>
     {% else %}
       <a href="/ui/login">Login</a>
       <a href="/ui/register" style="margin-left:.75rem">Register</a>
