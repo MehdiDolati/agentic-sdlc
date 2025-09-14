@@ -16,6 +16,8 @@ services/docs/plans/**/runs/
 services/docs/plans/*/
 services/docs/plans/index.json
 docs/plans/index.json
+docs/adr/*
+docs/notes.db
 
 
 # Force LF for shell scripts
