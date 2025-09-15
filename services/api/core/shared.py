@@ -10,6 +10,7 @@ from sqlalchemy.engine import Engine, URL
 import markdown as _markdown
 import secrets
 
+AUTH_MODE = os.getenv("AUTH_MODE", "disabled").lower() # "disabled" | "token"
 @lru_cache(maxsize=1)
 def _repo_root() -> Path:
     # Prefer env override (used in docker/CI)
