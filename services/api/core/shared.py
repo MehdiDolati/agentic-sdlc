@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 from functools import lru_cache
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine, URL
 import markdown as _markdown
+import secrets
 
 @lru_cache(maxsize=1)
 def _repo_root() -> Path:
@@ -106,3 +108,14 @@ def _auth_enabled() -> bool:
        Enable by setting AUTH_MODE to one of: on, true, enabled, 1
     """
     return (os.getenv("AUTH_MODE") or "").strip().lower() in {"on", "true", "enabled", "1"}
+
+def _new_id(prefix: str) -> str:
+    """Generate IDs. Tests require user IDs to start with 'u_'."""
+    if prefix == "user":
+        # e.g. u_3f8a2a4b9c1d  (hex, deterministic-enough and short)
+        return f"u_{secrets.token_hex(6)}"
+    ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    if prefix in {"u", "user"}:
+        # tests expect user IDs to start with "u_"
+        return f"u_{secrets.token_hex(3)}"
+    return f"{ts}-{prefix}-{secrets.token_hex(3)}"
