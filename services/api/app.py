@@ -17,8 +17,9 @@ from services.api.core.shared import (
 )
 from services.api.core.repos import PlansRepoDB, RunsRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema
 from services.api.ui.plans import router as ui_plans_router
-from services.api.ui.auth import router as ui_auth_router, get_current_user
+from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
+from services.api.auth.routes import router as auth_router, get_current_user
 
 _BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
@@ -66,6 +67,7 @@ from fastapi.staticfiles import StaticFiles
 app = FastAPI(title="Agentic SDLC API", version="0.1.0")
 app.include_router(ui_plans_router)
 app.include_router(ui_auth_router)
+app.include_router(auth_router)
 
 # --- UI wiring (templates + static) ---
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")

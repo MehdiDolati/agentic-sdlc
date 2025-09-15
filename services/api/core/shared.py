@@ -119,3 +119,34 @@ def _new_id(prefix: str) -> str:
         # tests expect user IDs to start with "u_"
         return f"u_{secrets.token_hex(3)}"
     return f"{ts}-{prefix}-{secrets.token_hex(3)}"
+
+def _app_state_dir() -> Path:
+    """
+    Where the app can write state (users.json, etc).
+    Priority:
+      1) APP_STATE_DIR env
+      2) repo root (current file two levels up)  -> <repo>/   (local dev/tests)
+    """
+    env_dir = os.getenv("APP_STATE_DIR")
+    if env_dir:
+        p = Path(env_dir)
+    else:
+        # repo root = services/api/../../
+        p = Path(__file__).resolve().parents[2]
+    return p
+
+def _users_file() -> Path:
+    """
+    Users JSON location.
+    Priority:
+      1) AUTH_USERS_FILE env (absolute path)
+      2) <APP_STATE_DIR>/.data/users.json
+    Ensures parent dir exists.
+    """
+    override = os.getenv("AUTH_USERS_FILE")
+    if override:
+        uf = Path(override)
+    else:
+        uf = _app_state_dir() / ".data" / "users.json"
+    uf.parent.mkdir(parents=True, exist_ok=True)
+    return uf
