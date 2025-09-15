@@ -5,7 +5,7 @@ import time
 import json
 import os
 import pytest
-
+import services.api.core.shared as shared   
 
 client = TestClient(app)
 
@@ -23,7 +23,8 @@ def test_execute_background_starts_and_writes_manifest(tmp_path: Path = None):
     time.sleep(0.05)
 
     # verify manifest exists and is completed
-    manifest = Path("docs") / "plans" / plan_id / "runs" / run_id / "manifest.json"
+    repo_root = shared._repo_root()
+    manifest = repo_root = shared._repo_root() / "docs" / "plans" / plan_id / "runs" / run_id / "manifest.json"
     assert manifest.exists()
     data = json.loads(manifest.read_text())
     assert data["status"] in ("running", "completed")

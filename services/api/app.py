@@ -4,13 +4,17 @@ from pathlib import Path
 import sys
 import re
 import hmac, hashlib, base64
+import services.api.core.shared as shared
 
 from services.api.core.shared import (
-    _repo_root,
     _database_url,
     _create_engine,
     _render_markdown,
     _read_text_if_exists,
+    _plans_index_path,
+    _save_index,
+    _load_index,
+    _append_run_to_index,
     _sort_key,
     _auth_enabled,
     _new_id
@@ -20,6 +24,8 @@ from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
 from services.api.auth.routes import router as auth_router, get_current_user
+from services.api.runs.routes import router as runs_router
+
 
 _BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
@@ -68,6 +74,7 @@ app = FastAPI(title="Agentic SDLC API", version="0.1.0")
 app.include_router(ui_plans_router)
 app.include_router(ui_auth_router)
 app.include_router(auth_router)
+app.include_router(runs_router)
 
 # --- UI wiring (templates + static) ---
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")
@@ -113,7 +120,7 @@ def _artifact_rel_from_plan(plan: Dict[str, Any], kind: str) -> Optional[str]:
 def ui_artifact_view(request: Request, plan_id: str, kind: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
@@ -136,7 +143,7 @@ def ui_artifact_diff(request: Request, plan_id: str, kind: str,
     """
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
@@ -221,32 +228,13 @@ def _write_text_abs(abs_path: Path, content: str) -> None:
 
 def _store_root() -> Path:
     """Return the active store root (tests may retarget this)."""
-    return _STORE_ROOT if _STORE_ROOT is not None else _repo_root()
+    return _STORE_ROOT if _STORE_ROOT is not None else shared._repo_root()
 
 def _retarget_store(p: Path) -> None:
     """Used by tests to point the store at a temp dir."""
     global _STORE_ROOT
     _STORE_ROOT = Path(p)
 
-def _plans_index_path(repo_root: Path) -> Path:
-    return repo_root / "docs" / "plans" / "index.json"
-
-def _load_index(repo_root: Path) -> Dict[str, dict]:
-    path = _plans_index_path(repo_root)
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("{}", encoding="utf-8")
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-def _save_index(repo_root: Path, idx: Dict[str, dict]) -> None:
-    path = _plans_index_path(repo_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8")
-  
 def _extract_bearer(request: Request) -> Optional[str]:
     auth = request.headers.get("authorization") or request.headers.get("Authorization")
     if not auth:
@@ -405,7 +393,7 @@ def _ci_or_pytest() -> bool:
 
 def _write_text_file(rel_path: str, content: str) -> None:
     """Write UTF-8 text to repo-rooted relative path (create dirs)."""
-    p = _repo_root() / rel_path
+    p = shared._repo_root() / rel_path
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
 
@@ -464,62 +452,8 @@ security:
   - bearerAuth: []
 """
 
-def _write_json(repo_root: Path, rel: str, data: dict) -> None:
-    p = _ensure_parents(repo_root, rel)
-    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    
-def _docs_root(repo_root: Path) -> Path:
-    # We’re standardizing all generated docs under services/docs
-    return repo_root /  "docs"
-
 def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
-
-def _write_json(abs_path: Path, data: dict) -> None:
-    _ensure_dir(abs_path.parent)
-    abs_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    
-# ---------- Orchestrator helpers (timeouts/retries/cancel) ----------
-
-def _posix_rel(p: Path, root: Path) -> str:
-    """Relative path as forward-slashes (stable across OS)."""
-    return p.relative_to(root).as_posix()
-
-def _write_json(path: Path, data: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-def _bootstrap_running_manifest(repo_root: Path, plan_id: str, run_id: str) -> Dict[str, Any]:
-    """
-    Create/overwrite a 'running' manifest immediately so background tests can
-    see status quickly.
-    """
-    docs_root = _docs_root(repo_root)  # your existing helper that returns repo_root / "docs"
-    run_dir = docs_root / "plans" / plan_id / "runs" / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    manifest_path = run_dir / "manifest.json"
-    log_path      = run_dir / "execution.log"
-    cancel_flag   = run_dir / "cancel.flag"
-
-    now = datetime.now(timezone.utc).isoformat()
-    manifest = {
-        "plan_id": plan_id,
-        "run_id": run_id,
-        "status": "running",
-        "started_at": now,
-        "log_path": _posix_rel(log_path, repo_root),
-        "artifacts": [],
-        "steps": [],
-    }
-    _write_json(manifest_path, manifest)
-    # ensure log file exists
-    if not log_path.exists():
-        log_path.write_text("", encoding="utf-8")
-    # ensure cancel file does not exist at start
-    if cancel_flag.exists():
-        cancel_flag.unlink()
-    return manifest
 
 def _user_from_http(request: Request) -> Dict[str, Any]:
     """Resolve the current user from raw HTTP headers/cookies (no DI)."""
@@ -538,20 +472,6 @@ def _user_from_http(request: Request) -> Dict[str, Any]:
                 "email": (data.get("email") or "").strip().lower(),
             }
     return {"id": "public", "email": "public@example.com"}
-
-def _append_run_to_index(repo_root: Path, plan_id: str, run_id: str, rel_manifest: str, rel_log: str, status: str) -> None:
-    idx = _load_index(repo_root)
-    entry = idx.get(plan_id) or {"id": plan_id, "artifacts": {}}
-    runs = entry.get("runs", [])
-    runs.append({
-        "run_id": run_id,
-        "manifest_path": rel_manifest,
-        "log_path": rel_log,
-        "status": status,
-    })
-    entry["runs"] = runs
-    idx[plan_id] = entry
-    _save_index(repo_root, idx)
 
 # -------------------- Background worker for runs --------------------
 from queue import Queue, Empty
@@ -573,7 +493,7 @@ def _ensure_worker_thread():
                 continue
             try:
                 # Create DB handle AFTER tests set repo_root, per task
-                repo_root = _repo_root()
+                repo_root = shared._repo_root()
                 engine = _create_engine(_database_url(repo_root))
                 runs = RunsRepoDB(engine)
                 
@@ -703,7 +623,7 @@ def enqueue_run(plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
     # Validate plan existence & ownership scope loosely (owner is used in UI filtering)
-    engine = _create_engine(_database_url(_repo_root()))
+    engine = _create_engine(_database_url(shared._repo_root()))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -712,20 +632,11 @@ def enqueue_run(plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
     _RUN_QUEUE.put((plan_id, run_id))
     return RunsRepoDB(engine).get(run_id)  # queued
 
-@app.get("/plans/{plan_id}/runs", response_model=list[RunOut])
-def list_runs(plan_id: str):
-    if _auth_enabled() and user.get("id") == "public":
-        raise HTTPException(status_code=401, detail="authentication required")    
-    engine = _create_engine(_database_url(_repo_root()))
-    if not PlansRepoDB(engine).get(plan_id):
-        raise HTTPException(status_code=404, detail="Plan not found")
-    return RunsRepoDB(engine).list_for_plan(plan_id)
-
 @app.get("/plans/{plan_id}/runs/{run_id}", response_model=RunOut)
 def get_run(plan_id: str, run_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
-    engine = _create_engine(_database_url(_repo_root()))
+    engine = _create_engine(_database_url(shared._repo_root()))
     run = RunsRepoDB(engine).get(run_id)
     if not run or run["plan_id"] != plan_id:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -735,10 +646,10 @@ def get_run(plan_id: str, run_id: str):
 def cancel_run(plan_id: str, run_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
-    engine = _create_engine(_database_url(_repo_root()))
+    engine = _create_engine(_database_url(shared._repo_root()))
     run = RunsRepoDB(engine).get(run_id)
     # Always drop a cancel flag so a soon-to-start worker will honor it.
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     cancel_flag = Path(repo_root) / "docs" / "plans" / plan_id / "runs" / run_id / "cancel.flag"
     cancel_flag.parent.mkdir(parents=True, exist_ok=True)
     cancel_flag.write_text("cancel", encoding="utf-8")
@@ -758,7 +669,7 @@ def cancel_run(plan_id: str, run_id: str):
     return run
 
 # Initialize the repo once at import time
-_DB_ENGINE = _create_engine(_database_url(_repo_root()))
+_DB_ENGINE = _create_engine(_database_url(shared._repo_root()))
 _NOTES_REPO = NotesRepoDB(_DB_ENGINE)
 # ----------------------------------------------------------------
 
@@ -846,7 +757,7 @@ def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_us
     # Auth gate: only non-public users may create plans
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     slug = _slugify(req.text)
 
@@ -1078,7 +989,7 @@ def list_plans(
       - order: asc|desc
       - pagination: page/page_size (limit/offset supported for legacy)
     """
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     idx = _load_index(repo_root)  # dict[plan_id] -> entry
 
     # Parse date filters
@@ -1240,267 +1151,16 @@ def list_plans(
 def get_plan(plan_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     idx = _load_index(repo_root)
     if plan_id not in idx:
         raise HTTPException(status_code=404, detail="Plan not found")
     return idx[plan_id]
 
-def run_step(
-    name: str,
-    func: Callable[[Callable[[], bool]], Any],
-    *,
-    timeout_s: float = 5.0,
-    retries: int = 0,
-    backoff_s: float = 0.05,
-    log_file: Path,
-    cancel_file: Path
-) -> Dict[str, Any]:
-    """
-    Run a single step with:
-    - timeout per attempt
-    - retry/backoff on failure/timeout
-    - cooperative cancellation (func receives a should_cancel() callback)
-    Returns a dict describing the step result.
-    """
-    result: Dict[str, Any] = {
-        "name": name,
-        "status": "unknown",
-        "attempts": 0,
-        "timed_out": False,
-        "error": None,
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "ended_at": None,
-    }
-
-    def should_cancel() -> bool:
-        return cancel_file.exists()
-
-    # thread wrapper to capture exceptions
-    class Holder:
-        exc: Optional[BaseException] = None
-
-    attempts_allowed = retries + 1
-    for attempt in range(1, attempts_allowed + 1):
-        if should_cancel():
-            result["status"] = "cancelled"
-            result["attempts"] = attempt - 1
-            result["ended_at"] = datetime.now(timezone.utc).isoformat()
-            log_file.write_text(log_file.read_text(encoding="utf-8") + f"[{name}] cancelled before attempt {attempt}\n", encoding="utf-8")
-            return result
-
-        holder = Holder()
-
-        def target():
-            try:
-                func(should_cancel)
-            except BaseException as e:
-                holder.exc = e
-
-        t = threading.Thread(target=target, daemon=True)
-        t.start()
-        t.join(timeout_s)
-        result["attempts"] = attempt
-
-        if t.is_alive():
-            # timeout
-            result["timed_out"] = True
-            # leave thread to die with the process; log and maybe retry
-            log_file.write_text(log_file.read_text(encoding="utf-8") + f"[{name}] attempt {attempt} timed out after {timeout_s}s\n", encoding="utf-8")
-            if attempt < attempts_allowed:
-                time.sleep(backoff_s * (2 ** (attempt - 1)))
-                continue
-            else:
-                result["status"] = "timeout"
-                result["ended_at"] = datetime.now(timezone.utc).isoformat()
-                return result
-
-        # thread finished; inspect error or success
-        if holder.exc is not None:
-            log_file.write_text(log_file.read_text(encoding="utf-8") + f"[{name}] attempt {attempt} error: {holder.exc}\n", encoding="utf-8")
-            if attempt < attempts_allowed:
-                time.sleep(backoff_s * (2 ** (attempt - 1)))
-                continue
-            else:
-                result["status"] = "error"
-                result["error"] = str(holder.exc)
-                result["ended_at"] = datetime.now(timezone.utc).isoformat()
-                return result
-
-        # success
-        log_file.write_text(log_file.read_text(encoding="utf-8") + f"[{name}] attempt {attempt} ok\n", encoding="utf-8")
-        result["status"] = "completed"
-        result["ended_at"] = datetime.now(timezone.utc).isoformat()
-        return result
-
-    # Should not reach here
-    result["status"] = "error"
-    result["error"] = "Unexpected step runner state"
-    result["ended_at"] = datetime.now(timezone.utc).isoformat()
-    return result
-
-# --------------------------------------------------------------------------------------
-# Execute plan (background)
-# --------------------------------------------------------------------------------------
-def _run_plan(plan_id: str, run_id: str, repo_root: Path) -> None:
-    """
-    Execute a plan run and persist:
-      - execution log: docs/plans/{plan_id}/runs/{run_id}/execution.log
-      - manifest:      docs/plans/{plan_id}/runs/{run_id}/manifest.json
-    Also append an entry under the plan's index with (run_id, log, manifest, status).
-    Supports cancellation, per-step timeout, retry/backoff.
-    """
-    # Load index -> get plan entry
-    idx = _load_index(repo_root)
-    entry = idx.get(plan_id)
-    if not entry:
-        entry = {"id": plan_id, "artifacts": {}}
-        idx[plan_id] = entry
-
-    docs_root = _docs_root(repo_root)
-    run_dir = docs_root / "plans" / plan_id / "runs" / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    abs_log = run_dir / "execution.log"
-    abs_manifest = run_dir / "manifest.json"
-    cancel_flag = run_dir / "cancel.flag"
-
-    # Begin log + initial 'running' manifest
-    with abs_log.open("a", encoding="utf-8") as lf:
-        lf.write(f"BEGIN run {run_id}\n")
-
-    started = datetime.now(timezone.utc).isoformat()
-
-    manifest: Dict[str, Any] = {
-        "plan_id": plan_id,
-        "run_id": run_id,
-        "status": "running",
-        "started_at": started,
-        "log_path": _posix_rel(abs_log, repo_root),
-        "artifacts": [],           # filled from index
-        "steps": [],               # step results appended below
-    }
-    # include artifacts known at plan time
-    arts = entry.get("artifacts") or {}
-    # persist as posix rel
-    for k in ["prd", "openapi", "adr", "stories", "tasks"]:
-        if k in arts and arts[k]:
-            manifest["artifacts"].append(arts[k])
-    _write_json(abs_manifest, manifest)
-
-    # define some "work" steps that regularly check for cancellation
-    def _busy_step(duration_s: float, should_cancel: Callable[[], bool]):
-        # do small sleeps so we can react to cancellation quickly
-        t_end = time.time() + duration_s
-        while time.time() < t_end:
-            if should_cancel():
-                return  # cooperatively stop
-            time.sleep(0.01)
-
-    # Three illustrative steps. Keep them short so tests remain fast.
-    steps_spec = [
-        ("prepare",   lambda sc: _busy_step(0.12, sc)),
-        ("generate",  lambda sc: _busy_step(0.15, sc)),
-        ("finalize",  lambda sc: _busy_step(0.10, sc)),
-    ]
-
-    overall_status = "completed"
-    for name, fn in steps_spec:
-        res = run_step(
-            name,
-            fn,
-            timeout_s=2.0,
-            retries=0,
-            backoff_s=0.02,
-            log_file=abs_log,
-            cancel_file=cancel_flag,
-        )
-        manifest["steps"].append(res)
-        # If cancelled/timeout/error: stop early and set final status
-        if res["status"] == "cancelled":
-            overall_status = "cancelled"
-            break
-        if res["status"] in ("timeout", "error"):
-            overall_status = "failed"
-            break
-
-        # persist manifest after each step
-        _write_json(abs_manifest, manifest)
-
-    # finalize manifest/status
-    manifest["status"] = overall_status
-    manifest["completed_at"] = datetime.now(timezone.utc).isoformat()
-    _write_json(abs_manifest, manifest)
-
-    with abs_log.open("a", encoding="utf-8") as lf:
-        lf.write(f"END run {run_id}\n")
-
-    # update index runs entry
-    rel_manifest = _posix_rel(abs_manifest, repo_root)
-    rel_log = _posix_rel(abs_log, repo_root)
-    _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, overall_status)
-        
 @app.post("/plans", response_model=Plan, status_code=201)
 def create_or_update_plan(plan: Plan):
     stored = plan_store.upsert_plan(plan.model_dump(exclude_none=True))
     return stored
-
-@app.post("/plans/{plan_id}/execute")
-def _execute_plan_authed(
-    plan_id: str,
-    background: BackgroundTasks,
-    background_mode: bool = Query(False, alias="background"),
-    user: Dict[str, Any] = Depends(get_current_user),
-):
-    if _auth_enabled() and user.get("id") == "public":
-        raise HTTPException(status_code=401, detail="authentication required")
-    repo_root = _repo_root()
-    run_id = uuid.uuid4().hex[:8]
-
-    if (os.getenv("CI") or os.getenv("PYTEST_CURRENT_TEST")) and not background_mode:
-        _run_plan(plan_id, run_id, repo_root)
-        return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
-
-    # background path
-    _bootstrap_running_manifest(repo_root, plan_id, run_id)
-    background.add_task(_run_plan, plan_id, run_id, repo_root)
-    return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
-
-
-@app.get("/plans/{plan_id}/runs/{run_id}/manifest")
-def get_run_manifest(plan_id: str, run_id: str):
-    if _auth_enabled() and user.get("id") == "public":
-        raise HTTPException(status_code=401, detail="authentication required")
-    repo_root = _repo_root()
-    manifest_rel = f"docs/plans/{plan_id}/runs/{run_id}/manifest.json"
-    p = Path(repo_root) / manifest_rel
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="manifest not found")
-    return json.loads(p.read_text(encoding="utf-8"))
-
-@app.get("/plans/{plan_id}/runs/{run_id}/logs")
-def get_run_logs(plan_id: str, run_id: str):
-    if _auth_enabled() and user.get("id") == "public":
-        raise HTTPException(status_code=401, detail="authentication required")    
-    repo_root = _repo_root()
-    log_rel = f"docs/plans/{plan_id}/runs/{run_id}/log.ndjson"
-    p = Path(repo_root) / log_rel
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="log not found")
-    # Return an array of events for test convenience
-    events = []
-    with p.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
-                # skip malformed
-                pass
-    return {"events": events}
-
 
 # --------------------------------------------------------------------------------------
 # Simple "create" CRUD (used by tests in test_create_routes.py)
@@ -1543,7 +1203,7 @@ def api_create_delete(item_id: str):
 def orchestrator_run(payload: Dict[str, Any]):
     steps = payload.get("steps", [])
     dry_run = bool(payload.get("dry_run", False))
-    results = run_steps(steps, cwd=_repo_root(), dry_run=dry_run)
+    results = run_steps(steps, cwd=shared._repo_root(), dry_run=dry_run)
     # serialize dataclasses
     return [r.__dict__ for r in results]
 

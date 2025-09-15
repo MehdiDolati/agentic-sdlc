@@ -1,6 +1,7 @@
 from pathlib import Path
 from fastapi.testclient import TestClient
 from app import app
+import services.api.core.shared as shared   
 
 client = TestClient(app)
 
@@ -8,10 +9,6 @@ def _norm(p: str) -> str:
     # turn any incoming path into forward-slash form for comparison
     return str(p).replace("\\", "/")
 
-
-def _repo_root() -> Path:
-    # tests live at services/api/tests; we want the repo root
-    return Path(__file__).resolve().parents[3]
 
 def test_execute_creates_log_and_manifest_and_lists_artifacts():
     # 1) Plan it first
@@ -27,7 +24,7 @@ def test_execute_creates_log_and_manifest_and_lists_artifacts():
     assert r.status_code == 202
     run_id = r.json()["run_id"]
 
-    root = _repo_root() / "docs"
+    root = shared._repo_root() / "docs"
     run_dir = root / "plans" / plan_id / "runs" / run_id
     manifest_path = run_dir / "manifest.json"
     log_path = run_dir / "execution.log"
@@ -68,7 +65,7 @@ def test_index_runs_array_is_appended_after_execute():
     run_id = r.json()["run_id"]
 
     # load index.json and verify the run pointer exists
-    idx_path = _repo_root() / "docs" / "plans" / "index.json"
+    idx_path = shared._repo_root() / "docs" / "plans" / "index.json"
     import json
     idx = json.loads(idx_path.read_text(encoding="utf-8"))
     assert plan_id in idx

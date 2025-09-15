@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import os, json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
@@ -150,3 +150,36 @@ def _users_file() -> Path:
         uf = _app_state_dir() / ".data" / "users.json"
     uf.parent.mkdir(parents=True, exist_ok=True)
     return uf
+
+def _save_index(repo_root: Path, idx: Dict[str, dict]) -> None:
+    path = _plans_index_path(repo_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8")
+
+def _plans_index_path(repo_root: Path) -> Path:
+    return repo_root / "docs" / "plans" / "index.json"
+
+def _load_index(repo_root: Path) -> Dict[str, dict]:
+    path = _plans_index_path(repo_root)
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def _append_run_to_index(repo_root: Path, plan_id: str, run_id: str, rel_manifest: str, rel_log: str, status: str) -> None:
+    idx = _load_index(repo_root)
+    entry = idx.get(plan_id) or {"id": plan_id, "artifacts": {}}
+    runs = entry.get("runs", [])
+    runs.append({
+        "run_id": run_id,
+        "manifest_path": rel_manifest,
+        "log_path": rel_log,
+        "status": status,
+    })
+    entry["runs"] = runs
+    idx[plan_id] = entry
+    _save_index(repo_root, idx)
