@@ -5,6 +5,20 @@ from fastapi.testclient import TestClient
 import importlib
 import os
 import services.api.app as appmod
+import pytest
+from services.api.core import shared
+
+@pytest.fixture(autouse=True)
+def repo_root(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    monkeypatch.setenv("REPO_ROOT", str(root))
+
+    # Ensure the module under test picks up the env *now*
+    import services.api.core.shared as shared
+    importlib.reload(shared)
+
+    return root
 
 def _setup_app(tmp_path: Path):
     import services.api.app as app_module
@@ -17,6 +31,8 @@ def test_multi_agent_generates_prd_openapi_adr(tmp_path, monkeypatch):
     monkeypatch.setenv("PLANNER_MODE", "multi")
     # deterministic path (no LLM needed)
     monkeypatch.setenv("LLM_PROVIDER", "")
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
+    shared._reset_repo_root_cache_for_tests()
 
     app = _setup_app(tmp_path)
     # Override auth dependency so we don't rely on /login

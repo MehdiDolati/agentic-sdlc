@@ -6,6 +6,17 @@ import re
 import secrets            # <-- add this
 import hmac, hashlib, base64
 
+from services.api.core.shared import (
+    _repo_root,
+    _database_url,
+    _create_engine,
+    _render_markdown,
+    _read_text_if_exists,
+    _sort_key,
+    _auth_enabled,
+)
+from services.api.core.repos import PlansRepoDB, RunsRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema
+
 _BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
     sys.path.insert(0, str(_BASE_DIR))
@@ -55,7 +66,6 @@ except Exception:  # fallback for tests
 
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-import markdown as _markdown
 from services.api.auth.users import FileUserStore
 from services.api.auth.passwords import hash_password, verify_password
 from services.api.auth.tokens import create_token, issue_bearer, read_token, verify_token as verify_bearer
@@ -69,12 +79,6 @@ AUTH_USERS_FILE = os.getenv("AUTH_USERS_FILE")
 # very small password hasher for tests
 def _hash_pw(pw: str) -> str:
     return hashlib.sha256((pw or "").encode("utf-8")).hexdigest()
-
-def _auth_enabled() -> bool:
-    """Auth is OFF by default for backward compatibility.
-       Enable by setting AUTH_MODE to one of: on, true, enabled, 1
-    """
-    return (os.getenv("AUTH_MODE") or "").strip().lower() in {"on", "true", "enabled", "1"}
 
 def _app_state_dir() -> Path:
     """
@@ -218,26 +222,7 @@ def ui_artifact_diff(request: Request, plan_id: str, kind: str,
         {"request": request, "plan": plan, "kind": kind.upper(),
          "from_path": frm, "to_path": to, "diff_html": diff_html},
     )
-def _writable_repo_root() -> Path:
-    # Prefer env override (used in docker/CI)
-    env_root = os.getenv("REPO_ROOT")
-    if env_root:
-        p = Path(env_root)
-        p.mkdir(parents=True, exist_ok=True)
-        return p
 
-    # Default to repository root (current /app in image). If not writable, use /tmp.
-    p = Path.cwd()
-    try:
-        (p / ".write_test").write_text("ok", encoding="utf-8")
-        (p / ".write_test").unlink(missing_ok=True)
-        return p
-    except Exception:
-        tmp = Path("/tmp/agentic-sdlc")
-        tmp.mkdir(parents=True, exist_ok=True)
-        return tmp
-
-_repo_root = _writable_repo_root()
 
 class Artifact(BaseModel):
     id: Optional[str] = None
@@ -277,24 +262,7 @@ def _write_text_abs(abs_path: Path, content: str) -> None:
 # --------------------------------------------------------------------------------------
 # Utilities
 # --------------------------------------------------------------------------------------
-# near your other helpers
-def _repo_root() -> Path:
-    # Prefer the repo root injected by tests (via _setup_app)
-    try:
-        rr = getattr(app.state, "repo_root", None)
-        if rr:
-            return Path(rr)
-    except Exception:
-        pass
 
-    # Optional env overrides (useful for manual runs)
-    for env_var in ("APP_REPO_ROOT", "REPO_ROOT"):
-        val = os.getenv(env_var)
-        if val:
-            return Path(val)
-
-    # Fallback
-    return Path.cwd()
 
 def _store_root() -> Path:
     """Return the active store root (tests may retarget this)."""
@@ -304,17 +272,6 @@ def _retarget_store(p: Path) -> None:
     """Used by tests to point the store at a temp dir."""
     global _STORE_ROOT
     _STORE_ROOT = Path(p)
-
-def _read_text_if_exists(p: Path) -> Optional[str]:
-    try:
-        return p.read_text(encoding="utf-8")
-    except Exception:
-        return None
-
-def _render_markdown(md: Optional[str]) -> Optional[str]:
-    if not md:
-        return None
-    return _markdown.markdown(md, extensions=["fenced_code", "tables", "toc"])
 
 def _plans_index_path(repo_root: Path) -> Path:
     return repo_root / "docs" / "plans" / "index.json"
@@ -371,29 +328,6 @@ def get_current_user(
     return {"id": "public", "email": "public@example.com"}
 
 
-# near your helpers (where _sort_key lives)
-def _sort_key(entry: Dict[str, Any], key: Any) -> Any:
-    # Coerce FastAPI Query(...) default or tuple/list to a plain string
-    k = key
-    if isinstance(k, (list, tuple)):
-        k = k[0] if k else "created_at"
-    if hasattr(k, "default"):
-        k = getattr(k, "default")
-    if not isinstance(k, str):
-        k = "created_at"
-    k = k.strip().lower()
-
-    if k in {"created_at", "created"}:
-        primary = entry.get("created_at", "")
-    elif k in {"request", "goal"}:
-        primary = entry.get("request", "")
-    elif k == "id":
-        primary = entry.get("id", "")
-    else:
-        primary = entry.get(k, "")
-
-    # Tie-break by id so asc/desc differ even when primary is equal
-    return (primary, entry.get("id", ""))
 
 def _authed_user_id(request: Request) -> str | None:
     tok = _extract_bearer_from_request(request)
@@ -541,20 +475,6 @@ def _filter_entry(entry: Dict[str, Any],
         if created_to and dt > created_to:
             return False
     return True
-
-def _sort_key(entry: Dict[str, Any], key: str) -> Any:
-    """
-    Stable sort key. Use a secondary field to break ties so asc/desc differ.
-    """
-    k = (key or "").strip().lower()
-    # timestamps can collide -> tie-break by id
-    if k in {"created_at", "updated_at"}:
-        return (entry.get(k, "") or "", entry.get("id", "") or "")
-    # text fields -> case-insensitive + id
-    if k in {"request", "owner", "status"}:
-        return ((entry.get(k, "") or "").lower(), entry.get("id", "") or "")
-    # default -> value + id to keep stability
-    return (entry.get(k, ""), entry.get("id", "") or "")
 
 def _slugify(text: str) -> str:
     import re
@@ -920,46 +840,7 @@ def cancel_run(plan_id: str, run_id: str):
         )
     return run
 
-# near your helpers (where _sort_key lives)
-def _sort_key(entry: Dict[str, Any], key: Any) -> Any:
-    # Coerce FastAPI Query(...) default or tuple/list to a plain string
-    k = key
-    if isinstance(k, (list, tuple)):
-        k = k[0] if k else "created_at"
-    # FastAPI's Query object has a `.default` with the actual default value
-    if hasattr(k, "default"):
-        default_val = getattr(k, "default")
-        if isinstance(default_val, str):
-            k = default_val
-    if not isinstance(k, str):
-        k = "created_at"
 
-    k = k.strip().lower()
-
-    if k in {"created_at", "created"}:
-        return entry.get("created_at", "")
-    if k in {"request", "goal"}:
-        return entry.get("request", "")
-    if k == "id":
-        return entry.get("id", "")
-
-    # fall back to top-level field if present
-    return entry.get(k, "")
-
-# ---------- Notes DB (Postgres/SQLite via SQLAlchemy) ----------
-_NOTES_METADATA = MetaData()
-
-_NOTES_TABLE = Table(
-    "notes",
-    _NOTES_METADATA,
-    Column("id", String, primary_key=True),
-    Column("data", JSON, nullable=False),
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
-)
-
-def ensure_notes_schema(engine: Engine) -> None:
-    """Create the notes schema (idempotent) using our local SQLAlchemy metadata."""
-    _NOTES_METADATA.create_all(engine)
 
 
 def _database_url(repo_root: Path) -> str:
@@ -971,53 +852,6 @@ def _database_url(repo_root: Path) -> str:
     db_path.parent.mkdir(parents=True, exist_ok=True)  # ensure /docs exists
     return f"sqlite+pysqlite:///{db_path}"
 
-def _create_engine(url: str) -> Engine:
-    return create_engine(url, future=True, echo=False)
-
-class NotesRepoDB:
-    def __init__(self, engine: Engine):
-        self.engine = engine
-        ensure_notes_schema(engine)
-
-    def list(self) -> list[dict]:
-        with self.engine.connect() as conn:
-            rows = conn.execute(select(_NOTES_TABLE.c.id, _NOTES_TABLE.c.data)).all()
-            return [{"id": rid, **(payload or {})} for rid, payload in rows]
-
-    def create(self, payload: dict) -> dict:
-        nid = uuid.uuid4().hex[:8]
-        to_store = dict(payload or {})
-        with self.engine.begin() as conn:
-            conn.execute(insert(_NOTES_TABLE).values(id=nid, data=to_store))
-        return {"id": nid, **to_store}
-
-    def get(self, note_id: str) -> dict | None:
-        with self.engine.connect() as conn:
-            row = conn.execute(
-                select(_NOTES_TABLE.c.id, _NOTES_TABLE.c.data).where(_NOTES_TABLE.c.id == note_id)
-            ).first()
-            if not row:
-                return None
-            rid, payload = row
-            return {"id": rid, **(payload or {})}
-
-    def update(self, note_id: str, payload: dict) -> dict | None:
-        to_store = dict(payload or {})
-        with self.engine.begin() as conn:
-            res = conn.execute(
-                sa_update(_NOTES_TABLE)
-                .where(_NOTES_TABLE.c.id == note_id)
-                .values(data=to_store)
-                .returning(_NOTES_TABLE.c.id, _NOTES_TABLE.c.data)
-            ).first()
-        if not res:
-            return None
-        rid, data = res
-        return {"id": rid, **(data or {})}
-
-    def delete(self, note_id: str) -> None:
-        with self.engine.begin() as conn:
-            conn.execute(sa_delete(_NOTES_TABLE).where(_NOTES_TABLE.c.id == note_id))
 # ---------- Plans DB (Postgres/SQLite via SQLAlchemy) ----------
 _PLANS_METADATA = MetaData()
 _PLANS_TABLE = Table(
@@ -1031,72 +865,6 @@ _PLANS_TABLE = Table(
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
 )
-
-def ensure_plans_schema(engine: Engine) -> None:
-    _PLANS_METADATA.create_all(engine)
-
-class PlansRepoDB:
-    def __init__(self, engine: Engine):
-        self.engine = engine
-        ensure_plans_schema(engine)
-
-    def create(self, entry: dict) -> dict:
-        with self.engine.begin() as conn:
-            conn.execute(insert(_PLANS_TABLE).values(**entry))
-        return entry
-
-    def get(self, plan_id: str) -> dict | None:
-        with self.engine.connect() as conn:
-            row = conn.execute(
-                select(
-                    _PLANS_TABLE.c.id,
-                    _PLANS_TABLE.c.request,
-                    _PLANS_TABLE.c.owner,
-                    _PLANS_TABLE.c.artifacts,
-                    _PLANS_TABLE.c.status,
-                    _PLANS_TABLE.c.created_at,
-                    _PLANS_TABLE.c.updated_at,
-                ).where(_PLANS_TABLE.c.id == plan_id)
-            ).first()
-        if not row:
-            return None
-        rid, req, owner, arts, status, created_at, updated_at = row
-        return {
-            "id": rid,
-            "request": req,
-            "owner": owner,
-            "artifacts": arts or {},
-            "status": status or "new",
-            "created_at": created_at.isoformat() if created_at else None,
-            "updated_at": updated_at.isoformat() if updated_at else None,
-        }
-
-    def list(self) -> list[dict]:
-        with self.engine.connect() as conn:
-            rows = conn.execute(
-                select(
-                    _PLANS_TABLE.c.id,
-                    _PLANS_TABLE.c.request,
-                    _PLANS_TABLE.c.owner,
-                    _PLANS_TABLE.c.artifacts,
-                    _PLANS_TABLE.c.status,
-                    _PLANS_TABLE.c.created_at,
-                    _PLANS_TABLE.c.updated_at,
-                )
-                .order_by(_PLANS_TABLE.c.created_at.desc(), _PLANS_TABLE.c.id.asc())
-            ).all()
-        out = []
-        for (rid, req, owner, arts, status, created_at, updated_at) in rows:
-            out.append({
-                "id": rid,
-                "request": req,
-                "owner": owner,
-                "artifacts": arts or {},
-                "status": status or "new",
-                "created_at": created_at.isoformat() if created_at else None,
-                "updated_at": updated_at.isoformat() if updated_at else None,
-            })
-        return out
 
 # Initialize the repo once at import time
 _DB_ENGINE = _create_engine(_database_url(_repo_root()))
@@ -1112,114 +880,8 @@ try:
 except Exception:
     pass
 
-# ---------- Runs DB (status tracked in DB; files/logs on disk) ----------
-_RUNS_METADATA = MetaData()
-_RUNS_TABLE = Table(
-    "runs",
-    _RUNS_METADATA,
-    Column("id", String, primary_key=True),              # run_id
-    Column("plan_id", String, nullable=False),
-    Column("status", String, nullable=False, server_default="queued"),
-    Column("manifest_path", String, nullable=True),
-    Column("log_path", String, nullable=True),
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
-    Column("started_at", DateTime(timezone=True), nullable=True),
-    Column("completed_at", DateTime(timezone=True), nullable=True),
-    Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
-)
-
-def ensure_runs_schema(engine: Engine) -> None:
-    _RUNS_METADATA.create_all(engine)
 
 ensure_runs_schema(_DB_ENGINE)
-
-class RunsRepoDB:
-    def __init__(self, engine: Engine):
-        self.engine = engine
-        ensure_runs_schema(engine)
-
-    def create(self, run_id: str, plan_id: str) -> dict:
-        with self.engine.begin() as conn:
-            conn.execute(
-                insert(_RUNS_TABLE).values(id=run_id, plan_id=plan_id, status="queued")
-            )
-        return {"id": run_id, "plan_id": plan_id, "status": "queued"}
-
-    def set_running(self, run_id: str, manifest_path: str, log_path: str):
-        with self.engine.begin() as conn:
-            conn.execute(
-                sa_update(_RUNS_TABLE)
-                .where(_RUNS_TABLE.c.id == run_id)
-                .where(_RUNS_TABLE.c.status != "cancelled")  # don't resurrect cancelled runs
-                .values(
-                    status="running",
-                    manifest_path=manifest_path,
-                    log_path=log_path,
-                    started_at=func.now(),
-                )
-            )
-
-    def set_completed(self, run_id: str, status: str):
-        with self.engine.begin() as conn:
-            conn.execute(
-                sa_update(_RUNS_TABLE)
-                .where(_RUNS_TABLE.c.id == run_id)
-                .values(status=status, completed_at=func.now())
-            )
-
-    def get(self, run_id: str) -> dict | None:
-        with self.engine.connect() as conn:
-            row = conn.execute(
-                select(
-                    _RUNS_TABLE.c.id,
-                    _RUNS_TABLE.c.plan_id,
-                    _RUNS_TABLE.c.status,
-                    _RUNS_TABLE.c.manifest_path,
-                    _RUNS_TABLE.c.log_path,
-                    _RUNS_TABLE.c.created_at,
-                    _RUNS_TABLE.c.started_at,
-                    _RUNS_TABLE.c.completed_at,
-                    _RUNS_TABLE.c.updated_at,
-                ).where(_RUNS_TABLE.c.id == run_id)
-            ).first()
-        if not row:
-            return None
-        rid, pid, st, man, log, c, s, e, u = row
-        return {
-            "id": rid, "plan_id": pid, "status": st,
-            "manifest_path": man, "log_path": log,
-            "created_at": c.isoformat() if c else None,
-            "started_at": s.isoformat() if s else None,
-            "completed_at": e.isoformat() if e else None,
-            "updated_at": u.isoformat() if u else None,
-        }
-
-    def list_for_plan(self, plan_id: str) -> list[dict]:
-        with self.engine.connect() as conn:
-            rows = conn.execute(
-                select(
-                    _RUNS_TABLE.c.id,
-                    _RUNS_TABLE.c.status,
-                    _RUNS_TABLE.c.manifest_path,
-                    _RUNS_TABLE.c.log_path,
-                    _RUNS_TABLE.c.created_at,
-                    _RUNS_TABLE.c.started_at,
-                    _RUNS_TABLE.c.completed_at,
-                )
-                .where(_RUNS_TABLE.c.plan_id == plan_id)
-                .order_by(_RUNS_TABLE.c.created_at.desc(), _RUNS_TABLE.c.id.asc())
-            ).all()
-        out = []
-        for rid, st, man, log, c, s, e in rows:
-            out.append({
-                "id": rid, "status": st,
-                "manifest_path": man, "log_path": log,
-                "created_at": c.isoformat() if c else None,
-                "started_at": s.isoformat() if s else None,
-                "completed_at": e.isoformat() if e else None,
-            })
-        return out
-
 
 # --------------------------------------------------------------------------------------
 # Planner integration
