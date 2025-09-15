@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 from functools import lru_cache
 from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, URL
 import markdown as _markdown
 
 @lru_cache(maxsize=1)
@@ -31,15 +31,33 @@ def _repo_root() -> Path:
 def _reset_repo_root_cache_for_tests() -> None:
     _repo_root.cache_clear()
 
-def _database_url(repo_root: str) -> str:
+
+def _plans_db_path(repo_root: Path | str | None = None) -> Path:
+    base = Path(repo_root) if repo_root is not None else _repo_root()
+    db_path = base / "docs" / "plans" / "plans.db"
+    # Ensure directories exist for SQLite (prevents OperationalError)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return db_path
+
+def _database_url(repo_root: Path | str | None) -> str:
     """
-    Return DATABASE_URL if provided, otherwise default to a SQLite DB under
-    docs/plans/plans.db inside repo_root.
+    If DATABASE_URL is set, return it verbatim.
+    Otherwise, return a portable SQLite URL pointing to docs/plans/plans.db
+    under the given repo_root (or the cached _repo_root() if None).
     """
     url = (os.getenv("DATABASE_URL") or "").strip()
     if url:
         return url
-    return f"sqlite:///{Path(repo_root) / 'docs' / 'plans' / 'plans.db'}"
+
+    db_path = _plans_db_path(repo_root)
+    # Use URL.create to avoid Windows backslash issues and to set options cleanly
+    url_obj = URL.create(
+        "sqlite",
+        database=db_path.as_posix(),       # forward slashes; fine on Windows
+        query={"check_same_thread": "false"},
+    )
+    # Return a string because callers already expect str
+    return url_obj.render_as_string(hide_password=False)
 
 
 def _create_engine(url: str) -> Engine:

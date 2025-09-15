@@ -2,15 +2,17 @@ from pathlib import Path
 import importlib
 from fastapi.testclient import TestClient
 
+
 def _setup_app(tmp_path: Path):
     import app as app_module
     importlib.reload(app_module)
     app_module._repo_root = lambda: tmp_path  # point everything to temp repo root
     return app_module.app, app_module
 
-def test_create_request_persists_plan_in_db(tmp_path: Path, monkeypatch):
+def test_create_request_persists_plan_in_db(tmp_path: Path, monkeypatch, repo_root):
     # signal deterministic paths & non-LLM fallback paths
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
     app, app_module = _setup_app(tmp_path)
     client = TestClient(app)
 

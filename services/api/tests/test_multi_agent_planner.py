@@ -6,19 +6,7 @@ import importlib
 import os
 import services.api.app as appmod
 import pytest
-from services.api.core import shared
-
-@pytest.fixture(autouse=True)
-def repo_root(tmp_path, monkeypatch):
-    root = tmp_path / "repo"
-    root.mkdir()
-    monkeypatch.setenv("REPO_ROOT", str(root))
-
-    # Ensure the module under test picks up the env *now*
-    import services.api.core.shared as shared
-    importlib.reload(shared)
-
-    return root
+import services.api.core.shared as shared
 
 def _setup_app(tmp_path: Path):
     import services.api.app as app_module

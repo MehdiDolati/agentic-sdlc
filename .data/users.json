@@ -5,5 +5,10 @@
     "id": "20250914134234-u-f2f661",
     "email": "u1@example.com",
     "password_hash": "f64551fcd6f07823cb87971cfb91446425da18286b3ab1ef935e0cbd7a69f68a"
+  },
+  "u_00c31c": {
+    "id": "u_00c31c",
+    "email": "alice@example.com",
+    "password_hash": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
   }
 }
