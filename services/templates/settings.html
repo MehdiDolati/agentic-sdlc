@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/site.css" />
+  </head>
+  <body>
+    <h1>Settings</h1>
+    {% if saved %}<div class="meta">Saved.</div>{% endif %}
+    <form action="/ui/settings" method="post" style="margin-top:1rem">
+      <div class="card">
+        <h2>Planner</h2>
+        <label>Mode</label>
+        <select name="planner_mode">
+          {% for m in modes %}
+            <option value="{{ m }}" {% if cfg.planner_mode == m %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+        <label style="margin-left:1rem">Default Provider</label>
+        <select name="default_provider">
+          {% for p in providers %}
+            <option value="{{ p }}" {% if cfg.default_provider == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+        <div style="margin-top:.5rem">
+          <label>API Base URL</label>
+          <input type="text" name="api_base_url" value="{{ cfg.api_base_url or '' }}" placeholder="https://api.example.com" />
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:1rem">
+        <h2>Feature Toggles</h2>
+        <label style="display:block; margin:.25rem 0">
+          <input type="checkbox" name="auth_enabled" {% if cfg.auth_enabled %}checked{% endif %} />
+          Authentication enabled
+        </label>
+        <label style="display:block; margin:.25rem 0">
+          <input type="checkbox" name="multi_agent_enabled" {% if cfg.multi_agent_enabled %}checked{% endif %} />
+          Multi-agent mode enabled
+        </label>
+      </div>
+
+      <div style="margin-top:1rem">
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </body>
+</html>
