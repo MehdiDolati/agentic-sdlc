@@ -1,5 +1,10 @@
 <div class="card">
   <h2>PRD</h2>
   <div class="meta">{{ prd_rel }}</div>
-  <div style="margin-top:8px;">{{ prd_html|safe }}</div>
+  <div style="margin-top:8px;" id="prd-content">{{ prd_html|safe }}</div>
+  <div style="margin-top:8px;">
+    <button hx-get="/ui/plans/{{ plan['id'] }}/artifacts/prd/edit" hx-target="closest .card" hx-swap="outerHTML">Edit</button>
+    <a href="/plans/{{ plan['id'] }}/artifacts/prd/download" style="margin-left:.5rem">Download</a>
+    <button type="button" style="margin-left:.5rem" onclick="navigator.clipboard.writeText(document.getElementById('prd-content').innerText)">Copy</button>
+  </div>
 </div>

@@ -1,0 +1,11 @@
+<!-- services/templates/artifact_edit.html -->
+<div class="card">
+  <h2>Edit {{ kind | upper }}</h2>
+  <form hx-post="/ui/plans/{{ plan['id'] }}/artifacts/{{ kind }}/edit" hx-target="closest .card" hx-swap="outerHTML">
+    <textarea name="content" style="width:100%; height:300px">{{ content }}</textarea>
+    <div style="margin-top:8px;">
+      <button type="submit">Save</button>
+      <button type="button" hx-get="/ui/plans/{{ plan['id'] }}/sections/{{ kind }}" hx-target="closest .card" hx-swap="outerHTML" style="margin-left:.5rem">Cancel</button>
+    </div>
+  </form>
+</div>

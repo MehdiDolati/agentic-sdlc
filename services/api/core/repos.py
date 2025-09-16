@@ -225,6 +225,16 @@ class NotesRepoDB:
             conn.execute(insert(_NOTES_TABLE).values(id=nid, data=to_store))
         return {"id": nid, **to_store}
 
+    def update_artifacts(self, plan_id: str, artifacts: dict):
+        """Minimal partial update for the artifacts JSON field."""
+        with self.engine.begin() as conn:
+            conn.execute(
+                plans_table.update()
+                .where(plans_table.c.id == plan_id)
+                .values(artifacts=artifacts)
+            )
+            return self.get(plan_id)        
+
     def get(self, note_id: str) -> dict | None:
         with self.engine.connect() as conn:
             row = conn.execute(

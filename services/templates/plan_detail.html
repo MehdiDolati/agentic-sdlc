@@ -4,17 +4,62 @@
 <h1>Plan</h1>
 <div class="subhead">{{ plan["request"] }}</div>
 
- <div class="grid">
-   <div class="card">
-     <h2>PRD</h2>
-     <div
-       hx-get="/ui/plans/{{ plan['id'] }}/sections/prd"
-       hx-trigger="load"
-       hx-target="this"
-       hx-swap="outerHTML">
-       <div class="meta">Loading…</div>
-     </div>
-   </div>
+<div class="grid">
+  <!-- Run section -->
+  <div class="card">
+    <h2>Run</h2>
+    <div
+      hx-get="/ui/plans/{{ plan['id'] }}/sections/run"
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="outerHTML">
+      <div class="meta">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>PRD</h2>
+    <div
+      hx-get="/ui/plans/{{ plan['id'] }}/sections/prd"
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="outerHTML">
+      <div class="meta">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>ADR</h2>
+    <div
+      hx-get="/ui/plans/{{ plan['id'] }}/sections/adr"
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="outerHTML">
+      <div class="meta">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Stories</h2>
+    <div
+      hx-get="/ui/plans/{{ plan['id'] }}/sections/stories"
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="outerHTML">
+      <div class="meta">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Tasks</h2>
+    <div
+      hx-get="/ui/plans/{{ plan['id'] }}/sections/tasks"
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="outerHTML">
+      <div class="meta">Loading…</div>
+    </div>
+  </div>
 
   <div class="card">
     <h2>OpenAPI</h2>
@@ -27,16 +72,15 @@
     </div>
   </div>
 
-   {% if plan.get("artifacts") %}
-     <div class="card">
-       <h2>Artifacts</h2>
-       <div class="meta">
-         {% if plan["artifacts"].get("prd") %}<div>PRD: <code>{{ plan["artifacts"]["prd"] }}</code></div>{% endif %}
-         {% if plan["artifacts"].get("openapi") %}<div>OpenAPI: <code>{{ plan["artifacts"]["openapi"] }}</code></div>{% endif %}
-       </div>
-     </div>
-   {% else %}
-     <div class="meta">No artifacts found yet.</div>
-   {% endif %}
- </div>
- {% endblock %}
+  <div class="card">
+    <h2>Artifacts</h2>
+    <div class="meta">
+      {% if prd_rel %}<div>PRD: <code>{{ prd_rel }}</code></div>{% endif %}
+      {% if adr_rel %}<div>ADR: <code>{{ adr_rel }}</code></div>{% endif %}
+      {% if stories_rel %}<div>Stories: <code>{{ stories_rel }}</code></div>{% endif %}
+      {% if tasks_rel %}<div>Tasks: <code>{{ tasks_rel }}</code></div>{% endif %}
+      {% if openapi_rel %}<div>OpenAPI: <code>{{ openapi_rel }}</code></div>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
