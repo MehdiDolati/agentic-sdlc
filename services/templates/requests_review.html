@@ -32,11 +32,29 @@
     <h3>OpenAPI (JSON)</h3>
     <pre>{{ openapi_json | tojson(indent=2) }}</pre>
 
-    <form action="/plans" method="post" style="margin-top:1rem">
-      <input type="hidden" name="owner" value="ui" />
+    <div style="margin-top:1rem">
       <label>Save as Plan ID</label>
-      <input type="text" name="id" value="{{ suggested_plan_id }}" required />
-      <button type="submit">Persist Plan</button>
-    </form>
+      <input id="planId" type="text" value="{{ suggested_plan_id }}" required />
+      <button id="saveBtn" type="button">Persist Plan</button>
+      <pre id="saveResult" style="margin-top:0.5rem"></pre>
+    </div>
+    <script>
+      document.getElementById('saveBtn').addEventListener('click', async () => {
+        const id = document.getElementById('planId').value.trim();
+        const body = {
+          id,
+          owner: "ui",
+          artifacts: ({{ plan.get('artifacts') | tojson }}) || {},
+          meta: {}
+        };
+        const r = await fetch('/plans', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const text = await r.text();
+        document.getElementById('saveResult').textContent = text;
+      });
+    </script>
   </body>
 </html>

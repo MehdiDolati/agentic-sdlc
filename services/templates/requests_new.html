@@ -8,30 +8,49 @@
   </head>
   <body>
     <h1>Create a Plan / Request</h1>
-    <form action="/ui/requests" method="post">
+    <div id="new-plan">
       <label>Project vision</label><br/>
-      <textarea name="project_vision" rows="8" cols="80" required></textarea><br/><br/>
+      <textarea id="project_vision" rows="8" cols="80" required></textarea><br/><br/>
 
       <label>Agent mode</label>
-      <select name="agent_mode">
+      <select id="agent_mode">
         {% for m in modes %}
           <option value="{{ m }}" {% if m==default_mode %}selected{% endif %}>{{ m }}</option>
         {% endfor %}
       </select>
 
       <label>LLM provider</label>
-      <select name="llm_provider">
+      <select id="llm_provider">
         {% for p in providers %}
           <option value="{{ p }}" {% if p==default_provider %}selected{% endif %}>{{ p }}</option>
         {% endfor %}
       </select>
 
       <label>Plan ID (optional)</label>
-      <input type="text" name="plan_id" placeholder="e.g. PLAN-001" />
+      <input id="plan_id" type="text" placeholder="e.g. PLAN-001" />
 
       <div style="margin-top:1rem">
-        <button type="submit">Generate draft</button>
+        <button id="submitBtn" type="button">Generate draft</button>
       </div>
-    </form>
+    </div>
+    <script>
+      document.getElementById('submitBtn').addEventListener('click', async () => {
+        const body = new URLSearchParams();
+        body.set('project_vision', document.getElementById('project_vision').value);
+        body.set('agent_mode', document.getElementById('agent_mode').value);
+        body.set('llm_provider', document.getElementById('llm_provider').value);
+        body.set('plan_id', document.getElementById('plan_id').value);
+
+        // POST to the existing FastAPI handler that expects Form(...)
+        const r = await fetch('/ui/requests', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+          body: body.toString()
+        });
+        const html = await r.text();
+        // Replace the whole page with the server-rendered review HTML
+        document.open(); document.write(html); document.close();
+      });
+    </script>
   </body>
 </html>
