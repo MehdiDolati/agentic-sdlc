@@ -40,6 +40,28 @@
   </div>
 
   <div class="card">
+    <h2>Architecture</h2>
+    <div
+      hx-get="/ui/plans/{{ plan['id'] }}/sections/architecture"
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="outerHTML">
+      <div class="meta">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Tech Spec</h2>
+    <div
+      hx-get="/ui/plans/{{ plan['id'] }}/sections/techspec"
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="outerHTML">
+      <div class="meta">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Stories</h2>
     <div
       hx-get="/ui/plans/{{ plan['id'] }}/sections/stories"

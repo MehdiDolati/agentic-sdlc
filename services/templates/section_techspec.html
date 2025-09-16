@@ -1,0 +1,20 @@
+<div class="card">
+  <h2>Tech Spec</h2>
+  <div class="meta">{{ techspec_rel or "—" }}</div>
+  <div style="margin-top:8px;" id="techspec-content">{{ techspec_html|safe if techspec_html else "<div class='meta'>No tech spec yet.</div>"|safe }}</div>
+  <div style="margin-top:8px;">
+    <button hx-get="/ui/plans/{{ plan['id'] }}/artifacts/techspec/edit" hx-target="closest .card" hx-swap="outerHTML">Edit</button>
+    <form hx-post="/ui/plans/{{ plan['id'] }}/techspec/generate" hx-target="closest .card" hx-swap="outerHTML" style="display:inline-block; margin-left:.5rem">
+      <button type="submit">Generate draft</button>
+    </form>
+    <form hx-post="/ui/plans/{{ plan['id'] }}/techspec/upload" hx-encoding="multipart/form-data" hx-target="closest .card" hx-swap="outerHTML" style="display:inline-block; margin-left:.5rem">
+      <input type="file" name="file" accept=".md,.markdown,.txt" required />
+      <button type="submit">Upload</button>
+    </form>
+    {% if techspec_rel %}
+      <a href="/plans/{{ plan['id'] }}/artifacts/techspec/download" style="margin-left:.5rem">Download</a>
+      <button type="button" style="margin-left:.5rem"
+        onclick="navigator.clipboard.writeText(document.getElementById('techspec-content').innerText)">Copy</button>
+    {% endif %}
+  </div>
+</div>

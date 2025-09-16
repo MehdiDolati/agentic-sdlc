@@ -1,0 +1,20 @@
+<div class="card">
+  <h2>Architecture</h2>
+  <div class="meta">{{ architecture_rel or "—" }}</div>
+  <div style="margin-top:8px;" id="architecture-content">{{ architecture_html|safe if architecture_html else "<div class='meta'>No architecture doc yet.</div>"|safe }}</div>
+  <div style="margin-top:8px;">
+    <button hx-get="/ui/plans/{{ plan['id'] }}/artifacts/architecture/edit" hx-target="closest .card" hx-swap="outerHTML">Edit</button>
+    <form hx-post="/ui/plans/{{ plan['id'] }}/architecture/generate" hx-target="closest .card" hx-swap="outerHTML" style="display:inline-block; margin-left:.5rem">
+      <button type="submit">Generate draft</button>
+    </form>
+    <form hx-post="/ui/plans/{{ plan['id'] }}/architecture/upload" hx-encoding="multipart/form-data" hx-target="closest .card" hx-swap="outerHTML" style="display:inline-block; margin-left:.5rem">
+      <input type="file" name="file" accept=".md,.markdown,.txt" required />
+      <button type="submit">Upload</button>
+    </form>
+    {% if architecture_rel %}
+      <a href="/plans/{{ plan['id'] }}/artifacts/architecture/download" style="margin-left:.5rem">Download</a>
+      <button type="button" style="margin-left:.5rem"
+        onclick="navigator.clipboard.writeText(document.getElementById('architecture-content').innerText)">Copy</button>
+    {% endif %}
+  </div>
+</div>
