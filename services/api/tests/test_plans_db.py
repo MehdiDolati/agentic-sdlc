@@ -1,7 +1,7 @@
 from pathlib import Path
 import importlib
 from fastapi.testclient import TestClient
-
+from services.api.core.repos import PlansRepoDB
 
 def _setup_app(tmp_path: Path):
     import app as app_module
@@ -49,3 +49,13 @@ def test_create_request_persists_plan_in_db(tmp_path: Path, monkeypatch, repo_ro
     # The sections still render from disk artifacts
     assert "<h2>PRD</h2>" in r.text
     assert "<h2>OpenAPI</h2>" in r.text
+
+def test_plans_repo_update_artifacts(tmp_path):
+    app, app_module = _setup_app(tmp_path)
+    engine = app_module._create_engine(app_module._database_url(tmp_path))
+    repo = PlansRepoDB(engine)
+    repo.create({"id":"p1","request":"r","owner":"ui","artifacts":{},"status":"new"})
+    out = repo.update_artifacts("p1", {"prd":"docs/prd/PRD-p1.md"})
+    assert out["artifacts"]["prd"].endswith("PRD-p1.md")
+    out2 = repo.update("p1", {"status":"running"})
+    assert out2["status"] == "running"

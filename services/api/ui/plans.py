@@ -5,7 +5,8 @@ from pathlib import Path as _P
 from typing import Optional, Dict, Any
 from pathlib import Path
 from fastapi import APIRouter, Query, Request, HTTPException, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import APIRouter, Query, Request, HTTPException, Depends, Form
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from difflib import HtmlDiff
@@ -511,16 +512,249 @@ def ui_plan_detail(request: Request, plan_id: str):
     adr_html = _render_markdown(_read_text_if_exists(repo_root / adr_rel)) if adr_rel else None
     openapi_text = _read_text_if_exists(repo_root / openapi_rel) if openapi_rel else None
 
+    """
+    Render the plan detail page. This view shows the high-level plan metadata and
+    uses HTMX to lazily load each section (PRD, ADR, stories, tasks, OpenAPI, run)
+    as the page renders. It also surfaces the relative artifact paths so the
+    template can link to downloads and editing actions.
+    """
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+
+    repo_root = _repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    artifacts = plan.get("artifacts") or {}
+    prd_rel = artifacts.get("prd")
+    adr_rel = artifacts.get("adr")
+    stories_rel = artifacts.get("stories")
+    tasks_rel = artifacts.get("tasks")
+    openapi_rel = artifacts.get("openapi")
+
+    prd_html = _render_markdown(_read_text_if_exists(repo_root / prd_rel)) if prd_rel else None
+    adr_html = _render_markdown(_read_text_if_exists(repo_root / adr_rel)) if adr_rel else None
+    stories_html = _render_markdown(_read_text_if_exists(repo_root / stories_rel)) if stories_rel else None
+    tasks_html = _render_markdown(_read_text_if_exists(repo_root / tasks_rel)) if tasks_rel else None
+    openapi_text = _read_text_if_exists(repo_root / openapi_rel) if openapi_rel else None
+
     ctx = {
         "request": request,
         "title": f"Plan {plan_id}",
         "plan": plan,
-        "prd_rel": prd_rel, "prd_html": prd_html,
-        "adr_rel": adr_rel, "adr_html": adr_html,
-        "openapi_rel": openapi_rel, "openapi_text": openapi_text,
+        # relative artifact paths
+        "prd_rel": prd_rel, "adr_rel": adr_rel, "stories_rel": stories_rel,
+        "tasks_rel": tasks_rel, "openapi_rel": openapi_rel,
+        # initial content (may be used in template)
+        "prd_html": prd_html, "adr_html": adr_html,
+        "stories_html": stories_html, "tasks_html": tasks_html,
+        "openapi_text": openapi_text,
     }
-    return templates.TemplateResponse(request,"plan_detail.html", ctx)
+    return templates.TemplateResponse(request, "plan_detail.html", ctx)
 
+# -------------------- Run execution & status (UI) --------------------
+    @router.post("/plans/{plan_id}/execute", include_in_schema=False)
+    def execute_plan(plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+        """API: enqueue a plan run. Returns 202 with run_id."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    engine = _create_engine(_database_url(shared._repo_root()))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    run_id = _new_id("run")
+    RunsRepoDB(engine).create(run_id, plan_id)
+    _RUN_QUEUE.put((plan_id, run_id))
+    return JSONResponse({"run_id": run_id}, status_code=202)
+
+@router.get("/ui/plans/{plan_id}/sections/run", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_run(request: Request, plan_id: str):
+    """Initial run section (no runs yet)."""
+    return templates.TemplateResponse(
+        request, "section_run.html",
+        {"request": request, "plan_id": plan_id, "run": None, "log_text": None}
+    )
+
+@router.get("/ui/plans/{plan_id}/runs/{run_id}", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_run_detail(request: Request, plan_id: str, run_id: str):
+    """Return an updated run section with current status and logs."""
+    engine = _create_engine(_database_url(shared._repo_root()))
+    run = RunsRepoDB(engine).get(run_id)
+    if not run or run.get("plan_id") != plan_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+    repo_root = shared._repo_root()
+    log_text = None
+    log_path = run.get("log_path")
+    if log_path:
+        log_text = _safe_read_rel(repo_root, log_path) or ""
+    return templates.TemplateResponse(
+        request, "section_run.html",
+        {"request": request, "plan_id": plan_id, "run": run, "log_text": log_text}
+    )
+
+@router.post("/ui/plans/{plan_id}/runs/{run_id}/cancel", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_run_cancel(request: Request, plan_id: str, run_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+    """Cancel a run and return the updated run section."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    # Reuse the existing cancel_run logic
+    cancel_run(plan_id, run_id)
+    engine = _create_engine(_database_url(shared._repo_root()))
+    run = RunsRepoDB(engine).get(run_id)
+    repo_root = shared._repo_root()
+    log_text = None
+    if run and run.get("log_path"):
+        log_text = _safe_read_rel(repo_root, run["log_path"]) or ""
+    return templates.TemplateResponse(
+        request, "section_run.html",
+        {"request": request, "plan_id": plan_id, "run": run, "log_text": log_text}
+    )
+
+# -------------------- Artifact editing & download (UI) --------------------
+@router.get("/ui/plans/{plan_id}/artifacts/{kind}/edit", response_class=HTMLResponse, include_in_schema=False)
+def ui_artifact_edit(request: Request, plan_id: str, kind: str):
+    """Show an editor for the given artifact."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _artifact_rel_from_plan(plan, kind)
+    content = _safe_read_rel(repo_root, rel) or ""
+    return templates.TemplateResponse(
+        request, "artifact_edit.html",
+        {"request": request, "plan": plan, "kind": kind.lower(), "content": content}
+    )
+
+@router.post("/ui/plans/{plan_id}/artifacts/{kind}/edit", response_class=HTMLResponse, include_in_schema=False)
+def ui_artifact_edit_post(
+    request: Request,
+    plan_id: str,
+    kind: str,
+    content: str = Form(...),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Write edited content back to disk and return the updated section."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _artifact_rel_from_plan(plan, kind)
+    # If the artifact path is missing, create a sensible default and persist it.
+    if not rel:
+        # derive a default relative path per kind
+        k = kind.lower()
+        if k == "prd":
+            rel = f"docs/prd/PRD-{plan_id}.md"
+        elif k == "adr":
+            rel = f"docs/adr/ADR-{plan_id}.md"
+        elif k == "stories":
+            rel = f"docs/stories/{plan_id}.md"
+        elif k == "tasks":
+            rel = f"docs/tasks/{plan_id}.md"
+        elif k == "openapi":
+            rel = f"docs/api/generated/openapi-{plan_id}.yaml"
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown artifact kind: {kind}")
+        # persist into plan.artifacts so subsequent reads (and downloads) work
+        artifacts = (plan.get("artifacts") or {}).copy()
+        artifacts[k] = rel
+        PlansRepoDB(engine).update_artifacts(plan_id, artifacts)
+    file_path = Path(repo_root) / rel
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(content, encoding="utf-8")
+    # Based on kind, return the appropriate section
+    if kind.lower() == "prd":
+        html = _render_markdown(content)
+        return templates.TemplateResponse(
+            request, "section_prd.html",
+            {"request": request, "plan": plan, "prd_rel": rel, "prd_html": html}
+        )
+    if kind.lower() == "adr":
+        html = _render_markdown(content)
+        return templates.TemplateResponse(
+            request, "section_adr.html",
+            {"request": request, "plan": plan, "adr_rel": rel, "adr_html": html}
+        )
+    if kind.lower() == "stories":
+        html = _render_markdown(content)
+        return templates.TemplateResponse(
+            request, "section_stories.html",
+            {"request": request, "plan": plan, "stories_rel": rel, "stories_html": html}
+        )
+    if kind.lower() == "tasks":
+        html = _render_markdown(content)
+        return templates.TemplateResponse(
+            request, "section_tasks.html",
+            {"request": request, "plan": plan, "tasks_rel": rel, "tasks_html": html}
+        )
+    if kind.lower() == "openapi":
+        return templates.TemplateResponse(
+            request, "section_openapi.html",
+            {"request": request, "plan": plan, "openapi_rel": rel, "openapi_text": content}
+        )
+    # Fallback to artifact view
+    content_html = _render_artifact_html(kind, content)
+    return templates.TemplateResponse(
+        request, "artifact_view.html",
+        {"request": request, "plan": plan, "kind": kind.upper(), "rel_path": rel, "content_html": content_html}
+    )
+
+@router.get("/plans/{plan_id}/artifacts/{kind}/download", include_in_schema=False)
+def download_artifact(plan_id: str, kind: str, user: Dict[str, Any] = Depends(get_current_user)):
+    """Serve the raw file for download."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _artifact_rel_from_plan(plan, kind)
+    file_path = Path(repo_root) / rel
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path, filename=file_path.name)
+
+# -------------------- Stories/Tasks sections --------------------
+@router.get("/ui/plans/{plan_id}/sections/stories", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_stories(request: Request, plan_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    repo_root = _repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    stories_rel = (plan.get("artifacts") or {}).get("stories")
+    stories_html = _render_markdown(_read_text_if_exists(repo_root / stories_rel)) if stories_rel else None
+    return templates.TemplateResponse(
+        request, "section_stories.html",
+        {"request": request, "plan": plan, "stories_rel": stories_rel, "stories_html": stories_html}
+    )
+
+@router.get("/ui/plans/{plan_id}/sections/tasks", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_tasks(request: Request, plan_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    repo_root = _repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    tasks_rel = (plan.get("artifacts") or {}).get("tasks")
+    tasks_html = _render_markdown(_read_text_if_exists(repo_root / tasks_rel)) if tasks_rel else None
+    return templates.TemplateResponse(
+        request, "section_tasks.html",
+        {"request": request, "plan": plan, "tasks_rel": tasks_rel, "tasks_html": tasks_html}
+    )
 
 # HTMX partials for detail sections
 @router.get("/ui/plans/{plan_id}/sections/prd", response_class=HTMLResponse, include_in_schema=False)
@@ -534,8 +768,8 @@ def ui_plan_section_prd(request: Request, plan_id: str):
         raise HTTPException(status_code=404, detail="Plan not found")
     prd_rel = (plan.get("artifacts") or {}).get("prd")
     prd_html = _render_markdown(_read_text_if_exists(repo_root / prd_rel)) if prd_rel else None
-    return templates.TemplateResponse(request,"section_prd.html", {
-        "request": request, "prd_rel": prd_rel, "prd_html": prd_html
+    return templates.TemplateResponse(request, "section_prd.html", {
+        "request": request, "plan": plan, "prd_rel": prd_rel, "prd_html": prd_html
     })
 
 @router.get("/ui/plans/{plan_id}/sections/adr", response_class=HTMLResponse, include_in_schema=False)
@@ -549,8 +783,8 @@ def ui_plan_section_adr(request: Request, plan_id: str):
         raise HTTPException(status_code=404, detail="Plan not found")
     adr_rel = (plan.get("artifacts") or {}).get("adr")
     adr_html = _render_markdown(_read_text_if_exists(repo_root / adr_rel)) if adr_rel else None
-    return templates.TemplateResponse(request,"section_adr.html", {
-        "request": request, "adr_rel": adr_rel, "adr_html": adr_html
+    return templates.TemplateResponse(request, "section_adr.html", {
+        "request": request, "plan": plan, "adr_rel": adr_rel, "adr_html": adr_html
     })
 
 
@@ -571,11 +805,9 @@ def ui_plan_section_openapi(request: Request, plan_id: str):
 
     openapi_rel = (plan.get("artifacts") or {}).get("openapi")
     openapi_text = _read_text_if_exists(repo_root / openapi_rel) if openapi_rel else None
-    return templates.TemplateResponse(
-        request,
-        "section_openapi.html",
-        {"request": request, "openapi_rel": openapi_rel, "openapi_text": openapi_text or "(no OpenAPI yet)"},
-    )
+    return templates.TemplateResponse(request, "section_openapi.html", {
+        "request": request, "plan": plan, "openapi_rel": openapi_rel, "openapi_text": openapi_text
+    })
     
 @router.get("/ui/plans/{plan_id}/artifacts/{kind}", response_class=HTMLResponse, include_in_schema=False)
 def ui_artifact_view(request: Request, plan_id: str, kind: str):
@@ -593,6 +825,38 @@ def ui_artifact_view(request: Request, plan_id: str, kind: str):
         request, "artifact_view.html",
         {"request": request, "plan": plan, "kind": kind.upper(), "rel_path": rel, "content_html": html},
     )
+
+@router.get("/ui/plans/{plan_id}/sections/stories", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_stories(request: Request, plan_id: str):
+   if _auth_enabled() and user.get("id") == "public":
+       raise HTTPException(status_code=401, detail="authentication required")
+   repo_root = _repo_root()
+   engine = _create_engine(_database_url(repo_root))
+   plan = PlansRepoDB(engine).get(plan_id)
+   if not plan:
+       raise HTTPException(status_code=404, detail="Plan not found")
+   stories_rel = (plan.get("artifacts") or {}).get("stories")
+   stories_html = _render_markdown(_read_text_if_exists(repo_root / stories_rel)) if stories_rel else None
+   return templates.TemplateResponse(
+       request, "section_stories.html",
+       {"request": request, "plan": plan, "stories_rel": stories_rel, "stories_html": stories_html}
+   )
+
+@router.get("/ui/plans/{plan_id}/sections/tasks", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_tasks(request: Request, plan_id: str):
+   if _auth_enabled() and user.get("id") == "public":
+       raise HTTPException(status_code=401, detail="authentication required")
+   repo_root = _repo_root()
+   engine = _create_engine(_database_url(repo_root))
+   plan = PlansRepoDB(engine).get(plan_id)
+   if not plan:
+       raise HTTPException(status_code=404, detail="Plan not found")
+   tasks_rel = (plan.get("artifacts") or {}).get("tasks")
+   tasks_html = _render_markdown(_read_text_if_exists(repo_root / tasks_rel)) if tasks_rel else None
+   return templates.TemplateResponse(
+       request, "section_tasks.html",
+       {"request": request, "plan": plan, "tasks_rel": tasks_rel, "tasks_html": tasks_html}
+   )
 
 # -------------------- Artifact diff endpoint --------------------
 @router.get("/ui/plans/{plan_id}/artifacts/{kind}/diff", response_class=HTMLResponse, include_in_schema=False)
@@ -1128,3 +1392,21 @@ def create_plan(plan: PlanModel):
         return {"ok": True, "plan": saved}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"persist failed: {e}")
+        
+@router.post("/ui/plans/{plan_id}/execute", response_class=HTMLResponse, include_in_schema=False)
+def execute_plan_ui(request: Request, plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+    """UI: enqueue run and return the run section HTML for HTMX."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    engine = _create_engine(_database_url(shared._repo_root()))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    run_id = _new_id("run")
+    RunsRepoDB(engine).create(run_id, plan_id)
+    _RUN_QUEUE.put((plan_id, run_id))
+    run = RunsRepoDB(engine).get(run_id)
+    return templates.TemplateResponse(
+        request, "section_run.html",
+        {"request": request, "plan_id": plan_id, "run": run, "log_text": None}
+    )

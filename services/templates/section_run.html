@@ -1,0 +1,21 @@
+<!-- services/templates/section_run.html -->
+<div class="card">
+  <h2>Run</h2>
+  {% if run %}
+    <div class="meta">Run ID: {{ run["id"] }}</div>
+    <div>Status: {{ run["status"] }}</div>
+    {% if log_text %}
+      <pre style="max-height:300px; overflow:auto;">{{ log_text }}</pre>
+    {% endif %}
+    {% if run["status"] in ["queued", "running"] %}
+      <form hx-post="/ui/plans/{{ plan_id }}/runs/{{ run['id'] }}/cancel" hx-target="closest .card" hx-swap="outerHTML">
+        <button type="submit">Cancel</button>
+      </form>
+      <div hx-get="/ui/plans/{{ plan_id }}/runs/{{ run['id'] }}" hx-trigger="every 1s" hx-target="closest .card" hx-swap="outerHTML"></div>
+    {% else %}
+      <div>Completed at: {{ run.get("completed_at") }}</div>
+    {% endif %}
+  {% else %}
+    <button hx-post="/ui/plans/{{ plan_id }}/execute" hx-target="closest .card" hx-swap="outerHTML">Run plan</button>
+  {% endif %}
+</div>

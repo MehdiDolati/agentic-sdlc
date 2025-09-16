@@ -1,5 +1,10 @@
 <div class="card">
   <h2>ADR</h2>
   <div class="meta">{{ adr_rel }}</div>
-  <div style="margin-top:8px;">{{ adr_html|safe }}</div>
+  <div style="margin-top:8px;" id="adr-content">{{ adr_html|safe }}</div>
+  <div style="margin-top:8px;">
+    <button hx-get="/ui/plans/{{ plan['id'] }}/artifacts/adr/edit" hx-target="closest .card" hx-swap="outerHTML">Edit</button>
+    <a href="/plans/{{ plan['id'] }}/artifacts/adr/download" style="margin-left:.5rem">Download</a>
+    <button type="button" style="margin-left:.5rem" onclick="navigator.clipboard.writeText(document.getElementById('adr-content').innerText)">Copy</button>
+  </div>
 </div>

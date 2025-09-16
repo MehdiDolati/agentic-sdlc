@@ -1,0 +1,14 @@
+<div class="card">
+  <h2>Tasks</h2>
+  <div class="meta">{{ tasks_rel }}</div>
+  <div style="margin-top:8px;" id="tasks-content">{{ tasks_html|safe }}</div>
+  <div style="margin-top:8px;">
+    <button hx-get="/ui/plans/{{ plan['id'] }}/artifacts/tasks/edit" 
+            hx-target="closest .card" hx-swap="outerHTML">Edit</button>
+    <a href="/plans/{{ plan['id'] }}/artifacts/tasks/download" style="margin-left:.5rem">Download</a>
+    <button type="button" style="margin-left:.5rem"
+            onclick="navigator.clipboard.writeText(document.getElementById('tasks-content').innerText)">
+      Copy
+    </button>
+  </div>
+</div>
