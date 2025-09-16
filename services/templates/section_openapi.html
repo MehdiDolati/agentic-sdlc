@@ -1,7 +1,7 @@
 <div class="card">
   <h2>OpenAPI</h2>
-  <div class="meta">{{ openapi_rel }}</div>
-  <div style="margin-top:8px;" id="openapi-content">{{ openapi_html|safe }}</div>
+  <div class="meta">openapi: <code>{{ openapi_rel }}</code></div>
+  <div style="margin-top:8px;" id="openapi-content"><pre>{{ openapi_text }}</pre></div>
   <div style="margin-top:8px;">
     <button hx-get="/ui/plans/{{ plan['id'] }}/artifacts/openapi/edit" hx-target="closest .card" hx-swap="outerHTML">Edit</button>
     <a href="/plans/{{ plan['id'] }}/artifacts/openapi/download" style="margin-left:.5rem">Download</a>

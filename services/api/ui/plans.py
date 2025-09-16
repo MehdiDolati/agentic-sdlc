@@ -768,8 +768,8 @@ def ui_plan_section_prd(request: Request, plan_id: str):
         raise HTTPException(status_code=404, detail="Plan not found")
     prd_rel = (plan.get("artifacts") or {}).get("prd")
     prd_html = _render_markdown(_read_text_if_exists(repo_root / prd_rel)) if prd_rel else None
-    return templates.TemplateResponse(request,"section_prd.html", {
-        "request": request, "prd_rel": prd_rel, "prd_html": prd_html
+    return templates.TemplateResponse(request, "section_prd.html", {
+        "request": request, "plan": plan, "prd_rel": prd_rel, "prd_html": prd_html
     })
 
 @router.get("/ui/plans/{plan_id}/sections/adr", response_class=HTMLResponse, include_in_schema=False)
@@ -783,8 +783,8 @@ def ui_plan_section_adr(request: Request, plan_id: str):
         raise HTTPException(status_code=404, detail="Plan not found")
     adr_rel = (plan.get("artifacts") or {}).get("adr")
     adr_html = _render_markdown(_read_text_if_exists(repo_root / adr_rel)) if adr_rel else None
-    return templates.TemplateResponse(request,"section_adr.html", {
-        "request": request, "adr_rel": adr_rel, "adr_html": adr_html
+    return templates.TemplateResponse(request, "section_adr.html", {
+        "request": request, "plan": plan, "adr_rel": adr_rel, "adr_html": adr_html
     })
 
 
@@ -805,11 +805,9 @@ def ui_plan_section_openapi(request: Request, plan_id: str):
 
     openapi_rel = (plan.get("artifacts") or {}).get("openapi")
     openapi_text = _read_text_if_exists(repo_root / openapi_rel) if openapi_rel else None
-    return templates.TemplateResponse(
-        request,
-        "section_openapi.html",
-        {"request": request, "openapi_rel": openapi_rel, "openapi_text": openapi_text or "(no OpenAPI yet)"},
-    )
+    return templates.TemplateResponse(request, "section_openapi.html", {
+        "request": request, "plan": plan, "openapi_rel": openapi_rel, "openapi_text": openapi_text
+    })
     
 @router.get("/ui/plans/{plan_id}/artifacts/{kind}", response_class=HTMLResponse, include_in_schema=False)
 def ui_artifact_view(request: Request, plan_id: str, kind: str):
@@ -827,6 +825,38 @@ def ui_artifact_view(request: Request, plan_id: str, kind: str):
         request, "artifact_view.html",
         {"request": request, "plan": plan, "kind": kind.upper(), "rel_path": rel, "content_html": html},
     )
+
+@router.get("/ui/plans/{plan_id}/sections/stories", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_stories(request: Request, plan_id: str):
+   if _auth_enabled() and user.get("id") == "public":
+       raise HTTPException(status_code=401, detail="authentication required")
+   repo_root = _repo_root()
+   engine = _create_engine(_database_url(repo_root))
+   plan = PlansRepoDB(engine).get(plan_id)
+   if not plan:
+       raise HTTPException(status_code=404, detail="Plan not found")
+   stories_rel = (plan.get("artifacts") or {}).get("stories")
+   stories_html = _render_markdown(_read_text_if_exists(repo_root / stories_rel)) if stories_rel else None
+   return templates.TemplateResponse(
+       request, "section_stories.html",
+       {"request": request, "plan": plan, "stories_rel": stories_rel, "stories_html": stories_html}
+   )
+
+@router.get("/ui/plans/{plan_id}/sections/tasks", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_tasks(request: Request, plan_id: str):
+   if _auth_enabled() and user.get("id") == "public":
+       raise HTTPException(status_code=401, detail="authentication required")
+   repo_root = _repo_root()
+   engine = _create_engine(_database_url(repo_root))
+   plan = PlansRepoDB(engine).get(plan_id)
+   if not plan:
+       raise HTTPException(status_code=404, detail="Plan not found")
+   tasks_rel = (plan.get("artifacts") or {}).get("tasks")
+   tasks_html = _render_markdown(_read_text_if_exists(repo_root / tasks_rel)) if tasks_rel else None
+   return templates.TemplateResponse(
+       request, "section_tasks.html",
+       {"request": request, "plan": plan, "tasks_rel": tasks_rel, "tasks_html": tasks_html}
+   )
 
 # -------------------- Artifact diff endpoint --------------------
 @router.get("/ui/plans/{plan_id}/artifacts/{kind}/diff", response_class=HTMLResponse, include_in_schema=False)

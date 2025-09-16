@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
     create_engine, MetaData, Table, Column, String, JSON, DateTime,
-    select, insert, update as sa_update, delete as sa_delete, func, ForeignKey
+    select, insert, update, delete as sa_delete, func, ForeignKey
 )
 from sqlalchemy.engine import Engine
 
@@ -120,6 +120,33 @@ class PlansRepoDB:
                 "updated_at": updated_at.isoformat() if updated_at else None,
             })
         return out
+ 
+    def update(self, plan_id: str, fields: dict) -> dict | None:
+        if not fields:
+            return self.get(plan_id)
+        allowed = {"request", "owner", "artifacts", "status"}
+        payload = {k: v for k, v in fields.items() if k in allowed}
+        if not payload:
+            return self.get(plan_id)
+        with self.engine.begin() as conn:
+            res = conn.execute(
+                update(_PLANS_TABLE)
+                .where(_PLANS_TABLE.c.id == plan_id)
+                .values(**payload)
+            )
+            # res.rowcount might be 0 if not found
+        return self.get(plan_id)
+
+    def update_artifacts(self, plan_id: str, artifacts: dict, merge: bool = True) -> dict | None:
+        if merge:
+            current = self.get(plan_id)
+            if not current:
+                return None
+            merged = (current.get("artifacts") or {}).copy()
+            merged.update(artifacts or {})
+            return self.update(plan_id, {"artifacts": merged})
+        else:
+            return self.update(plan_id, {"artifacts": artifacts or {}})        
 
 class RunsRepoDB:
     def __init__(self, engine: Engine):
@@ -136,7 +163,7 @@ class RunsRepoDB:
     def set_running(self, run_id: str, manifest_path: str, log_path: str):
         with self.engine.begin() as conn:
             conn.execute(
-                sa_update(_RUNS_TABLE)
+                update(_RUNS_TABLE)
                 .where(_RUNS_TABLE.c.id == run_id)
                 .where(_RUNS_TABLE.c.status != "cancelled")  # don't resurrect cancelled runs
                 .values(
@@ -150,7 +177,7 @@ class RunsRepoDB:
     def set_completed(self, run_id: str, status: str):
         with self.engine.begin() as conn:
             conn.execute(
-                sa_update(_RUNS_TABLE)
+                update(_RUNS_TABLE)
                 .where(_RUNS_TABLE.c.id == run_id)
                 .values(status=status, completed_at=func.now())
             )
@@ -249,7 +276,7 @@ class NotesRepoDB:
         to_store = dict(payload or {})
         with self.engine.begin() as conn:
             res = conn.execute(
-                sa_update(_NOTES_TABLE)
+                update(_NOTES_TABLE)
                 .where(_NOTES_TABLE.c.id == note_id)
                 .values(data=to_store)
                 .returning(_NOTES_TABLE.c.id, _NOTES_TABLE.c.data)
