@@ -1,0 +1,42 @@
+<!-- services/templates/requests_review.html -->
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Draft Plan Review</title>
+    <link rel="stylesheet" href="/static/site.css" />
+  </head>
+  <body>
+    <h1>Draft Plan Review</h1>
+
+    <h3>Vision</h3>
+    <pre>{{ project_vision }}</pre>
+
+    <h3>Mode / Provider</h3>
+    <table>
+      <tr><td>Agent mode</td><td>{{ agent_mode }}</td></tr>
+      <tr><td>LLM provider</td><td>{{ llm_provider }}</td></tr>
+    </table>
+
+    <h3>PRD (Markdown)</h3>
+    {% set prd_rel = plan.get('artifacts', {}).get('prd') or '' %}
+    <pre>{{ prd_rel and '' }}</pre>
+    <div>
+      {% if prd_rel %}
+        <a href="/ui/plans/{{ plan.get('id','preview') }}/artifacts/prd" target="_blank">Open rendered PRD</a>
+      {% else %}
+        <em>No PRD path recorded in plan.artifacts.</em>
+      {% endif %}
+    </div>
+
+    <h3>OpenAPI (JSON)</h3>
+    <pre>{{ openapi_json | tojson(indent=2) }}</pre>
+
+    <form action="/plans" method="post" style="margin-top:1rem">
+      <input type="hidden" name="owner" value="ui" />
+      <label>Save as Plan ID</label>
+      <input type="text" name="id" value="{{ suggested_plan_id }}" required />
+      <button type="submit">Persist Plan</button>
+    </form>
+  </body>
+</html>

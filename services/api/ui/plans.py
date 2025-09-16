@@ -217,6 +217,12 @@ class PlanIndexItem(BaseModel):
     step_count: int
     artifact_count: int
 
+class PlanModel(BaseModel):
+    id: str = Field(..., description="Plan ID")
+    owner: str = "ui"
+    artifacts: Dict[str, str] = {}  # rel paths under docs/, if any
+    meta: Dict[str, Any] = {}    
+
 class RequestIn(BaseModel):
     text: str
 
@@ -1087,3 +1093,11 @@ def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_us
         "artifacts": norm_artifacts,
         "request": req.text,
     }
+    
+@router.post("/plans", tags=["plans"])
+def create_plan(plan: PlanModel):
+    try:
+        saved = plan_store.upsert_plan(plan.dict())
+        return {"ok": True, "plan": saved}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"persist failed: {e}")
