@@ -1266,6 +1266,8 @@ def get_plan(plan_id: str):
 
 @router.post("/plans", response_model=Plan, status_code=201)
 def create_or_update_plan(plan: Plan):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     stored = plan_store.upsert_plan(plan.model_dump(exclude_none=True))
     return stored
 
@@ -1484,6 +1486,8 @@ def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_us
     
 @router.post("/plans", tags=["plans"])
 def create_plan(plan: PlanModel):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     try:
         saved = plan_store.upsert_plan(plan.dict())
         return {"ok": True, "plan": saved}
@@ -1614,6 +1618,8 @@ def ui_board_toggle(
     request: Request, plan_id: str,
     kind: str = Form(...), index: int = Form(...), done: bool = Form(...)
 ):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
@@ -1636,6 +1642,8 @@ def ui_board_edit(
     request: Request, plan_id: str,
     kind: str = Form(...), index: int = Form(...), title: str = Form(...), section: str = Form(None)
 ):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
@@ -1659,6 +1667,8 @@ def ui_board_add(
     request: Request, plan_id: str,
     kind: str = Form(...), title: str = Form(...), section: str = Form(None)
 ):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
@@ -1679,6 +1689,8 @@ def ui_board_bulk_issues(
     request: Request, plan_id: str,
     kind: str = Form(...), only_open: bool = Form(True)
 ):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     """
     Stub: bulk-create GitHub issues from tasks/stories.
     Controlled by FEATURE_GH_ISSUES env toggle. No-op if disabled.
@@ -1727,6 +1739,8 @@ def ui_plan_section_techspec(request: Request, plan_id: str):
 # -------------------- Upload architecture / techspec --------------------
 @router.post("/ui/plans/{plan_id}/architecture/upload", response_class=HTMLResponse, include_in_schema=False)
 def ui_architecture_upload(request: Request, plan_id: str, file: UploadFile = File(...)):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id) or (_ := None)
@@ -1749,6 +1763,8 @@ def ui_architecture_upload(request: Request, plan_id: str, file: UploadFile = Fi
 
 @router.post("/ui/plans/{plan_id}/techspec/upload", response_class=HTMLResponse, include_in_schema=False)
 def ui_techspec_upload(request: Request, plan_id: str, file: UploadFile = File(...)):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id) or (_ := None)
@@ -1771,6 +1787,8 @@ def ui_techspec_upload(request: Request, plan_id: str, file: UploadFile = File(.
 # -------------------- Generate drafts (LLM-assisted, provider optional) --------------------
 @router.post("/ui/plans/{plan_id}/architecture/generate", response_class=HTMLResponse, include_in_schema=False)
 def ui_architecture_generate(request: Request, plan_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id) or (_ := None)
@@ -1798,6 +1816,8 @@ def ui_architecture_generate(request: Request, plan_id: str):
 
 @router.post("/ui/plans/{plan_id}/techspec/generate", response_class=HTMLResponse, include_in_schema=False)
 def ui_techspec_generate(request: Request, plan_id: str):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id) or (_ := None)

@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine, URL
 import markdown as _markdown
 import secrets
+from services.api.core.settings import load_settings
 
 AUTH_MODE = os.getenv("AUTH_MODE", "disabled").lower() # "disabled" | "token"
 @lru_cache(maxsize=1)
@@ -104,12 +105,6 @@ def _sort_key(entry: Dict[str, Any], key: Any) -> Any:
     # fall back to top-level field if present
     return entry.get(k, "")
 
-def _auth_enabled() -> bool:
-    """Auth is OFF by default for backward compatibility.
-       Enable by setting AUTH_MODE to one of: on, true, enabled, 1
-    """
-    return (os.getenv("AUTH_MODE") or "").strip().lower() in {"on", "true", "enabled", "1"}
-
 def _new_id(prefix: str) -> str:
     """Generate IDs. Tests require user IDs to start with 'u_'."""
     if prefix == "user":
@@ -184,3 +179,38 @@ def _append_run_to_index(repo_root: Path, plan_id: str, run_id: str, rel_manifes
     entry["runs"] = runs
     idx[plan_id] = entry
     _save_index(repo_root, idx)
+
+def _auth_enabled() -> bool:
+    """
+    Authentication gate:
+      1) ENV OVERRIDES FIRST: AUTH_MODE / AUTH_ENABLED (e.g., tests set AUTH_MODE=on)
+      2) Otherwise, use persisted settings.json ("auth_enabled")
+      3) Default to False
+    """
+    # 1) Environment override
+    env_val = os.getenv("AUTH_MODE")
+    if env_val is None:
+        env_val = os.getenv("AUTH_ENABLED")
+    if env_val is not None:
+        return str(env_val).strip().lower() in {"on", "1", "true", "yes"}
+
+    # 2) Persisted settings
+    try:
+        cfg = load_settings(_repo_root())
+        if isinstance(cfg.get("auth_enabled"), bool):
+            return cfg["auth_enabled"]
+    except Exception:
+        pass
+
+    # 3) Default
+    return False
+
+def _planner_defaults() -> dict:
+    """Expose planner mode/provider defaults to callers."""
+    cfg = load_settings(_repo_root())
+    return {
+        "planner_mode": cfg.get("planner_mode", "single"),
+        "default_provider": cfg.get("default_provider", "none"),
+        "api_base_url": cfg.get("api_base_url", ""),
+        "multi_agent_enabled": bool(cfg.get("multi_agent_enabled", False)),
+    }

@@ -1,10 +1,12 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Dict, Any
-from fastapi import APIRouter, Request, Form, HTTPException
+from fastapi import APIRouter, Request, Form, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from services.api.auth.routes import get_current_user
+from services.api.core.shared import _auth_enabled
 
 import services.api.core.shared as shared
 from services.api.planner.core import plan_request  # deterministic planner fallback
@@ -39,7 +41,10 @@ def submit_request(
     agent_mode: str = Form("single"),
     llm_provider: str = Form("none"),
     plan_id: Optional[str] = Form(None),
+    user: Dict[str, Any] = Depends(get_current_user),
 ):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
     repo_root = shared._repo_root()
     draft = plan_request(project_vision, repo_root, owner="ui")  # writes docs/* deterministically
     # If user provided a Plan ID, persist later via POST /plans; for now, preview.

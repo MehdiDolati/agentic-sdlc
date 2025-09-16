@@ -27,7 +27,8 @@ from services.api.auth.tokens import read_token
 from services.api.auth.routes import router as auth_router, get_current_user
 from services.api.runs.routes import router as runs_router
 from services.api.routes.ui_requests import router as ui_requests_router
-
+from services.api.ui.plans import router as ui_plans_router
+from services.api.ui.settings import router as ui_settings_router
 
 _BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
@@ -57,6 +58,7 @@ app.include_router(ui_auth_router)
 app.include_router(auth_router)
 app.include_router(runs_router)
 app.include_router(ui_requests_router)
+app.include_router(ui_settings_router)
 
 # --- UI wiring (templates + static) ---
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")
@@ -213,6 +215,8 @@ def api_notes_list():
 
 @app.post("/api/notes", status_code=201)
 def api_notes_create(payload: Dict[str, Any]):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     nid = uuid.uuid4().hex[:8]
     doc = {"id": nid, **payload}
     _NOTES[nid] = doc
@@ -249,6 +253,8 @@ def api_create_list():
 
 @app.post("/api/create", status_code=201)
 def api_create_item(payload: Dict[str, Any]):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     iid = uuid.uuid4().hex[:8]
     doc = {"id": iid, **payload}
     _CREATE_STORE[iid] = doc
@@ -276,6 +282,8 @@ def api_create_delete(item_id: str):
 # add this route (dev-use)
 @app.post("/orchestrator/run")
 def orchestrator_run(payload: Dict[str, Any]):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")    
     steps = payload.get("steps", [])
     dry_run = bool(payload.get("dry_run", False))
     results = run_steps(steps, cwd=shared._repo_root(), dry_run=dry_run)
