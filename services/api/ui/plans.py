@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, threading, subprocess
+import os, re, threading, subprocess
 from datetime import datetime
 from pathlib import Path as _P
 from typing import Optional, Dict, Any
@@ -50,6 +50,89 @@ except Exception:  # pragma: no cover
     PlanArtifacts = None  # type: ignore
 
 router = APIRouter(tags=["ui"])
+
+# -------------------- Tasks/Stories parsing helpers --------------------
+_TASK_LINE_RE = re.compile(r"^\s*[-*]\s+\[(?P<mark>[ xX])\]\s+(?P<title>.+?)(?:\s+\(#(?P<id>[A-Za-z0-9_.-]+)\))?\s*$")
+_H_RE = re.compile(r"^\s*#{1,6}\s+(?P<text>.+?)\s*$")
+
+def _parse_markdown_checklist(md_text: str) -> list[dict]:
+    """
+    Parse GitHub-flavored checklist bullets into structured rows.
+    Supports lines like: '- [ ] title' or '- [x] title (#ID-123)'
+    Groups by last seen heading (as 'section').
+    """
+    items, section = [], None
+    if not md_text:
+        return items
+    for line in md_text.splitlines():
+        h = _H_RE.match(line)
+        if h:
+            section = h.group("text").strip()
+            continue
+        m = _TASK_LINE_RE.match(line)
+        if m:
+            items.append({
+                "id": (m.group("id") or "").strip(),
+                "title": m.group("title").strip(),
+                "done": m.group("mark").lower() == "x",
+                "section": section,
+                "raw": line,
+            })
+    return items
+
+def _serialize_markdown_checklist(items: list[dict]) -> str:
+    """
+    Serialize checklist items back to Markdown.
+    Preserves section grouping by inserting '## {section}' when section changes (best-effort).
+    """
+    out, last_section = [], None
+    for it in items:
+        sec = it.get("section")
+        if sec and sec != last_section:
+            out.append(f"## {sec}")
+            last_section = sec
+        mark = "x" if it.get("done") else " "
+        title = it.get("title", "").strip()
+        suffix = f" (#{it['id']})" if it.get("id") else ""
+        out.append(f"- [{mark}] {title}{suffix}")
+    return "\n".join(out) + ("\n" if out else "")
+
+def _load_items(repo_root: Path, rel: str | None) -> list[dict]:
+    if not rel:
+        return []
+    text = _safe_read_rel(repo_root, rel) or ""
+    return _parse_markdown_checklist(text)
+
+def _save_items(repo_root: Path, rel: str, items: list[dict]) -> None:
+    p = repo_root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(_serialize_markdown_checklist(items), encoding="utf-8")
+
+def _artifact_rel_from_plan(plan: dict, kind: str) -> str | None:
+    arts = (plan.get("artifacts") or {})
+    return arts.get(kind.lower())
+
+def _ensure_artifact_rel(plan: dict, kind: str) -> str:
+    """Guarantee an artifact path exists; persist if we had to create a new one."""
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    rel = _artifact_rel_from_plan(plan, kind)
+    if rel:
+        return rel
+    # create a default
+    plan_id = plan["id"]
+    mapping = {
+        "tasks": f"docs/tasks/{plan_id}.md",
+        "stories": f"docs/stories/{plan_id}.md",
+    }
+    rel = mapping.get(kind.lower())
+    if not rel:
+        raise HTTPException(status_code=400, detail=f"Unknown artifact: {kind}")
+    merged = (plan.get("artifacts") or {}).copy()
+    merged[kind.lower()] = rel
+    PlansRepoDB(engine).update_artifacts(plan_id, merged)  # helper you added earlier
+    return rel
+
 
 _RUN_QUEUE: "Queue[tuple[str, str]]" = Queue()
 # -------------------- Background worker for runs --------------------
@@ -1485,3 +1568,116 @@ def ui_run_detail_fragment(request: Request, run_id: str):
             "manifest_json": manifest_json,
         }
     )
+
+# -------------------- Board UI (Tasks & Stories) --------------------
+@router.get("/ui/plans/{plan_id}/board", response_class=HTMLResponse, include_in_schema=False)
+def ui_board_page(request: Request, plan_id: str):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return templates.TemplateResponse(request, "board.html", {"request": request, "plan": plan})
+
+@router.get("/ui/plans/{plan_id}/board/data", response_class=HTMLResponse, include_in_schema=False)
+def ui_board_data(request: Request, plan_id: str):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    tasks_rel = _artifact_rel_from_plan(plan, "tasks")
+    stories_rel = _artifact_rel_from_plan(plan, "stories")
+    tasks = _load_items(repo_root, tasks_rel)
+    stories = _load_items(repo_root, stories_rel)
+    return templates.TemplateResponse(
+        request, "board_table.html",
+        {"request": request, "plan": plan, "tasks": tasks, "stories": stories}
+    )
+
+@router.post("/ui/plans/{plan_id}/board/toggle", response_class=HTMLResponse, include_in_schema=False)
+def ui_board_toggle(
+    request: Request, plan_id: str,
+    kind: str = Form(...), index: int = Form(...), done: bool = Form(...)
+):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _ensure_artifact_rel(plan, kind)
+    items = _load_items(repo_root, rel)
+    if index < 0 or index >= len(items):
+        raise HTTPException(status_code=400, detail="Invalid index")
+    items[index]["done"] = bool(done)
+    _save_items(repo_root, rel, items)
+    # Return refreshed table
+    tasks_rel = _artifact_rel_from_plan(plan, "tasks"); stories_rel = _artifact_rel_from_plan(plan, "stories")
+    tasks = _load_items(repo_root, tasks_rel); stories = _load_items(repo_root, stories_rel)
+    return templates.TemplateResponse(request, "board_table.html",
+                                      {"request": request, "plan": plan, "tasks": tasks, "stories": stories})
+
+@router.post("/ui/plans/{plan_id}/board/edit", response_class=HTMLResponse, include_in_schema=False)
+def ui_board_edit(
+    request: Request, plan_id: str,
+    kind: str = Form(...), index: int = Form(...), title: str = Form(...), section: str = Form(None)
+):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _ensure_artifact_rel(plan, kind)
+    items = _load_items(repo_root, rel)
+    if index < 0 or index >= len(items):
+        raise HTTPException(status_code=400, detail="Invalid index")
+    items[index]["title"] = title.strip()
+    if section is not None:
+        items[index]["section"] = (section or "").strip() or None
+    _save_items(repo_root, rel, items)
+    tasks_rel = _artifact_rel_from_plan(plan, "tasks"); stories_rel = _artifact_rel_from_plan(plan, "stories")
+    tasks = _load_items(repo_root, tasks_rel); stories = _load_items(repo_root, stories_rel)
+    return templates.TemplateResponse(request, "board_table.html",
+                                      {"request": request, "plan": plan, "tasks": tasks, "stories": stories})
+
+@router.post("/ui/plans/{plan_id}/board/add", response_class=HTMLResponse, include_in_schema=False)
+def ui_board_add(
+    request: Request, plan_id: str,
+    kind: str = Form(...), title: str = Form(...), section: str = Form(None)
+):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _ensure_artifact_rel(plan, kind)
+    items = _load_items(repo_root, rel)
+    items.append({"id": "", "title": title.strip(), "done": False,
+                  "section": (section or "").strip() or None, "raw": ""})
+    _save_items(repo_root, rel, items)
+    tasks_rel = _artifact_rel_from_plan(plan, "tasks"); stories_rel = _artifact_rel_from_plan(plan, "stories")
+    tasks = _load_items(repo_root, tasks_rel); stories = _load_items(repo_root, stories_rel)
+    return templates.TemplateResponse(request, "board_table.html",
+                                      {"request": request, "plan": plan, "tasks": tasks, "stories": stories})
+
+@router.post("/ui/plans/{plan_id}/board/bulk_issues", response_class=HTMLResponse, include_in_schema=False)
+def ui_board_bulk_issues(
+    request: Request, plan_id: str,
+    kind: str = Form(...), only_open: bool = Form(True)
+):
+    """
+    Stub: bulk-create GitHub issues from tasks/stories.
+    Controlled by FEATURE_GH_ISSUES env toggle. No-op if disabled.
+    """
+    if os.getenv("FEATURE_GH_ISSUES", "0") not in ("1", "true", "True"):
+        return HTMLResponse("<div class='meta'>GitHub issue creation disabled.</div>")
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _artifact_rel_from_plan(plan, kind)
+    items = _load_items(repo_root, rel)
+    # TODO: integrate GitHub client here; for now pretend success and echo.
+    created = [it for it in items if (not it.get("done")) or (not only_open)]
+    return HTMLResponse(f"<div class='meta'>Would create {len(created)} issues (feature stub).</div>")

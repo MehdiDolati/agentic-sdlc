@@ -1,0 +1,109 @@
+<div class="grid">
+  <div class="card">
+    <h2>Tasks</h2>
+    <form hx-post="/ui/plans/{{ plan['id'] }}/board/add" hx-target="#boardData" hx-swap="outerHTML" style="margin-bottom:.5rem">
+      <input type="hidden" name="kind" value="tasks" />
+      <input type="text" name="title" placeholder="New task..." required />
+      <input type="text" name="section" placeholder="Section (optional)" />
+      <button type="submit">Add</button>
+    </form>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Done</th><th>Title</th><th>Section</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for it in tasks %}
+        <tr>
+          <td class="meta">{{ loop.index0 }}</td>
+          <td>
+            <form hx-post="/ui/plans/{{ plan['id'] }}/board/toggle" hx-target="#boardData" hx-swap="outerHTML">
+              <input type="hidden" name="kind" value="tasks" />
+              <input type="hidden" name="index" value="{{ loop.index0 }}" />
+              <input type="hidden" name="done" value="{{ 'false' if it.done else 'true' }}" />
+              <button type="submit">{{ '☑' if it.done else '☐' }}</button>
+            </form>
+          </td>
+          <td>{{ it.title }}</td>
+          <td class="meta">{{ it.section or '—' }}</td>
+          <td>
+            <details>
+              <summary>Edit</summary>
+              <form hx-post="/ui/plans/{{ plan['id'] }}/board/edit" hx-target="#boardData" hx-swap="outerHTML" style="margin-top:.25rem">
+                <input type="hidden" name="kind" value="tasks" />
+                <input type="hidden" name="index" value="{{ loop.index0 }}" />
+                <input type="text" name="title" value="{{ it.title }}" />
+                <input type="text" name="section" value="{{ it.section or '' }}" />
+                <button type="submit">Save</button>
+              </form>
+            </details>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if tasks|length == 0 %}
+        <tr><td colspan="5" class="meta">No tasks.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+    <div style="margin-top:.5rem;">
+      <form hx-post="/ui/plans/{{ plan['id'] }}/board/bulk_issues" hx-target="#boardData" hx-swap="outerHTML" onsubmit="return confirm('Create issues for open tasks?')">
+        <input type="hidden" name="kind" value="tasks" />
+        <label><input type="checkbox" name="only_open" checked /> only open</label>
+        <button type="submit">Bulk create issues</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Stories</h2>
+    <form hx-post="/ui/plans/{{ plan['id'] }}/board/add" hx-target="#boardData" hx-swap="outerHTML" style="margin-bottom:.5rem">
+      <input type="hidden" name="kind" value="stories" />
+      <input type="text" name="title" placeholder="New story..." required />
+      <input type="text" name="section" placeholder="Section (optional)" />
+      <button type="submit">Add</button>
+    </form>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Done</th><th>Title</th><th>Section</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for it in stories %}
+        <tr>
+          <td class="meta">{{ loop.index0 }}</td>
+          <td>
+            <form hx-post="/ui/plans/{{ plan['id'] }}/board/toggle" hx-target="#boardData" hx-swap="outerHTML">
+              <input type="hidden" name="kind" value="stories" />
+              <input type="hidden" name="index" value="{{ loop.index0 }}" />
+              <input type="hidden" name="done" value="{{ 'false' if it.done else 'true' }}" />
+              <button type="submit">{{ '☑' if it.done else '☐' }}</button>
+            </form>
+          </td>
+          <td>{{ it.title }}</td>
+          <td class="meta">{{ it.section or '—' }}</td>
+          <td>
+            <details>
+              <summary>Edit</summary>
+              <form hx-post="/ui/plans/{{ plan['id'] }}/board/edit" hx-target="#boardData" hx-swap="outerHTML" style="margin-top:.25rem">
+                <input type="hidden" name="kind" value="stories" />
+                <input type="hidden" name="index" value="{{ loop.index0 }}" />
+                <input type="text" name="title" value="{{ it.title }}" />
+                <input type="text" name="section" value="{{ it.section or '' }}" />
+                <button type="submit">Save</button>
+              </form>
+            </details>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if stories|length == 0 %}
+        <tr><td colspan="5" class="meta">No stories.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+    <div style="margin-top:.5rem;">
+      <form hx-post="/ui/plans/{{ plan['id'] }}/board/bulk_issues" hx-target="#boardData" hx-swap="outerHTML" onsubmit="return confirm('Create issues for open stories?')">
+        <input type="hidden" name="kind" value="stories" />
+        <label><input type="checkbox" name="only_open" checked /> only open</label>
+        <button type="submit">Bulk create issues</button>
+      </form>
+    </div>
+  </div>
+</div>
