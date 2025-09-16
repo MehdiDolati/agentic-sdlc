@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path as _P
 from typing import Optional, Dict, Any
 from pathlib import Path
-from fastapi import APIRouter, Query, Request, HTTPException, Depends
+from fastapi import APIRouter, Query, Request, HTTPException, Depends, UploadFile, File
 from fastapi import APIRouter, Query, Request, HTTPException, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
@@ -124,6 +124,8 @@ def _ensure_artifact_rel(plan: dict, kind: str) -> str:
     mapping = {
         "tasks": f"docs/tasks/{plan_id}.md",
         "stories": f"docs/stories/{plan_id}.md",
+        "architecture": f"docs/architecture/{plan_id}.md",
+        "techspec": f"docs/tech/{plan_id}.md",
     }
     rel = mapping.get(kind.lower())
     if not rel:
@@ -783,6 +785,18 @@ def ui_artifact_edit_post(
             request, "section_openapi.html",
             {"request": request, "plan": plan, "openapi_rel": rel, "openapi_text": content}
         )
+    if kind.lower() == "architecture":
+        html = _render_markdown(content)
+        return templates.TemplateResponse(
+            request, "section_architecture.html",
+            {"request": request, "plan": plan, "architecture_rel": rel, "architecture_html": html}
+        )
+    if kind.lower() == "techspec":
+        html = _render_markdown(content)
+        return templates.TemplateResponse(
+            request, "section_techspec.html",
+            {"request": request, "plan": plan, "techspec_rel": rel, "techspec_html": html}
+        )            
     # Fallback to artifact view
     content_html = _render_artifact_html(kind, content)
     return templates.TemplateResponse(
@@ -1681,3 +1695,129 @@ def ui_board_bulk_issues(
     # TODO: integrate GitHub client here; for now pretend success and echo.
     created = [it for it in items if (not it.get("done")) or (not only_open)]
     return HTMLResponse(f"<div class='meta'>Would create {len(created)} issues (feature stub).</div>")
+    
+@router.get("/ui/plans/{plan_id}/sections/architecture", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_architecture(request: Request, plan_id: str):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id) or (_ := None)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _artifact_rel_from_plan(plan, "architecture")
+    html = _render_markdown(_read_text_if_exists(Path(repo_root) / rel)) if rel else None
+    return templates.TemplateResponse(
+        request, "section_architecture.html",
+        {"request": request, "plan": plan, "architecture_rel": rel, "architecture_html": html}
+    )
+
+@router.get("/ui/plans/{plan_id}/sections/techspec", response_class=HTMLResponse, include_in_schema=False)
+def ui_plan_section_techspec(request: Request, plan_id: str):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id) or (_ := None)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _artifact_rel_from_plan(plan, "techspec")
+    html = _render_markdown(_read_text_if_exists(Path(repo_root) / rel)) if rel else None
+    return templates.TemplateResponse(
+        request, "section_techspec.html",
+        {"request": request, "plan": plan, "techspec_rel": rel, "techspec_html": html}
+    )
+    
+# -------------------- Upload architecture / techspec --------------------
+@router.post("/ui/plans/{plan_id}/architecture/upload", response_class=HTMLResponse, include_in_schema=False)
+def ui_architecture_upload(request: Request, plan_id: str, file: UploadFile = File(...)):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id) or (_ := None)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _ensure_artifact_rel(plan, "architecture")
+    # only text uploads for now
+    data = file.file.read()
+    try:
+        text = data.decode("utf-8")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Only UTF-8 text files supported for architecture")
+    (Path(repo_root) / rel).parent.mkdir(parents=True, exist_ok=True)
+    (Path(repo_root) / rel).write_text(text, encoding="utf-8")
+    html = _render_markdown(text)
+    return templates.TemplateResponse(
+        request, "section_architecture.html",
+        {"request": request, "plan": plan, "architecture_rel": rel, "architecture_html": html}
+    )
+
+@router.post("/ui/plans/{plan_id}/techspec/upload", response_class=HTMLResponse, include_in_schema=False)
+def ui_techspec_upload(request: Request, plan_id: str, file: UploadFile = File(...)):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id) or (_ := None)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _ensure_artifact_rel(plan, "techspec")
+    data = file.file.read()
+    try:
+        text = data.decode("utf-8")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Only UTF-8 text files supported for tech spec")
+    (Path(repo_root) / rel).parent.mkdir(parents=True, exist_ok=True)
+    (Path(repo_root) / rel).write_text(text, encoding="utf-8")
+    html = _render_markdown(text)
+    return templates.TemplateResponse(
+        request, "section_techspec.html",
+        {"request": request, "plan": plan, "techspec_rel": rel, "techspec_html": html}
+    )
+    
+# -------------------- Generate drafts (LLM-assisted, provider optional) --------------------
+@router.post("/ui/plans/{plan_id}/architecture/generate", response_class=HTMLResponse, include_in_schema=False)
+def ui_architecture_generate(request: Request, plan_id: str):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id) or (_ := None)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _ensure_artifact_rel(plan, "architecture")
+    # very small deterministic scaffold using existing artifacts
+    prd = _safe_read_rel(repo_root, (plan.get("artifacts") or {}).get("prd")) or ""
+    openapi = _safe_read_rel(repo_root, (plan.get("artifacts") or {}).get("openapi")) or ""
+    stub = (
+        f"# Architecture Overview\n\n"
+        f"## Vision\n{plan.get('request')}\n\n"
+        f"## Context\n- PRD present: {'yes' if prd else 'no'}\n- OpenAPI present: {'yes' if openapi else 'no'}\n\n"
+        f"## Components\n- API (FastAPI)\n- DB (Postgres 16 / SQLite dev)\n- ORM (SQLAlchemy)\n\n"
+        f"## Data Flow\n- Client → FastAPI → Services → DB\n\n"
+        f"## Non-Functional\n- Observability, CI, Docker Compose\n"
+    )
+    (Path(repo_root) / rel).parent.mkdir(parents=True, exist_ok=True)
+    (Path(repo_root) / rel).write_text(stub, encoding="utf-8")
+    html = _render_markdown(stub)
+    return templates.TemplateResponse(
+        request, "section_architecture.html",
+        {"request": request, "plan": plan, "architecture_rel": rel, "architecture_html": html}
+    )
+
+@router.post("/ui/plans/{plan_id}/techspec/generate", response_class=HTMLResponse, include_in_schema=False)
+def ui_techspec_generate(request: Request, plan_id: str):
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id) or (_ := None)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    rel = _ensure_artifact_rel(plan, "techspec")
+    stub = (
+        f"# Technology Stack\n\n"
+        f"- Language: Python 3.11+\n"
+        f"- API: FastAPI\n"
+        f"- ORM: SQLAlchemy\n"
+        f"- DB: Postgres 16 (prod), SQLite (dev)\n"
+        f"- Queue: in-proc worker (migratable)\n"
+        f"- Container: Docker Compose\n"
+        f"- LLM: provider = optional (none/openai/anthropic/azure/local)\n"
+    )
+    (Path(repo_root) / rel).parent.mkdir(parents=True, exist_ok=True)
+    (Path(repo_root) / rel).write_text(stub, encoding="utf-8")
+    html = _render_markdown(stub)
+    return templates.TemplateResponse(
+        request, "section_techspec.html",
+        {"request": request, "plan": plan, "techspec_rel": rel, "techspec_html": html}
+    )
