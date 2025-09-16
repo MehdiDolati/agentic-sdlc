@@ -1,0 +1,39 @@
+<div class="card">
+  <div class="meta">Total: {{ runs|length }}</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Run ID</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th>Updated</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td><a href="/ui/runs/{{ r['id'] }}"><code>{{ r["id"] }}</code></a></td>
+        <td><span class="badge">{{ r.get("status") }}</span></td>
+        <td class="meta">{{ r.get("created_at") }}</td>
+        <td class="meta">{{ r.get("updated_at") }}</td>
+        <td>
+          {% if r.get("status") in ["queued","running"] %}
+            <form hx-post="/ui/plans/{{ r['plan_id'] }}/runs/{{ r['id'] }}/cancel"
+                  hx-target="closest #runsTable"
+                  hx-get="/ui/plans/{{ r['plan_id'] }}/runs/table"
+                  hx-swap="outerHTML">
+              <button type="submit">Cancel</button>
+            </form>
+          {% else %}
+            <span class="meta">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% if runs|length == 0 %}
+      <tr><td colspan="5" class="meta">No runs yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>

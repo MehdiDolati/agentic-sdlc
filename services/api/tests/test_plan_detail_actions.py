@@ -51,7 +51,7 @@ def test_execute_run_and_update(monkeypatch, tmp_path):
     run_id = r.text.split("Run ID:")[1].split("<")[0].strip()
     # Wait briefly then poll run section
     time.sleep(0.1)
-    r2 = client.get(f"/ui/plans/{plan_id}/runs/{run_id}")
+    r2 = client.get(f"/ui/plans/{plan_id}/run/{run_id}")
     assert r2.status_code == 200
     assert "Status" in r2.text
 

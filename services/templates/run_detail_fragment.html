@@ -1,0 +1,31 @@
+<div class="card">
+  <h2>Status</h2>
+  <div class="meta">
+    {{ run.get("status") }}{% if run.get("updated_at") %} • {{ run.get("updated_at") }}{% endif %}
+  </div>
+  {% if run.get("status") in ["queued","running"] %}
+    <div class="meta">In progress…</div>
+  {% elif run.get("status") in ["failed"] %}
+    <div class="meta">Failed.</div>
+  {% elif run.get("status") in ["completed","done"] %}
+    <div class="meta">Completed.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Logs</h2>
+  {% if log_text %}
+    <pre style="max-height:320px; overflow:auto;">{{ log_text }}</pre>
+  {% else %}
+    <div class="meta">No logs yet.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Manifest</h2>
+  {% if manifest_json %}
+    <pre style="max-height:320px; overflow:auto;">{{ manifest_json }}</pre>
+  {% else %}
+    <div class="meta">No manifest yet.</div>
+  {% endif %}
+</div>

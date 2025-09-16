@@ -8,10 +8,10 @@
       <pre style="max-height:300px; overflow:auto;">{{ log_text }}</pre>
     {% endif %}
     {% if run["status"] in ["queued", "running"] %}
-      <form hx-post="/ui/plans/{{ plan_id }}/runs/{{ run['id'] }}/cancel" hx-target="closest .card" hx-swap="outerHTML">
+      <form hx-post="/ui/plans/{{ plan_id }}/run/{{ run['id'] }}/cancel" hx-target="closest .card" hx-swap="outerHTML">
         <button type="submit">Cancel</button>
       </form>
-      <div hx-get="/ui/plans/{{ plan_id }}/runs/{{ run['id'] }}" hx-trigger="every 1s" hx-target="closest .card" hx-swap="outerHTML"></div>
+      <div hx-get="/ui/plans/{{ plan_id }}/run/{{ run['id'] }}" hx-trigger="every 1s" hx-target="closest .card" hx-swap="outerHTML"></div>
     {% else %}
       <div>Completed at: {{ run.get("completed_at") }}</div>
     {% endif %}
