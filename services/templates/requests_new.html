@@ -1,0 +1,37 @@
+<!-- services/templates/requests_new.html -->
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>New Plan Request</title>
+    <link rel="stylesheet" href="/static/site.css" />
+  </head>
+  <body>
+    <h1>Create a Plan / Request</h1>
+    <form action="/ui/requests" method="post">
+      <label>Project vision</label><br/>
+      <textarea name="project_vision" rows="8" cols="80" required></textarea><br/><br/>
+
+      <label>Agent mode</label>
+      <select name="agent_mode">
+        {% for m in modes %}
+          <option value="{{ m }}" {% if m==default_mode %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+
+      <label>LLM provider</label>
+      <select name="llm_provider">
+        {% for p in providers %}
+          <option value="{{ p }}" {% if p==default_provider %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+
+      <label>Plan ID (optional)</label>
+      <input type="text" name="plan_id" placeholder="e.g. PLAN-001" />
+
+      <div style="margin-top:1rem">
+        <button type="submit">Generate draft</button>
+      </div>
+    </form>
+  </body>
+</html>

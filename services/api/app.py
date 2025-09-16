@@ -26,6 +26,7 @@ from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
 from services.api.auth.routes import router as auth_router, get_current_user
 from services.api.runs.routes import router as runs_router
+from services.api.routes.ui_requests import router as ui_requests_router
 
 
 _BASE_DIR = Path(__file__).resolve().parent
@@ -55,6 +56,7 @@ app.include_router(ui_plans_router)
 app.include_router(ui_auth_router)
 app.include_router(auth_router)
 app.include_router(runs_router)
+app.include_router(ui_requests_router)
 
 # --- UI wiring (templates + static) ---
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")

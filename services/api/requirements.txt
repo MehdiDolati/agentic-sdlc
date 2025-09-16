@@ -13,3 +13,4 @@ SQLAlchemy==2.0.32
 jinja2
 markdown
 pydantic[email]
+python-multipart
