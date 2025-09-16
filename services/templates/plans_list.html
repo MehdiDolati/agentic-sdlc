@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Plans</h1>
-
+<div style="margin-bottom:12px;">
+  <a href="/ui/requests/new" class="badge">New Plan</a>
+</div>
 <div class="card" style="margin-top:12px;">
   <form id="searchForm"
         hx-get="/ui/plans"
@@ -11,6 +13,20 @@
     <div class="grid grid-2">
       <input id="q" name="q" value="{{ q or '' }}" placeholder="Search (goal, artifacts)...">
       <div style="display:flex; gap:8px; align-items:center;">
+		<select name="owner">
+		  <option value="" {{ 'selected' if owner=='' else '' }}>Owner: Any</option>
+		  <option value="public" {{ 'selected' if owner=='public' else '' }}>public</option>
+		  <option value="ui" {{ 'selected' if owner=='ui' else '' }}>ui</option>
+		</select>
+		<select name="status">
+		  <option value="" {{ 'selected' if status=='' else '' }}>Status: Any</option>
+		  <option value="new" {{ 'selected' if status=='new' else '' }}>new</option>
+		  <option value="queued" {{ 'selected' if status=='queued' else '' }}>queued</option>
+		  <option value="running" {{ 'selected' if status=='running' else '' }}>running</option>
+		  <option value="failed" {{ 'selected' if status=='failed' else '' }}>failed</option>
+		  <option value="completed" {{ 'selected' if status=='completed' else '' }}>completed</option>
+		  <option value="cancelled" {{ 'selected' if status=='cancelled' else '' }}>cancelled</option>
+		</select>	  
         <select name="sort">
           <option value="created_at" {{ 'selected' if sort=='created_at' else '' }}>Sort by created_at</option>
           <option value="request" {{ 'selected' if sort=='request' else '' }}>Sort by request</option>

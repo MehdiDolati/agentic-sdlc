@@ -413,17 +413,22 @@ def ui_home():
     return RedirectResponse(url="/ui/plans")
 
 @router.get("/ui/plans", response_class=HTMLResponse, include_in_schema=False)
-def ui_plans(request: Request,
-             q: Optional[str] = Query(None, alias="q"),
-             sort: str = Query("created_at"),
-             order: str = Query("desc"),
-             limit: int = Query(20, ge=1, le=100),
-             offset: int = Query(0, ge=0)):
+def ui_plans(
+    request: Request,
+    q: Optional[str] = Query(None, alias="q"),
+    sort: str = Query("created_at"),
+    order: str = Query("desc"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    owner: Optional[str] = Query(None, alias="owner"),
+    status: Optional[str] = Query(None, alias="status"),
+):
     """
     Server-rendered plan list. Uses same backing index as /plans API.
     """
     repo_root = _repo_root()
     engine = _create_engine(_database_url(repo_root))
+    # fetch plans (DB-backed)
     plans = PlansRepoDB(engine).list()
     items = plans
 
@@ -440,12 +445,32 @@ def ui_plans(request: Request,
             return False
         items = [e for e in items if _matches(e)]
 
+    # owner/status filters
+    if owner:
+        items = [e for e in items if e.get("owner") == owner]
+    if status:
+        items = [e for e in items if e.get("status") == status]
+
     # sort
     reverse = (order or "desc").lower() == "desc"
     items.sort(key=lambda e: _sort_key(e, sort or "created_at"), reverse=reverse)
 
     total = len(items)
     page_items = items[offset: offset + limit]
+    # compute last-run status/date for each plan
+    runs_repo = RunsRepoDB(engine)
+    for p in page_items:
+        p.setdefault("last_run_status", None)
+        p.setdefault("last_run_at", None)
+        runs = runs_repo.list_for_plan(p["id"])
+        if runs:
+            last_run = runs[0]
+            p["last_run_status"] = last_run.get("status")
+            p["last_run_at"] = (
+                last_run.get("completed_at")
+                or last_run.get("started_at")
+                or last_run.get("created_at")
+            )
 
     ctx = {
         "request": request,
@@ -458,6 +483,8 @@ def ui_plans(request: Request,
         "q": q or "",
         "sort": sort or "created_at",
         "order": order or "desc",
+        "owner": owner or "",
+        "status": status or "",
     }
 
     # If HTMX paginates/searches we only re-render the table fragment

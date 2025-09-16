@@ -5,6 +5,9 @@
       <tr>
         <th>Created</th>
         <th>Request</th>
+        <th>Owner</th>
+        <th>Status</th>
+        <th>Last run</th>
         <th>Artifacts</th>
       </tr>
     </thead>
@@ -13,6 +16,17 @@
       <tr>
         <td><span class="meta">{{ p["created_at"] }}</span></td>
         <td><a href="/ui/plans/{{ p['id'] }}">{{ p["request"] }}</a></td>
+		<td class="meta">{{ p.get("owner") }}</td>
+		<td class="meta">
+		  {% if p.get("last_run_status") %}
+			<span class="badge">{{ p["last_run_status"] }}</span>
+		  {% else %}
+			<span class="badge">{{ p.get("status") }}</span>
+		  {% endif %}
+		</td>
+		<td class="meta">
+		  {% if p.get("last_run_at") %}{{ p["last_run_at"] }}{% else %}—{% endif %}
+		</td>		
         <td class="meta">
           {% for k, v in (p.get("artifacts") or {}).items() %}
             <span class="badge">{{ k }}</span>
