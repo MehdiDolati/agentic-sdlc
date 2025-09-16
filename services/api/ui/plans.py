@@ -31,7 +31,7 @@ except Exception:  # fallback for tests
 # Planner integration
 # --------------------------------------------------------------------------------------
 try:
-    from .planner import plan_request  # packaged import
+    from services.api.planner import plan_request  # packaged import
 except Exception:  # pragma: no cover
     from planner import plan_request  # type: ignore  # test-time import from repo root
 
