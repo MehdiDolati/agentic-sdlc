@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Board — {{ plan['id'] }}</title>
+    <link rel="stylesheet" href="/static/site.css" />
+  </head>
+  <body>
+    <h1>Board — Plan <code>{{ plan['id'] }}</code></h1>
+    <div class="meta">Request: {{ plan["request"] }}</div>
+
+    <div id="boardData"
+         hx-get="/ui/plans/{{ plan['id'] }}/board/data"
+         hx-trigger="load"
+         hx-target="this"
+         hx-swap="outerHTML">
+      <div class="meta">Loading…</div>
+    </div>
+  </body>
+</html>
