@@ -1,6 +1,8 @@
 from __future__ import annotations
-import base64, hmac, hashlib, json, time
+import base64, hmac, hashlib, json, time, os
 from typing import Dict, Any, Optional
+
+AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")
 
 def _b64u(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode().rstrip("=")

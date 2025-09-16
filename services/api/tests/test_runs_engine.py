@@ -1,12 +1,30 @@
 from pathlib import Path
 import time
+import importlib
 from fastapi.testclient import TestClient
+    
+def _setup_app(tmp_path: Path, monkeypatch):
+    import importlib, sys
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
 
-def _setup_app(tmp_path: Path):
-    import importlib
+    import services.api.core.shared as shared
+    importlib.reload(shared)
+    if hasattr(shared, "_reset_repo_root_cache_for_tests"):
+        shared._reset_repo_root_cache_for_tests()
+
+    # ← add these: reload modules that define/consume runs endpoints
+    for m in [
+        "services.api.core.repos",
+        "services.api.core.runs",      # or your actual runs module name(s)
+        "services.api.runs",
+        "services.api.ui.runs",
+    ]:
+        if m in sys.modules:
+            importlib.reload(sys.modules[m])
+
     import services.api.app as app_module
     importlib.reload(app_module)
-    app_module.app.state.repo_root = str(tmp_path)
     return app_module.app, app_module
 
 def _mk_plan(client: TestClient, text: str) -> dict:
@@ -14,9 +32,9 @@ def _mk_plan(client: TestClient, text: str) -> dict:
     r.raise_for_status()
     return r.json()
 
-def test_run_lifecycle_done(tmp_path: Path, monkeypatch):
+def test_run_lifecycle_done(tmp_path: Path, monkeypatch, repo_root):
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
-    app, app_module = _setup_app(tmp_path)
+    app, app_module = _setup_app(tmp_path, monkeypatch)
     client = TestClient(app)
 
     plan = _mk_plan(client, "Run lifecycle happy path")
@@ -51,9 +69,9 @@ def test_run_lifecycle_done(tmp_path: Path, monkeypatch):
     assert (tmp_path / (j["manifest_path"] or "")).exists()
     assert (tmp_path / (j["log_path"] or "")).exists()
 
-def test_run_cancel(tmp_path: Path, monkeypatch):
+def test_run_cancel(tmp_path: Path, monkeypatch, repo_root):
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
-    app, app_module = _setup_app(tmp_path)
+    app, app_module = _setup_app(tmp_path, monkeypatch)
     client = TestClient(app)
 
     plan = _mk_plan(client, "Run cancel")

@@ -1,7 +1,9 @@
 from pathlib import Path
 import json, time
 from fastapi.testclient import TestClient
-from app import app, run_step, _repo_root
+from app import app
+from services.api.runs.routes import run_step
+import services.api.core.shared as shared   
 
 client = TestClient(app)
 
@@ -15,7 +17,7 @@ def test_step_retries_then_succeeds(tmp_path: Path):
         # quick success
         return
 
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     log = repo_root / "docs" / "plans" / "tmp" / "runs" / "temp" / "execution.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text("", encoding="utf-8")
@@ -35,7 +37,7 @@ def test_step_times_out_after_retries(tmp_path: Path):
         # always slow -> always timeout
         time.sleep(0.06)
 
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     log = repo_root / "docs" / "plans" / "tmp" / "runs" / "timeout" / "execution.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text("", encoding="utf-8")
@@ -70,7 +72,7 @@ def test_cancel_endpoint_stops_run_and_sets_status_cancelled():
     # Allow the worker to notice cancellation
     time.sleep(0.15)
 
-    repo_root = _repo_root()
+    repo_root = shared. _repo_root()
     manifest = repo_root / "docs" / "plans" / plan_id / "runs" / run_id / "manifest.json"
     assert manifest.exists()
     data = json.loads(manifest.read_text(encoding="utf-8"))

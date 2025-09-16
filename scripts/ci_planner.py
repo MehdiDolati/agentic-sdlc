@@ -6,7 +6,7 @@ from datetime import datetime
 
 # Import your app helpers directly (no server needed)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services" / "api"))
-import app as appmod  # type: ignore
+import services.api.ui.plans as appmod  # type: ignore
 
 def _read_event(path: str) -> dict:
     try:
