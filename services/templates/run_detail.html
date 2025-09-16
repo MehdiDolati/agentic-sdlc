@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Run {{ run['id'] }}</title>
+    <link rel="stylesheet" href="/static/site.css" />
+  </head>
+  <body>
+    <h1>Run <code>{{ run['id'] }}</code></h1>
+    {% if plan %}<div class="meta">Plan: <a href="/ui/plans/{{ plan['id'] }}">{{ plan['id'] }}</a></div>{% endif %}
+    <div id="runFragment"
+         hx-get="/ui/runs/{{ run['id'] }}/fragment"
+         hx-trigger="load, every 1s"
+         hx-target="this"
+         hx-swap="outerHTML">
+      <div class="meta">Loading…</div>
+    </div>
+  </body>
+</html>

@@ -427,7 +427,7 @@ def ui_plans(
     """
     Server-rendered plan list. Uses same backing index as /plans API.
     """
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     # fetch plans (DB-backed)
     plans = PlansRepoDB(engine).list()
@@ -497,7 +497,7 @@ def ui_plans(
 def ui_plan_detail(request: Request, plan_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
@@ -521,7 +521,7 @@ def ui_plan_detail(request: Request, plan_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
 
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
@@ -577,7 +577,7 @@ def ui_plan_section_run(request: Request, plan_id: str):
         {"request": request, "plan_id": plan_id, "run": None, "log_text": None}
     )
 
-@router.get("/ui/plans/{plan_id}/runs/{run_id}", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/ui/plans/{plan_id}/run/{run_id}", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_run_detail(request: Request, plan_id: str, run_id: str):
     """Return an updated run section with current status and logs."""
     engine = _create_engine(_database_url(shared._repo_root()))
@@ -594,7 +594,7 @@ def ui_plan_run_detail(request: Request, plan_id: str, run_id: str):
         {"request": request, "plan_id": plan_id, "run": run, "log_text": log_text}
     )
 
-@router.post("/ui/plans/{plan_id}/runs/{run_id}/cancel", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/ui/plans/{plan_id}/run/{run_id}/cancel", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_run_cancel(request: Request, plan_id: str, run_id: str, user: Dict[str, Any] = Depends(get_current_user)):
     """Cancel a run and return the updated run section."""
     if _auth_enabled() and user.get("id") == "public":
@@ -728,7 +728,7 @@ def download_artifact(plan_id: str, kind: str, user: Dict[str, Any] = Depends(ge
 def ui_plan_section_stories(request: Request, plan_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
@@ -744,7 +744,7 @@ def ui_plan_section_stories(request: Request, plan_id: str):
 def ui_plan_section_tasks(request: Request, plan_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
@@ -761,7 +761,7 @@ def ui_plan_section_tasks(request: Request, plan_id: str):
 def ui_plan_section_prd(request: Request, plan_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
@@ -776,7 +776,7 @@ def ui_plan_section_prd(request: Request, plan_id: str):
 def ui_plan_section_adr(request: Request, plan_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
@@ -792,7 +792,7 @@ def ui_plan_section_adr(request: Request, plan_id: str):
 def ui_plan_section_openapi(request: Request, plan_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
-    repo_root = _repo_root()
+    repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
@@ -830,7 +830,7 @@ def ui_artifact_view(request: Request, plan_id: str, kind: str):
 def ui_plan_section_stories(request: Request, plan_id: str):
    if _auth_enabled() and user.get("id") == "public":
        raise HTTPException(status_code=401, detail="authentication required")
-   repo_root = _repo_root()
+   repo_root = shared._repo_root()
    engine = _create_engine(_database_url(repo_root))
    plan = PlansRepoDB(engine).get(plan_id)
    if not plan:
@@ -846,7 +846,7 @@ def ui_plan_section_stories(request: Request, plan_id: str):
 def ui_plan_section_tasks(request: Request, plan_id: str):
    if _auth_enabled() and user.get("id") == "public":
        raise HTTPException(status_code=401, detail="authentication required")
-   repo_root = _repo_root()
+   repo_root = shared._repo_root()
    engine = _create_engine(_database_url(repo_root))
    plan = PlansRepoDB(engine).get(plan_id)
    if not plan:
@@ -1409,4 +1409,79 @@ def execute_plan_ui(request: Request, plan_id: str, user: Dict[str, Any] = Depen
     return templates.TemplateResponse(
         request, "section_run.html",
         {"request": request, "plan_id": plan_id, "run": run, "log_text": None}
+    )
+    
+# -------------------- Run management views --------------------
+@router.get("/ui/plans/{plan_id}/runs", response_class=HTMLResponse, include_in_schema=False)
+def ui_runs_list(request: Request, plan_id: str):
+    """Page shell for plan runs; table loads via HTMX."""
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return templates.TemplateResponse(
+        request, "runs_list.html",
+        {"request": request, "plan": plan}
+    )
+
+@router.get("/ui/plans/{plan_id}/runs/table", response_class=HTMLResponse, include_in_schema=False)
+def ui_runs_table(request: Request, plan_id: str):
+    """Partial table of runs for a plan (status/created/cancel/action)."""
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    plan = PlansRepoDB(engine).get(plan_id)
+    # Be tolerant: if plan row isn't visible here (race or different process),
+    # still render the table for this plan_id.
+    plan_ctx = plan or {"id": plan_id, "request": "", "owner": "", "artifacts": {}, "status": "new"}
+    try:
+        runs = RunsRepoDB(engine).list_for_plan(plan_id)
+    except Exception:
+        runs = []
+    return templates.TemplateResponse(
+        request, "runs_table.html",
+        {"request": request, "plan": plan_ctx, "runs": runs or []}
+    )
+
+@router.get("/ui/runs/{run_id}", response_class=HTMLResponse, include_in_schema=False)
+def ui_run_detail(request: Request, run_id: str):
+    """Standalone run detail page with polling log + manifest viewer."""
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    run = RunsRepoDB(engine).get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    plan = PlansRepoDB(engine).get(run["plan_id"]) if run.get("plan_id") else None
+    # initial snapshot
+    log_text = _safe_read_rel(repo_root, run.get("log_path")) if run.get("log_path") else None
+    manifest_json = _safe_read_rel(repo_root, run.get("manifest_path")) if run.get("manifest_path") else None
+    return templates.TemplateResponse(
+        request, "run_detail.html",
+        {
+            "request": request,
+            "plan": plan,
+            "run": run,
+            "log_text": log_text,
+            "manifest_json": manifest_json,
+        }
+    )
+
+@router.get("/ui/runs/{run_id}/fragment", response_class=HTMLResponse, include_in_schema=False)
+def ui_run_detail_fragment(request: Request, run_id: str):
+    """Fragment used for polling the latest status/logs."""
+    repo_root = shared._repo_root()
+    engine = _create_engine(_database_url(repo_root))
+    run = RunsRepoDB(engine).get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    log_text = _safe_read_rel(repo_root, run.get("log_path")) if run.get("log_path") else None
+    manifest_json = _safe_read_rel(repo_root, run.get("manifest_path")) if run.get("manifest_path") else None
+    return templates.TemplateResponse(
+        request, "run_detail_fragment.html",
+        {
+            "request": request,
+            "run": run,
+            "log_text": log_text,
+            "manifest_json": manifest_json,
+        }
     )
