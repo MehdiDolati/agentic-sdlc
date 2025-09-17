@@ -14,3 +14,4 @@ jinja2
 markdown
 pydantic[email]
 python-multipart
+requests>=2.31.0

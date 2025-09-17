@@ -10,6 +10,9 @@ _DEFAULTS: Dict[str, Any] = {
     "api_base_url": "",                    # optional override
     "auth_enabled": False,                 # toggle auth (simple gate used elsewhere)
     "multi_agent_enabled": False,          # feature toggle for multi-agent UI/paths
+    "github_token": "",                    # Personal access token (classic or fine-grained)
+    "github_repo": "",                     # "owner/repo"
+    "github_default_branch": "main",       # default base branch
 }
 
 def _settings_path(state_dir: Path) -> Path:
