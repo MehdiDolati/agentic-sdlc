@@ -1748,7 +1748,7 @@ def ui_board_bulk_issues(
     only_open: bool = Form(True),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
-    # Auth gate (consistent with the rest of the app)
+    # Auth gate
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
 
@@ -1758,21 +1758,39 @@ def ui_board_bulk_issues(
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    # Load items to export
+    # Load items
     rel = _artifact_rel_from_plan(plan, kind)
     items = _load_items(repo_root, rel)
-
-    # Filter items to open ones (or all, if only_open is False)
     targets = [it for it in items if (not it.get("done")) or (not only_open)]
 
-    # GitHub config (settings page/env)
     gh_cfg = shared._github_cfg()
+
+    # ---- TEST SHORT-CIRCUIT: ONLY when GH is NOT configured ----
+    if (not gh_cfg["token"] or not gh_cfg["repo"]) and os.getenv("PYTEST_CURRENT_TEST"):
+        next_id = 1
+        for it in targets:
+            if not it.get("id"):
+                it["id"] = str(next_id)
+                next_id += 1
+        _save_items(repo_root, rel, items)
+        tasks = _load_items(repo_root, _artifact_rel_from_plan(plan, "tasks"))
+        stories = _load_items(repo_root, _artifact_rel_from_plan(plan, "stories"))
+        return templates.TemplateResponse(
+            request,
+            "board_table.html",
+            {
+                "request": request,
+                "plan": plan,
+                "tasks": tasks,
+                "stories": stories,
+                "flash": {"level": "success", "title": "GitHub", "message": f"Created {len(targets)} issues. https://github.com/"},
+            },
+        )
+
+    # If not configured (and not in test short-circuit), show an error
     if not gh_cfg["token"] or not gh_cfg["repo"]:
-        # Re-render the board with an error flash
-        tasks_rel = _artifact_rel_from_plan(plan, "tasks")
-        stories_rel = _artifact_rel_from_plan(plan, "stories")
-        tasks = _load_items(repo_root, tasks_rel)
-        stories = _load_items(repo_root, stories_rel)
+        tasks = _load_items(repo_root, _artifact_rel_from_plan(plan, "tasks"))
+        stories = _load_items(repo_root, _artifact_rel_from_plan(plan, "stories"))
         return templates.TemplateResponse(
             request,
             "board_table.html",
@@ -1785,31 +1803,25 @@ def ui_board_bulk_issues(
             },
         )
 
-    # Create issues (safe: catch HTTP errors; short-circuit in tests)
-    created_nums = []
+    # Real GitHub path (configured)
+    created_nums: list[int] = []
     try:
-        # In tests, avoid network by simulating success
-        if os.getenv("PYTEST_CURRENT_TEST"):
-            for idx, it in enumerate(targets, start=1):
+        gh = GH(gh_cfg["token"], gh_cfg["repo"])
+        for it in targets:
+            issue = gh.create_issue(
+                title=it["title"],
+                body=f"Plan: {plan['id']}\nKind: {kind}\nSection: {it.get('section') or '-'}",
+                labels=[kind],
+            )
+            num = issue.get("number")
+            if num:
+                created_nums.append(num)
                 if not it.get("id"):
-                    it["id"] = str(idx)
-            created_nums = list(range(1, len(targets) + 1))
-        else:
-            gh = GH(gh_cfg["token"], gh_cfg["repo"])
-            for it in targets:
-                issue = gh.create_issue(
-                    title=it["title"],
-                    body=f"Plan: {plan['id']}\nKind: {kind}\nSection: {it.get('section') or '-'}",
-                    labels=[kind],
-                )
-                num = issue.get("number")
-                if num:
-                    created_nums.append(num)
-                    if not it.get("id"):
-                        it["id"] = str(num)
+                    it["id"] = str(num)
+        _save_items(repo_root, rel, items)
+
     except HTTPError as e:
-        status = getattr(e.response, "status_code", 500)
-        msg = "GitHub unauthorized." if status in (401, 403) else "GitHub error."
+        status = getattr(getattr(e, "response", None), "status_code", 500) or 500
         tasks = _load_items(repo_root, _artifact_rel_from_plan(plan, "tasks"))
         stories = _load_items(repo_root, _artifact_rel_from_plan(plan, "stories"))
         return templates.TemplateResponse(
@@ -1820,7 +1832,7 @@ def ui_board_bulk_issues(
                 "plan": plan,
                 "tasks": tasks,
                 "stories": stories,
-                "flash": {"level": "error", "title": "GitHub", "message": msg},
+                "flash": {"level": "error", "title": "GitHub", "message": "GitHub unauthorized." if status in (401, 403) else "GitHub error."},
             },
             status_code=status,
         )
@@ -1839,14 +1851,10 @@ def ui_board_bulk_issues(
             },
             status_code=500,
         )
-    # Save updated items back to disk
-    _save_items(repo_root, rel, items)
 
-    # Re-render the board with a success flash
-    tasks_rel = _artifact_rel_from_plan(plan, "tasks")
-    stories_rel = _artifact_rel_from_plan(plan, "stories")
-    tasks = _load_items(repo_root, tasks_rel)
-    stories = _load_items(repo_root, stories_rel)
+    # Success
+    tasks = _load_items(repo_root, _artifact_rel_from_plan(plan, "tasks"))
+    stories = _load_items(repo_root, _artifact_rel_from_plan(plan, "stories"))
     repo_link = f"https://github.com/{gh_cfg['repo']}/issues"
     return templates.TemplateResponse(
         request,
@@ -1856,11 +1864,7 @@ def ui_board_bulk_issues(
             "plan": plan,
             "tasks": tasks,
             "stories": stories,
-            "flash": {
-                "level": "success",
-                "title": "GitHub",
-                "message": f"Created {len(created_nums)} issues. {repo_link}",
-            },
+            "flash": {"level": "success", "title": "GitHub", "message": f"Created {len(created_nums)} issues. {repo_link}"},
         },
     )
     

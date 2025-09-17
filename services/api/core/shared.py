@@ -14,8 +14,8 @@ from services.api.core.settings import load_settings
 AUTH_MODE = os.getenv("AUTH_MODE", "disabled").lower() # "disabled" | "token"
 @lru_cache(maxsize=1)
 def _repo_root() -> Path:
-    # Prefer env override (used in docker/CI)
-    env_root = os.getenv("REPO_ROOT")
+    # Prefer APP_STATE_DIR (tests set this per-test), then REPO_ROOT
+    env_root = os.getenv("APP_STATE_DIR") or os.getenv("REPO_ROOT")
     if env_root:
         p = Path(env_root)
         p.mkdir(parents=True, exist_ok=True)
@@ -225,4 +225,4 @@ def _github_cfg() -> dict:
        "token": token,
        "repo": os.getenv("GITHUB_REPO") or cfg.get("github_repo", ""),
        "base": os.getenv("GITHUB_DEFAULT_BRANCH") or cfg.get("github_default_branch", "main"),
-   }    
+   }
