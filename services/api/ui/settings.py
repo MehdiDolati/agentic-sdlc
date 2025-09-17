@@ -24,6 +24,7 @@ def settings_page(request: Request):
         "providers": ["none", "openai", "anthropic", "azure", "local"],
         "modes": ["single", "multi"],
     }
+    ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
     return templates.TemplateResponse(request, "settings.html", ctx)
 
 @router.post("/ui/settings", response_class=HTMLResponse)
@@ -60,4 +61,5 @@ def settings_save(
         "saved": True,
     }
     # Return full page so direct POST in tests works; HTMX can also target a fragment.
+    ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
     return templates.TemplateResponse(request, "settings.html", ctx)

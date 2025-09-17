@@ -6,6 +6,7 @@ import re
 import hmac, hashlib, base64
 import services.api.core.shared as shared
 
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from services.api.core.shared import (
     _database_url,
     _create_engine,
@@ -295,3 +296,32 @@ async def _attach_user_to_request(request: Request, call_next):
     # Expose current user to templates, derived from raw HTTP headers/cookies
     request.state.user = _user_from_http(request)
     return await call_next(request)
+
+# -------------------- Flash-friendly exception handlers --------------------
+def _wants_html_fragment(req: Request) -> bool:
+    # When requests come from HTMX, prefer an HTML flash fragment.
+    return req.headers.get("HX-Request", "").lower() == "true"
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exc_handler(request: Request, exc: StarletteHTTPException):
+    if _wants_html_fragment(request):
+        # Return a flash fragment (oob) so pages can show the message without reload.
+        ctx = {
+            "request": request,
+            "title": f"{exc.status_code}",
+            "level": "error",
+            "message": exc.detail or "Request failed.",
+        }
+        ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
+        return templates.TemplateResponse("_flash.html", ctx, status_code=exc.status_code)
+    # Non-HTMX: default JSON
+    return JSONResponse({"detail": exc.detail or "Request failed."}, status_code=exc.status_code)
+
+@app.exception_handler(Exception)
+async def unhandled_exc_handler(request: Request, exc: Exception):
+    # Avoid leaking internals; log server-side if you have logging
+    msg = "Unexpected error."
+    if _wants_html_fragment(request):
+        ctx = {"request": request, "title": "Error", "level": "error", "message": msg}
+        return templates.TemplateResponse("_flash.html", ctx, status_code=500)
+    return JSONResponse({"detail": msg}, status_code=500)

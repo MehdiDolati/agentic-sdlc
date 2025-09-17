@@ -8,3 +8,4 @@
     <button type="button" style="margin-left:.5rem" onclick="navigator.clipboard.writeText(document.getElementById('prd-content').innerText)">Copy</button>
   </div>
 </div>
+{% if flash %}{% include "_flash.html" with context %}{% endif %}
