@@ -135,16 +135,17 @@ def _ensure_artifact_rel(plan: dict, kind: str) -> str:
     merged[kind.lower()] = rel
     PlansRepoDB(engine).update_artifacts(plan_id, merged)  # helper you added earlier
     return rel
+    
+# Optional: STOP sentinel to allow clean shutdowns
+_STOP = object()
 
-
-_RUN_QUEUE: "Queue[tuple[str, str]]" = Queue()
-# -------------------- Background worker for runs --------------------
-from queue import Queue, Empty
-
-_RUN_QUEUE: "Queue[tuple[str, str]]" = Queue()
+# Queue holds either a (plan_id, run_id) tuple or the _STOP sentinel
+_RUN_QUEUE: "Queue[object]" = Queue()
 _WORKER_STARTED = False
 
+
 def _ensure_worker_thread():
+    """Start the background worker exactly once."""
     global _WORKER_STARTED
     if _WORKER_STARTED:
         return
@@ -152,28 +153,35 @@ def _ensure_worker_thread():
 
     def _worker():
         while True:
+            # Fetch a job; skip if queue empty
             try:
-                plan_id, run_id = _RUN_QUEUE.get(timeout=0.1)
+                item = _RUN_QUEUE.get(timeout=0.1)
             except Empty:
                 continue
+
             try:
+                # Clean shutdown path (still counts as one fetched item)
+                if item is _STOP:
+                    return  # task_done is handled in finally
+
+                # Unpack the job
+                plan_id, run_id = item
+
                 # Create DB handle AFTER tests set repo_root, per task
                 repo_root = shared._repo_root()
                 engine = _create_engine(_database_url(repo_root))
                 runs = RunsRepoDB(engine)
-                
-                # If this run was cancelled while still queued, honor it and exit
+
+                # If this run was cancelled while still queued, honor and exit early
                 curr = runs.get(run_id)
                 if curr and curr.get("status") == "cancelled":
-                    # Best-effort index update; ignore failures
                     try:
-                        # We may not have created paths yet; skip if N/A
                         _append_run_to_index(repo_root, plan_id, run_id, None, None, "cancelled")
                     except Exception:
                         pass
-                    _RUN_QUEUE.task_done()
-                    continue                
-                # Precompute paths/vars we also use in exception handling
+                    continue  # finally will still run, marking this item done
+
+                # Precompute paths/vars used in exception handling
                 rel_log = None
                 rel_manifest = None
                 cancel_flag = Path(repo_root) / "docs" / "plans" / plan_id / "runs" / run_id / "cancel.flag"
@@ -183,6 +191,7 @@ def _ensure_worker_thread():
                 rel_log = manifest["log_path"]
                 rel_manifest = rel_log.replace("execution.log", "manifest.json")
                 runs.set_running(run_id, rel_manifest, rel_log)
+
                 # If cancellation already happened, stop now
                 curr = runs.get(run_id)
                 if curr and curr.get("status") == "cancelled":
@@ -190,18 +199,19 @@ def _ensure_worker_thread():
                         _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "cancelled")
                     except Exception:
                         pass
-                    _RUN_QUEUE.task_done()
-                    continue                
-                # Index writes are best-effort; never fail the run because of them
+                    continue
+
+                # Best-effort index write
                 try:
                     _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "running")
                 except Exception:
                     pass
 
                 # Simulate long job (deterministic + cancellable)
-                log_path = Path(repo_root) / rel_log                
-                for i in range(5 if not os.getenv("PYTEST_CURRENT_TEST") else 1):
-                    # Honor DB-level cancel too (not only flag)
+                log_path = Path(repo_root) / rel_log
+                steps = 1 if os.getenv("PYTEST_CURRENT_TEST") else 5
+                for i in range(steps):
+                    # DB-level cancel
                     curr = runs.get(run_id)
                     if curr and curr.get("status") == "cancelled":
                         log_path.write_text((log_path.read_text(encoding="utf-8") + "\nCancelled\n"), encoding="utf-8")
@@ -209,7 +219,9 @@ def _ensure_worker_thread():
                             _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "cancelled")
                         except Exception:
                             pass
-                        break                    
+                        break
+
+                    # Flag cancel
                     if cancel_flag.exists():
                         log_path.write_text((log_path.read_text(encoding="utf-8") + "\nCancelled\n"), encoding="utf-8")
                         runs.set_completed(run_id, "cancelled")
@@ -218,15 +230,16 @@ def _ensure_worker_thread():
                         except Exception:
                             pass
                         break
+
                     # append a log line
                     with log_path.open("a", encoding="utf-8") as f:
-                        f.write(f"Step {i+1}/5\n")
-                    time.sleep(0.05 if not os.getenv("PYTEST_CURRENT_TEST") else 0.001)
-                # After loop ends (normal completion), check cancel one last time (flag OR DB says cancelled)
+                        f.write(f"Step {i+1}/{steps}\n")
+                    time.sleep(0.001 if os.getenv("PYTEST_CURRENT_TEST") else 0.05)
+
+                # Finalize status
                 curr = runs.get(run_id)
                 if cancel_flag.exists() or (curr and curr.get("status") == "cancelled"):
                     log_path.write_text((log_path.read_text(encoding="utf-8") + "\nCancelled\n"), encoding="utf-8")
-                    # keep as cancelled if already so; otherwise mark cancelled now
                     if not curr or curr.get("status") != "cancelled":
                         runs.set_completed(run_id, "cancelled")
                     try:
@@ -234,28 +247,17 @@ def _ensure_worker_thread():
                     except Exception:
                         pass
                 else:
-                    # Don't overwrite a cancelled run to done (double-check DB)
-                    curr = runs.get(run_id)
-                    if curr and curr.get("status") == "cancelled":
-                        try:
-                            _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "cancelled")
-                        except Exception:
-                            pass
-                    else:
+                    if not (curr and curr.get("status") == "cancelled"):
                         runs.set_completed(run_id, "done")
-                        try:
-                            _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "done")
-                        except Exception:
-                            pass
                     try:
                         _append_run_to_index(repo_root, plan_id, run_id, rel_manifest, rel_log, "done")
                     except Exception:
                         pass
+
             except Exception:
                 # Never downgrade to "failed" for ancillary issues; honor cancel flag if present
                 try:
                     status = "cancelled" if 'cancel_flag' in locals() and cancel_flag.exists() else "done"
-                    # If we reached here before rel paths were set, just mark status without index write
                     runs.set_completed(run_id, status)
                     if 'rel_manifest' in locals() and rel_manifest and 'rel_log' in locals() and rel_log:
                         try:
@@ -263,16 +265,33 @@ def _ensure_worker_thread():
                         except Exception:
                             pass
                 except Exception:
-                    pass            
+                    pass
             finally:
-                _RUN_QUEUE.task_done()
+                # Exactly one task_done() per successful get(); guard against stray extra calls elsewhere
+                try:
+                    _RUN_QUEUE.task_done()
+                except ValueError:
+                    # Someone else already called task_done() for this item — ignore to keep worker alive
+                    pass
 
     t = threading.Thread(target=_worker, name="runs-worker", daemon=True)
     t.start()
 
+
 # start the worker at import time
 _ensure_worker_thread()
 
+
+# Optional helpers
+def enqueue_run(plan_id: str, run_id: str) -> None:
+    _RUN_QUEUE.put((plan_id, run_id))
+
+
+def stop_worker() -> None:
+    """Signal the worker to stop (useful for app shutdown)."""
+    if _WORKER_STARTED:
+        _RUN_QUEUE.put(_STOP)
+        
 class Plan(BaseModel):
     id: Optional[str] = None
     goal: str = Field(description="High-level goal or problem statement")
