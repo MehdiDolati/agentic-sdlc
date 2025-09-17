@@ -5,6 +5,7 @@ import sys
 import re
 import hmac, hashlib, base64
 import services.api.core.shared as shared
+from contextlib import asynccontextmanager
 
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from services.api.core.shared import (
@@ -57,7 +58,6 @@ _TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json")
-
 app.include_router(ui_requests_router)
 app.include_router(ui_plans_router)
 app.include_router(ui_auth_router)
@@ -175,7 +175,6 @@ def _engine():
     # Always resolve against the current repo root (now respects APP_STATE_DIR)
     return _create_engine(_database_url(shared._repo_root()))
 
-@app.on_event("startup")
 def _init_schemas():
     eng = _engine()
     try:
@@ -187,6 +186,14 @@ def _init_schemas():
     except Exception:
         pass
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ---- startup (was @app.on_event("startup")) ----
+    _init_schemas()
+    yield
+    # ---- shutdown (was @app.on_event("shutdown")) ----
+    # nothing to do here right now
+    # e.g., close DBs/threads if you add them later
 # --------------------------------------------------------------------------------------
 # Health
 # --------------------------------------------------------------------------------------

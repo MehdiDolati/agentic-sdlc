@@ -12,7 +12,8 @@ def test_openapi_fallback_in_requests_form(monkeypatch, tmp_path: Path):
     def explode(*_a, **_k): raise RuntimeError("no generator")
     try:
         ui_req.generate_openapi = explode
-        r = client.post("/requests", data={"project_vision":"X","agent_mode":"single","llm_provider":"none"})
+        r = client.post("/ui/requests", data={"project_vision":"X","agent_mode":"single","llm_provider":"none"})
+        #r = client.post("/ui/requests", data={"text": "mamad"})
         assert r.status_code == 200
         # Fallback renders review template (contains OpenAPI section)
         assert "OpenAPI" in r.text
