@@ -575,7 +575,9 @@ def ui_plans(
 
     # If HTMX paginates/searches we only re-render the table fragment
     if request.headers.get("HX-Request") == "true":
+        ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
         return templates.TemplateResponse(request,"plans_list_table.html", ctx)
+    ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
     return templates.TemplateResponse(request,"plans_list.html", ctx)
 
 @router.get("/ui/plans/{plan_id}", response_class=HTMLResponse, include_in_schema=False)
@@ -637,6 +639,7 @@ def ui_plan_detail(request: Request, plan_id: str):
         "stories_html": stories_html, "tasks_html": tasks_html,
         "openapi_text": openapi_text,
     }
+    ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
     return templates.TemplateResponse(request, "plan_detail.html", ctx)
 
 # -------------------- Run execution & status (UI) --------------------
@@ -760,7 +763,13 @@ def ui_artifact_edit_post(
         html = _render_markdown(content)
         return templates.TemplateResponse(
             request, "section_prd.html",
-            {"request": request, "plan": plan, "prd_rel": rel, "prd_html": html}
+            {
+                "request": request,
+                "plan": plan,
+                "prd_rel": rel,
+                "prd_html": html,
+                "flash": {"level": "success", "title": "Saved", "message": "PRD updated."},
+            },
         )
     if kind.lower() == "adr":
         html = _render_markdown(content)
@@ -783,20 +792,22 @@ def ui_artifact_edit_post(
     if kind.lower() == "openapi":
         return templates.TemplateResponse(
             request, "section_openapi.html",
-            {"request": request, "plan": plan, "openapi_rel": rel, "openapi_text": content}
+            {"request": request, "plan": plan, "openapi_rel": rel, "openapi_text": content,
+             "flash": {"level": "success", "title": "Saved", "message": "OpenAPI updated."}}
         )
     if kind.lower() == "architecture":
         html = _render_markdown(content)
         return templates.TemplateResponse(
             request, "section_architecture.html",
-            {"request": request, "plan": plan, "architecture_rel": rel, "architecture_html": html}
+            {"request": request, "plan": plan, "architecture_rel": rel, "architecture_html": html,
+             "flash": {"level": "success", "title": "Saved", "message": "Architecture updated."}}
         )
     if kind.lower() == "techspec":
         html = _render_markdown(content)
         return templates.TemplateResponse(
-            request, "section_techspec.html",
-            {"request": request, "plan": plan, "techspec_rel": rel, "techspec_html": html}
-        )            
+            {"request": request, "plan": plan, "techspec_rel": rel, "techspec_html": html,
+             "flash": {"level": "success", "title": "Saved", "message": "Tech spec updated."}}
+    )            
     # Fallback to artifact view
     content_html = _render_artifact_html(kind, content)
     return templates.TemplateResponse(
@@ -865,6 +876,11 @@ def ui_plan_section_prd(request: Request, plan_id: str):
         raise HTTPException(status_code=404, detail="Plan not found")
     prd_rel = (plan.get("artifacts") or {}).get("prd")
     prd_html = _render_markdown(_read_text_if_exists(repo_root / prd_rel)) if prd_rel else None
+    ctx = {
+        "request": request,
+        "plan": plan,
+        "flash": {"level": "success", "title": "Saved", "message": "Tasks updated."},
+    }
     return templates.TemplateResponse(request, "section_prd.html", {
         "request": request, "plan": plan, "prd_rel": prd_rel, "prd_html": prd_html
     })
@@ -880,6 +896,7 @@ def ui_plan_section_adr(request: Request, plan_id: str):
         raise HTTPException(status_code=404, detail="Plan not found")
     adr_rel = (plan.get("artifacts") or {}).get("adr")
     adr_html = _render_markdown(_read_text_if_exists(repo_root / adr_rel)) if adr_rel else None
+    ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
     return templates.TemplateResponse(request, "section_adr.html", {
         "request": request, "plan": plan, "adr_rel": adr_rel, "adr_html": adr_html
     })
@@ -902,6 +919,11 @@ def ui_plan_section_openapi(request: Request, plan_id: str):
 
     openapi_rel = (plan.get("artifacts") or {}).get("openapi")
     openapi_text = _read_text_if_exists(repo_root / openapi_rel) if openapi_rel else None
+    ctx = {
+        "request": request,
+        "plan": plan,
+        "flash": {"level": "success", "title": "Saved", "message": "Tasks updated."},
+    }
     return templates.TemplateResponse(request, "section_openapi.html", {
         "request": request, "plan": plan, "openapi_rel": openapi_rel, "openapi_text": openapi_text
     })
@@ -1507,10 +1529,15 @@ def execute_plan_ui(request: Request, plan_id: str, user: Dict[str, Any] = Depen
     RunsRepoDB(engine).create(run_id, plan_id)
     _RUN_QUEUE.put((plan_id, run_id))
     run = RunsRepoDB(engine).get(run_id)
-    return templates.TemplateResponse(
-        request, "section_run.html",
-        {"request": request, "plan_id": plan_id, "run": run, "log_text": None}
-    )
+    ctx = {
+        "request": request,
+        "plan_id": plan_id,
+        "run": run,
+        "log_text": None,
+        "flash": {"level": "success", "title": "Started", "message": f"Run queued: {run['id']}"}
+    }
+    return templates.TemplateResponse(request, "section_run.html", ctx)
+    
     
 # -------------------- Run management views --------------------
 @router.get("/ui/plans/{plan_id}/runs", response_class=HTMLResponse, include_in_schema=False)
@@ -1595,6 +1622,11 @@ def ui_board_page(request: Request, plan_id: str):
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
+    ctx = {
+        "request": request,
+        "plan": plan,
+        "flash": {"level": "success", "title": "Saved", "message": "Tasks updated."},
+    }
     return templates.TemplateResponse(request, "board.html", {"request": request, "plan": plan})
 
 @router.get("/ui/plans/{plan_id}/board/data", response_class=HTMLResponse, include_in_schema=False)
@@ -1634,9 +1666,16 @@ def ui_board_toggle(
     # Return refreshed table
     tasks_rel = _artifact_rel_from_plan(plan, "tasks"); stories_rel = _artifact_rel_from_plan(plan, "stories")
     tasks = _load_items(repo_root, tasks_rel); stories = _load_items(repo_root, stories_rel)
-    return templates.TemplateResponse(request, "board_table.html",
-                                      {"request": request, "plan": plan, "tasks": tasks, "stories": stories})
-
+    ctx = {
+        "request": request,
+        "plan": plan,
+        "flash": {"level": "success", "title": "Saved", "message": "Tasks updated."},
+    }
+    return templates.TemplateResponse(
+        request, "board_table.html",
+        {"request": request, "plan": plan, "tasks": tasks, "stories": stories,
+         "flash": {"level": "success", "title": "Updated", "message": f"{kind.capitalize()} toggled."}}
+    )
 @router.post("/ui/plans/{plan_id}/board/edit", response_class=HTMLResponse, include_in_schema=False)
 def ui_board_edit(
     request: Request, plan_id: str,
@@ -1659,8 +1698,16 @@ def ui_board_edit(
     _save_items(repo_root, rel, items)
     tasks_rel = _artifact_rel_from_plan(plan, "tasks"); stories_rel = _artifact_rel_from_plan(plan, "stories")
     tasks = _load_items(repo_root, tasks_rel); stories = _load_items(repo_root, stories_rel)
-    return templates.TemplateResponse(request, "board_table.html",
-                                      {"request": request, "plan": plan, "tasks": tasks, "stories": stories})
+    ctx = {
+        "request": request,
+        "plan": plan,
+        "flash": {"level": "success", "title": "Saved", "message": "Tasks updated."},
+    }
+    return templates.TemplateResponse(
+        request, "board_table.html",
+        {"request": request, "plan": plan, "tasks": tasks, "stories": stories,
+         "flash": {"level": "success", "title": "Saved", "message": f"{kind.capitalize()} edited."}}
+    )
 
 @router.post("/ui/plans/{plan_id}/board/add", response_class=HTMLResponse, include_in_schema=False)
 def ui_board_add(
@@ -1681,8 +1728,16 @@ def ui_board_add(
     _save_items(repo_root, rel, items)
     tasks_rel = _artifact_rel_from_plan(plan, "tasks"); stories_rel = _artifact_rel_from_plan(plan, "stories")
     tasks = _load_items(repo_root, tasks_rel); stories = _load_items(repo_root, stories_rel)
-    return templates.TemplateResponse(request, "board_table.html",
-                                      {"request": request, "plan": plan, "tasks": tasks, "stories": stories})
+    ctx = {
+        "request": request,
+        "plan": plan,
+        "flash": {"level": "success", "title": "Saved", "message": "Tasks updated."},
+    }
+    return templates.TemplateResponse(
+        request, "board_table.html",
+        {"request": request, "plan": plan, "tasks": tasks, "stories": stories,
+         "flash": {"level": "success", "title": "Added", "message": f"{kind.capitalize()} created."}}
+    )
 
 @router.post("/ui/plans/{plan_id}/board/bulk_issues", response_class=HTMLResponse, include_in_schema=False)
 def ui_board_bulk_issues(

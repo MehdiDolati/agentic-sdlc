@@ -6,6 +6,7 @@
     <link rel="stylesheet" href="/static/site.css" />
   </head>
   <body>
+    <div id="flash"></div>
     <h1>Run <code>{{ run['id'] }}</code></h1>
     {% if plan %}<div class="meta">Plan: <a href="/ui/plans/{{ plan['id'] }}">{{ plan['id'] }}</a></div>{% endif %}
     <div id="runFragment"

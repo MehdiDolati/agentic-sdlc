@@ -19,3 +19,8 @@ pre, code { background:#0e1526; border:1px solid #2a3a5e; border-radius:10px; pa
 h1,h2,h3 { margin: 0 0 8px; }
 table { width:100%; border-collapse: collapse; }
 th, td { padding:8px 10px; border-bottom:1px solid #243049; }
+/* site.css */
+.flash { padding:.5rem .75rem; border-radius:.5rem; margin:.5rem 0; }
+.flash.info { background:#eef; border:1px solid #99c; }
+.flash.success { background:#efe; border:1px solid #9c9; }
+.flash.error { background:#fee; border:1px solid #c99; }
