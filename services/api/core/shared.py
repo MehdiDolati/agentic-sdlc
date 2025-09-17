@@ -214,3 +214,15 @@ def _planner_defaults() -> dict:
         "api_base_url": cfg.get("api_base_url", ""),
         "multi_agent_enabled": bool(cfg.get("multi_agent_enabled", False)),
     }
+    
+def _github_cfg() -> dict:
+   cfg = load_settings(_repo_root())
+   token = os.getenv("GITHUB_TOKEN") or cfg.get("github_token", "")
+   # Allow '***' from settings form to mean "keep stored value"
+   if token == "***":
+       token = cfg.get("github_token", "")
+   return {
+       "token": token,
+       "repo": os.getenv("GITHUB_REPO") or cfg.get("github_repo", ""),
+       "base": os.getenv("GITHUB_DEFAULT_BRANCH") or cfg.get("github_default_branch", "main"),
+   }    

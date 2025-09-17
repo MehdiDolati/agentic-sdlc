@@ -41,7 +41,24 @@
           Multi-agent mode enabled
         </label>
       </div>
-
+      <div class="card" style="margin-top:1rem">
+        <h2>GitHub</h2>
+        <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+          <div>
+            <label>Repository</label><br/>
+            <input type="text" name="github_repo" value="{{ cfg.github_repo or '' }}" placeholder="owner/repo"/>
+          </div>
+          <div>
+            <label>Default Branch</label><br/>
+            <input type="text" name="github_default_branch" value="{{ cfg.github_default_branch or 'main' }}" />
+          </div>
+        </div>
+        <div style="margin-top:.5rem">
+          <label>Token</label><br/>
+          <input type="password" name="github_token" value="{{ '***' if cfg.github_token else '' }}" placeholder="ghp_..." />
+          <div class="meta">Stored locally in settings.json. Leave blank to keep current.</div>
+        </div>
+      </div>
       <div style="margin-top:1rem">
         <button type="submit">Save</button>
       </div>

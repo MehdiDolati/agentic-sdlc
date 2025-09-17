@@ -5,6 +5,15 @@
 <div class="subhead">{{ plan["request"] }}</div>
 <div class="meta">
     <a href="/ui/settings">Settings</a>
+    <form hx-post="/ui/plans/{{ plan['id'] }}/git/branch" hx-target="closest body" hx-swap="beforeend" style="display:inline-block; margin-left:1rem">
+      <input type="text" name="branch" placeholder="feature/{{ plan['id'] }}" />
+      <button type="submit">Create/Update Branch</button>
+    </form>
+    <form hx-post="/ui/plans/{{ plan['id'] }}/git/pr" hx-target="closest body" hx-swap="beforeend" style="display:inline-block; margin-left:.5rem">
+      <input type="text" name="branch" placeholder="feature/{{ plan['id'] }}" required />
+      <input type="text" name="title" placeholder="PR title (optional)" />
+      <button type="submit">Open PR</button>
+    </form>
 </div>
 <div class="grid">
   <!-- Run section -->

@@ -35,6 +35,9 @@ def settings_save(
     api_base_url: str = Form(""),
     auth_enabled: bool = Form(False),
     multi_agent_enabled: bool = Form(False),
+    github_token: str = Form(""),
+    github_repo: str = Form(""),
+    github_default_branch: str = Form("main"),    
 ):
     state_dir: Path = shared._repo_root()
     # Normalize values
@@ -50,6 +53,9 @@ def settings_save(
             "api_base_url": api_base_url,
             "auth_enabled": bool(auth_enabled),
             "multi_agent_enabled": bool(multi_agent_enabled),
+            "github_token": github_token.strip(),
+            "github_repo": github_repo.strip(),
+            "github_default_branch": (github_default_branch or "main").strip() or "main",
         },
     )
     ctx = {
