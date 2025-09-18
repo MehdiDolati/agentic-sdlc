@@ -164,9 +164,16 @@ def api_notes_delete(note_id: str):
     return JSONResponse(status_code=204, content=None)
 
 
-# Auto-mount on main app if present (preserves old @app.* behavior)
+# Auto-mount on main app if present, but avoid double-including the router
 try:
     from services.api.app import app as _app  # type: ignore
-    _app.include_router(router)
+    # Include only if no /api/notes routes are already registered
+    already = any(
+        getattr(r, "path", "").startswith("/api/notes")
+        for r in getattr(_app, "routes", [])
+    )
+    if not already:
+        _app.include_router(router)
 except Exception:
+    # If the main app isn't importable here, just skip auto-mount.
     pass
