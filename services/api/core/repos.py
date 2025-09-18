@@ -9,10 +9,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import Engine
 # shared in-memory DB (works in tests and local runs)
-try:
-    from .state import DBS
-except ImportError:
-    from state import DBS
+from services.api.state import DBS
     
 # Use one metadata object for all tables
 _PLANS_METADATA = MetaData()
