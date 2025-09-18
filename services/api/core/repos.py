@@ -8,7 +8,12 @@ from sqlalchemy import (
     select, insert, update, delete as sa_delete, func, ForeignKey
 )
 from sqlalchemy.engine import Engine
-
+# shared in-memory DB (works in tests and local runs)
+try:
+    from .state import DBS
+except ImportError:
+    from state import DBS
+    
 # Use one metadata object for all tables
 _PLANS_METADATA = MetaData()
 _PLANS_TABLE = Table(
@@ -45,6 +50,22 @@ _NOTES_TABLE = Table(
     _NOTES_METADATA,
     Column("id", String, primary_key=True),
     Column("data", JSON, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+)
+
+_DB: Dict[str, Any] = DBS.setdefault("notes", {})
+
+# ---------- Notes DB (Postgres/SQLite via SQLAlchemy) ----------
+
+# A single metadata object for our schema
+_NOTES_METADATA = MetaData()
+
+# Table: notes
+_NOTES_TABLE = Table(
+    "notes",
+    _NOTES_METADATA,
+    Column("id", String, primary_key=True),          # short hex id
+    Column("data", JSON, nullable=False),            # the payload you POST/PUT (e.g., {"text": "...", ...})
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
 )
 
