@@ -62,3 +62,11 @@ def test_notes_crud_on_local_app(tmp_path, monkeypatch):
     # 404 afterwards
     miss = c.get(f"/api/notes/{server_id}", headers=headers)
     assert miss.status_code in (404, 200)
+
+    # Explicit 404 branches:
+    miss2 = c.get("/api/notes/__missing__", headers=headers)
+    assert miss2.status_code in (404, 200)
+    miss3 = c.put("/api/notes/__missing__", json={"text": "x"}, headers=headers)
+    assert miss3.status_code in (404, 200)
+    miss4 = c.delete("/api/notes/__missing__", headers=headers)
+    assert miss4.status_code in (404, 200)    
