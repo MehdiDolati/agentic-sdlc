@@ -1,6 +1,18 @@
 import importlib
 import inspect
 import pytest
+mod = importlib.import_module(modpath)
+ALLOWED_MODULES = {
+    # keep this list curated; modules under test only
+    "services.api.app",
+    "services.api.routes.ui_requests",
+    "services.api.routes.auth",
+    "services.api.routes.plans",
+}
++assert modpath in ALLOWED_MODULES, f"Unexpected module: {modpath}"
++mod = importlib.import_module(modpath)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
+*** End Patch
+
 
 # Modules that are safe to import and currently under-covered.
 TARGETS = [

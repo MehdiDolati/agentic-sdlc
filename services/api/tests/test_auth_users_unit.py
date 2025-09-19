@@ -23,7 +23,11 @@ def _get_callable(*names):
     return None
 
 
-def _call_create_user(email: str, password: str = "pw", **kw):
+def _call_create_user(
+    email: str,
+    password: str = "pw",  # nosemgrep: python.lang.security.audit.hardcoded-password-default-argument.hardcoded-password-default-argument
+    **kw
+):
     """
     Try common create APIs:
       - create_user(email, password=...)
