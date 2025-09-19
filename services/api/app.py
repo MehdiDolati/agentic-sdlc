@@ -108,9 +108,12 @@ def _authed_user_id(request: Request) -> str | None:
     if not tok:
         return None
     try:
-        return parse_token(AUTH_SECRET, tok).get("uid")
+        data = read_token(AUTH_SECRET, tok)
     except Exception:
         return None
+    if not data:
+        return None
+    return data.get("uid")
 
 # ---------- Plans search/filter helpers ----------
 
