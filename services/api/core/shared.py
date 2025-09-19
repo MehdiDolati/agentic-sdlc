@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os, json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 from functools import lru_cache
@@ -110,7 +110,7 @@ def _new_id(prefix: str) -> str:
     if prefix == "user":
         # e.g. u_3f8a2a4b9c1d  (hex, deterministic-enough and short)
         return f"u_{secrets.token_hex(6)}"
-    ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     if prefix in {"u", "user"}:
         # tests expect user IDs to start with "u_"
         return f"u_{secrets.token_hex(3)}"
