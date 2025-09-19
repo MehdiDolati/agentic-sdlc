@@ -17,10 +17,10 @@ _THIS_FILE = Path(__file__).resolve()
 _TEMPLATES_DIR = _THIS_FILE.parents[2] / "templates"  # <repo>/services/templates
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
-router = APIRouter(prefix="/ui", tags=["ui"], include_in_schema=False)
+router = APIRouter()
 
 # Render the form
-@router.get("/requests/new", response_class=HTMLResponse)
+@router.get("/ui/requests/new", response_class=HTMLResponse)
 def new_request_form(request: Request):
     return templates.TemplateResponse(
     request,
@@ -32,9 +32,10 @@ def new_request_form(request: Request):
         "default_mode": "single",
     },
 )
+ui_requests_router = APIRouter()
 
 # Handle submission: build a draft plan + artifacts for review
-@router.post("/requests", response_class=HTMLResponse)
+@router.post("/ui/requests", response_class=HTMLResponse)
 def submit_request(
     request: Request,
     project_vision: str = Form(...),

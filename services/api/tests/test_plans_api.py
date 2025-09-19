@@ -39,7 +39,7 @@ def _retarget_store(tmp_path: Path):
 from typing import Optional
 
 @app.get("/plans")
-def list_plans(
+def list_plans_test_only(
     offset: int = 0,
     limit: int = 50,
     q: Optional[str] = None,

@@ -36,7 +36,7 @@ def test_multi_agent_generates_prd_openapi_adr(tmp_path, monkeypatch):
     assert "prd" in artifacts and "openapi" in artifacts and "adr" in artifacts
 
     # Files exist on disk
-    repo_root = Path(app.state.repo_root)
+    repo_root = shared._repo_root()
     prd_p = repo_root / artifacts["prd"]
     oas_p = repo_root / artifacts["openapi"]
     adr_p = repo_root / artifacts["adr"]

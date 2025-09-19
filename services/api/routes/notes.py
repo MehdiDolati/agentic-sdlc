@@ -1,7 +1,26 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, status, Header
-from pydantic import BaseModel
-from typing import Dict, List, Optional, Any
+﻿# services/api/routes/notes.py  — drop-in replace
+
+import os
+from pathlib import Path
+from typing import Dict, Optional, Any
 from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+# SQLAlchemy
+from sqlalchemy import (
+    MetaData, Table, Column, String, JSON, DateTime, func,
+    insert, select, update as sa_update, delete as sa_delete, create_engine
+)
+from sqlalchemy.engine import Engine
+
+# Reuse only repo root from shared
+try:
+    from services.api.core.shared import _repo_root as _repo_root
+except Exception:
+    from ..core.shared import _repo_root as _repo_root
 
 # shared in-memory DB (works in tests and local runs)
 try:
@@ -9,63 +28,61 @@ try:
 except ImportError:
     from state import DBS
 
+
 def require_auth(authorization: Optional[str] = Header(None)):
     if authorization is None or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     return True
 
+
 router = APIRouter(prefix="/api/notes", tags=["notes"], dependencies=[Depends(require_auth)])
+
 
 class NotesIn(BaseModel):
     title: str = ""
     content: str = ""
 
+
 class Notes(NotesIn):
     id: str
+
 
 _DB: Dict[str, Any] = DBS.setdefault("notes", {})
 
 # ---------- Notes DB (Postgres/SQLite via SQLAlchemy) ----------
 
-# A single metadata object for our schema
 _NOTES_METADATA = MetaData()
 
-# Table: notes
 _NOTES_TABLE = Table(
     "notes",
     _NOTES_METADATA,
-    Column("id", String, primary_key=True),          # short hex id
-    Column("data", JSON, nullable=False),            # the payload you POST/PUT (e.g., {"text": "...", ...})
+    Column("id", String, primary_key=True),
+    Column("data", JSON, nullable=False),
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
 )
 
+
 def _database_url(repo_root: Path) -> str:
     """
-    DATABASE_URL if set, otherwise a local SQLite DB under ./docs/notes.db
-    Examples:
-      - postgresql+psycopg://user:pass@localhost:5432/notesdb
-      - sqlite+pysqlite:///C:/path/to/notes.db  (Windows)
-      - sqlite+pysqlite:////home/runner/work/.../notes.db  (Linux)
+    Prefer DATABASE_URL if set; otherwise use a local SQLite file under the repo root.
+    Keep it simple and avoid additional helpers to prevent import churn.
     """
     env = os.getenv("DATABASE_URL")
     if env:
         return env
-    # default to a file-backed SQLite DB under docs for dev/test
-    return f"sqlite+pysqlite:///{(_docs_root(_repo_root()) / 'notes.db').resolve()}"
+    db_path = (repo_root / "notes.db").resolve()
+    return f"sqlite+pysqlite:///{db_path}"
+
 
 def _create_engine(url: str) -> Engine:
-    # echo=False keeps logs quiet; switch to True to debug SQL in dev
     return create_engine(url, future=True, echo=False)
 
+
 def ensure_notes_schema(engine: Engine) -> None:
-    """
-    Lightweight migration: create tables if they don't exist.
-    Works for SQLite and Postgres (JSONB is handled by SQLAlchemy).
-    """
     _NOTES_METADATA.create_all(engine)
 
+
 class NotesRepoDB:
-    """A tiny repository that stores the entire note payload as JSON under 'data'."""
     def __init__(self, engine: Engine):
         self.engine = engine
         ensure_notes_schema(engine)
@@ -76,7 +93,7 @@ class NotesRepoDB:
             return [{"id": rid, **(payload or {})} for rid, payload in rows]
 
     def create(self, payload: dict) -> dict:
-        nid = uuid.uuid4().hex[:8]
+        nid = uuid4().hex[:8]
         to_store = dict(payload or {})
         with self.engine.begin() as conn:
             conn.execute(insert(_NOTES_TABLE).values(id=nid, data=to_store))
@@ -108,39 +125,55 @@ class NotesRepoDB:
         with self.engine.begin() as conn:
             conn.execute(sa_delete(_NOTES_TABLE).where(_NOTES_TABLE.c.id == note_id))
 
-# Initialize the repo (Postgres if DATABASE_URL is set; otherwise local SQLite)
+
+# Initialize repo at import (keeps previous behavior)
 _DB_ENGINE = _create_engine(_database_url(_repo_root()))
 _NOTES_REPO = NotesRepoDB(_DB_ENGINE)
 
-# ----------------------------------------------------------------
+# -------------------- Routes (router-based) --------------------
 
-# ----- Notes (DB-backed) ------------------------------------------------------
-
-@app.get("/api/notes")
+@router.get("")
 def api_notes_list():
     return _NOTES_REPO.list()
 
-@app.post("/api/notes", status_code=201)
+
+@router.post("", status_code=201)
 def api_notes_create(payload: Dict[str, Any]):
     return _NOTES_REPO.create(payload)
 
-@app.get("/api/notes/{note_id}")
+
+@router.get("/{note_id}")
 def api_notes_get(note_id: str):
     doc = _NOTES_REPO.get(note_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Note not found")
     return doc
 
-@app.put("/api/notes/{note_id}")
+
+@router.put("/{note_id}")
 def api_notes_put(note_id: str, payload: Dict[str, Any]):
     doc = _NOTES_REPO.update(note_id, payload)
     if not doc:
         raise HTTPException(status_code=404, detail="Note not found")
     return doc
 
-@app.delete("/api/notes/{note_id}", status_code=204)
+
+@router.delete("/{note_id}", status_code=204)
 def api_notes_delete(note_id: str):
     _NOTES_REPO.delete(note_id)
     return JSONResponse(status_code=204, content=None)
 
-# -----------------------------------------------------------------------------
+
+# Auto-mount on main app if present, but avoid double-including the router
+try:
+    from services.api.app import app as _app  # type: ignore
+    # Include only if no /api/notes routes are already registered
+    already = any(
+        getattr(r, "path", "").startswith("/api/notes")
+        for r in getattr(_app, "routes", [])
+    )
+    if not already:
+        _app.include_router(router)
+except Exception:
+    # If the main app isn't importable here, just skip auto-mount.
+    pass
