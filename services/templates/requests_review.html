@@ -4,7 +4,8 @@
   <head>
     <meta charset="utf-8" />
     <title>Draft Plan Review</title>
-    <link rel="stylesheet" href="/static/site.css" />
+    <!-- Use the FastAPI static mount to generate the correct stylesheet URL -->
+    <link href="{{ url_for('static', path='site.css') }}" rel="stylesheet" />
   </head>
   <body>
     <h1>Draft Plan Review</h1>
