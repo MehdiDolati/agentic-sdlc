@@ -5,6 +5,7 @@ from pathlib import Path as _P
 from typing import Optional, Dict, Any, Tuple, List
 from pathlib import Path
 from fastapi import APIRouter, Query, Request, HTTPException, Depends, UploadFile, File, Form
+import mimetypes
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -662,6 +663,25 @@ def ui_plan_detail(request: Request, plan_id: str):
     ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
     return templates.TemplateResponse(request, "plan_detail.html", ctx)
 
+@router.get("/ui/artifact", name="ui_artifact", include_in_schema=False)
+def ui_artifact(path: str):
+    repo_root = shared._repo_root().resolve()
+    full = (repo_root / path).resolve()
+    if not str(full).startswith(str(repo_root)):
+        raise HTTPException(status_code=400, detail="invalid path")
+    if not full.exists() or not full.is_file():
+        raise HTTPException(status_code=404, detail="artifact not found")
+    media, _ = mimetypes.guess_type(str(full))
+    return FileResponse(full, media_type=media or "application/octet-stream")
+
+@router.get("/ui/artifact/{path:path}", name="ui_artifact", include_in_schema=False)
+def ui_artifact(path: str):
+    repo_root = shared._repo_root()
+    file_path = repo_root / path
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return FileResponse(file_path)
+    
 # -------------------- Run execution & status (UI) --------------------
     @router.post("/plans/{plan_id}/execute", include_in_schema=False)
     def execute_plan(plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
@@ -916,7 +936,11 @@ def ui_plan_section_adr(request: Request, plan_id: str):
         raise HTTPException(status_code=404, detail="Plan not found")
     adr_rel = (plan.get("artifacts") or {}).get("adr")
     adr_html = _render_markdown(_read_text_if_exists(repo_root / adr_rel)) if adr_rel else None
-    ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
+    ctx = {
+        "request": request,
+        "plan": plan,
+        "flash": {"level": "success", "title": "Saved", "message": "Tasks updated."},
+    }
     return templates.TemplateResponse(request, "section_adr.html", {
         "request": request, "plan": plan, "adr_rel": adr_rel, "adr_html": adr_html
     })

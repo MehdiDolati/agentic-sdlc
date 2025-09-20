@@ -20,34 +20,128 @@ h1,h2,h3 { margin: 0 0 8px; }
 table { width:100%; border-collapse: collapse; }
 th, td { padding:8px 10px; border-bottom:1px solid #243049; }
 /* site.css */
-.flash { padding:.5rem .75rem; border-radius:.5rem; margin:.5rem 0; }
+.flash { padding:.5rem .75rem; border-radius:.5rem; margin:.5rem 0; color:black}
 .flash.info { background:#eef; border:1px solid #99c; }
 .flash.success { background:#efe; border:1px solid #9c9; }
 .flash.error { background:#fee; border:1px solid #c99; }
-/* container that wraps each section card */
-.plan-section {
-  display: block;
-  position: static;           /* ensure no absolute stacking */
-  margin-bottom: 1rem;
-  border-radius: 10px;
-  padding: 0.75rem 1rem;
+/* --- Artifacts layout fix --- */
+.artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;                /* space between pills */
+  align-items: flex-start;
 }
 
-/* the artifacts “pill” list */
-.artifacts {
+/* Make any child render like a pill and stop absolute stacking */
+.artifacts > * {
+  position: static !important; /* cancel any accidental absolute positioning */
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #2a3442;
+  background: #121820;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Optional: label/value rows for artifacts if you have them */
+.artifacts-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-top: 0.5rem;
+}
+.artifacts-row .key {
+  flex: 0 0 auto;
+  width: 6rem;                /* label width (PRD:, ADR:, etc.) */
+  opacity: 0.8;
+}
+.artifacts-row .values {
+  flex: 1 1 auto;
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
-
+/* --- Artifacts layout --- */
+.artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
 .artifacts .pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #2a3442;
+  background: #121820;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artifacts .pill {
+  word-break: break-word;      /* or: overflow-wrap: anywhere; */
+}
+.artifacts .pill { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+@
+/* ---- Artifacts: one row per item, no piling ---- */
+.artifacts-list {
+  display: flex;
+  flex-direction: column;   /* each artifact on its own line */
+  gap: 0.5rem;
+}
+.artifact-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #2a3442;
+  background: #121820;
+}
+.artifact-item .label {
+  font-weight: 600;
+  min-width: 6rem;          /* aligns labels (PRD:, ADR:, ...) */
+}
+.artifact-path {
+  position: static !important;   /* neutralize any global absolute rules */
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+}
+.artifact-path:hover { text-decoration: underline; }
+.copy-btn {
+  position: static !important;
   display: inline-flex;
   align-items: center;
   padding: 0.25rem 0.5rem;
   border-radius: 6px;
-  background: #19202a;
   border: 1px solid #2a3442;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  background: #0f1720;
+  cursor: pointer;
 }
+.copy-btn:hover { background: #0c1320; }
+/* Artifacts list */
+.artifact-list { margin: .5rem 0 0 0; }
+.artifact-row { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: .5rem; margin:.35rem 0; }
+.artifact-row dt { color: var(--muted); font-weight: 600; }
+.artifact-row dd { margin: 0; display: inline-flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+
+.pill {
+  display: inline-block;
+  padding: .25rem .5rem;
+  border-radius: 999px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.copy-btn { padding: .25rem .6rem; font-size: .85rem; }

@@ -107,13 +107,72 @@
 
   <div class="card">
     <h2>Artifacts</h2>
-    <div class="meta">
-      {% if prd_rel %}<div>PRD: <code>{{ prd_rel }}</code></div>{% endif %}
-      {% if adr_rel %}<div>ADR: <code>{{ adr_rel }}</code></div>{% endif %}
-      {% if stories_rel %}<div>Stories: <code>{{ stories_rel }}</code></div>{% endif %}
-      {% if tasks_rel %}<div>Tasks: <code>{{ tasks_rel }}</code></div>{% endif %}
-      {% if openapi_rel %}<div>OpenAPI: <code>{{ openapi_rel }}</code></div>{% endif %}
-    </div>
+    <dl class="artifact-list">
+      {% if prd_rel %}
+      <div class="artifact-row">
+        <dt>PRD:</dt>
+        <dd>
+          <a class="artifact-path pill"
+             href="/ui/artifact?path={{ prd_rel | urlencode }}"
+             target="_blank" rel="noopener">{{ prd_rel }}</a>
+          <button type="button" class="copy-btn"
+                  onclick="navigator.clipboard.writeText('{{ prd_rel }}')">Copy</button>
+        </dd>
+      </div>
+      {% endif %}
+
+      {% if adr_rel %}
+      <div class="artifact-row">
+        <dt>ADR:</dt>
+        <dd>
+          <a class="artifact-path pill"
+             href="/ui/artifact?path={{ adr_rel | urlencode }}"
+             target="_blank" rel="noopener">{{ adr_rel }}</a>
+          <button type="button" class="copy-btn"
+                  onclick="navigator.clipboard.writeText('{{ adr_rel }}')">Copy</button>
+        </dd>
+      </div>
+      {% endif %}
+
+      {% if stories_rel %}
+      <div class="artifact-row">
+        <dt>Stories:</dt>
+        <dd>
+          <a class="artifact-path pill"
+             href="/ui/artifact?path={{ stories_rel | urlencode }}"
+             target="_blank" rel="noopener">{{ stories_rel }}</a>
+          <button type="button" class="copy-btn"
+                  onclick="navigator.clipboard.writeText('{{ stories_rel }}')">Copy</button>
+        </dd>
+      </div>
+      {% endif %}
+
+      {% if tasks_rel %}
+      <div class="artifact-row">
+        <dt>Tasks:</dt>
+        <dd>
+          <a class="artifact-path pill"
+             href="/ui/artifact?path={{ tasks_rel | urlencode }}"
+             target="_blank" rel="noopener">{{ tasks_rel }}</a>
+          <button type="button" class="copy-btn"
+                  onclick="navigator.clipboard.writeText('{{ tasks_rel }}')">Copy</button>
+        </dd>
+      </div>
+      {% endif %}
+
+      {% if openapi_rel %}
+      <div class="artifact-row">
+        <dt>OpenAPI:</dt>
+        <dd>
+          <a class="artifact-path pill"
+             href="/ui/artifact?path={{ openapi_rel | urlencode }}"
+             target="_blank" rel="noopener">{{ openapi_rel }}</a>
+          <button type="button" class="copy-btn"
+                  onclick="navigator.clipboard.writeText('{{ openapi_rel }}')">Copy</button>
+        </dd>
+      </div>
+      {% endif %}
+    </dl>
   </div>
 </div>
 {% endblock %}

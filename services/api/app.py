@@ -8,6 +8,10 @@ import services.api.core.shared as shared
 from contextlib import asynccontextmanager
 
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi.exceptions import RequestValidationError
+import logging
+ 
+logger = logging.getLogger(__name__)
 from services.api.core.shared import (
     _database_url,
     _create_engine,
@@ -318,24 +322,47 @@ def _wants_html_fragment(req: Request) -> bool:
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exc_handler(request: Request, exc: StarletteHTTPException):
+    msg = exc.detail or "Request failed."
     if _wants_html_fragment(request):
-        # Return a flash fragment (oob) so pages can show the message without reload.
-        ctx = {
-            "request": request,
-            "title": f"{exc.status_code}",
-            "level": "error",
-            "message": exc.detail or "Request failed.",
-        }
-        ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
-        return templates.TemplateResponse("_flash.html", ctx, status_code=exc.status_code)
-    # Non-HTMX: default JSON
-    return JSONResponse({"detail": exc.detail or "Request failed."}, status_code=exc.status_code)
+        # HTMX request: return flash fragment with error message
+        return templates.TemplateResponse(
+            "_flash.html",
+            {
+                "request": request,
+                "flash": {"level": "error", "title": f"{exc.status_code}", "message": msg},
+            },
+            status_code=exc.status_code,
+        )
+    return JSONResponse({"detail": msg}, status_code=exc.status_code)
+
+@app.exception_handler(RequestValidationError)
+async def validation_exc_handler(request: Request, exc: RequestValidationError):
+    # Provide a unified message for validation errors
+    msg = "Validation error"
+    if _wants_html_fragment(request):
+        return templates.TemplateResponse(
+            "_flash.html",
+            {
+                "request": request,
+                "flash": {"level": "error", "title": "Validation error", "message": msg},
+            },
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+    return JSONResponse({"detail": exc.errors()}, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
 
 @app.exception_handler(Exception)
 async def unhandled_exc_handler(request: Request, exc: Exception):
-    # Avoid leaking internals; log server-side if you have logging
+    # Log the full stack for debugging
+    logger.exception("Unhandled error while processing %s %s", request.method, request.url)
     msg = "Unexpected error."
     if _wants_html_fragment(request):
-        ctx = {"request": request, "title": "Error", "level": "error", "message": msg}
-        return templates.TemplateResponse("_flash.html", ctx, status_code=500)
-    return JSONResponse({"detail": msg}, status_code=500)
+        return templates.TemplateResponse(
+            "_flash.html",
+            {
+                "request": request,
+                "flash": {"level": "error", "title": "Error", "message": msg},
+            },
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    return JSONResponse({"detail": msg}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)

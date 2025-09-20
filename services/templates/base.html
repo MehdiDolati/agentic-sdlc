@@ -5,10 +5,11 @@
     <title>{{ title or "Planner UI" }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link href="{{ url_for('static', path='site.css') }}" rel="stylesheet" />
-    <script src="https://unpkg.com/htmx.org@1.9.12" defer integrity="sha384-0o0vW5KkqLQhGxSsJmK3Zt1i8q9dZ/3t9XQwP0V8H4s8U7bW1W86vZ3Y8XgP7Xxj" crossorigin="anonymous"></script>
+    <!-- Load HTMX locally to avoid SRI/CDN issues -->
+    <script src="{{ url_for('static', path='htmx.min.js') }}" defer></script>
   </head>
   <body>
-  <div id="flash"></div>
+  <div id="flash" style="display:none"></div>
   <span style="flex:1"></span>
   <nav style="display:inline-block;">
     {% if request.state.user and request.state.user.id != 'public' %}
@@ -22,14 +23,18 @@
     <div class="container">
       {% block content %}{% endblock %}
     </div>
+  <script>
+    // Single fallback for HTMX errors when server didn't send _flash.html
+    document.body.addEventListener('htmx:responseError', function (e) {
+      var xhr = e.detail.xhr;
+      var msg = ((xhr && xhr.responseText) || '').trim() || ('Request failed (' + xhr.status + ')');
+      var banner = document.getElementById('flash');
+      if (banner) {
+        banner.className = 'flash error';
+        banner.innerHTML = '<strong>Error</strong><span style="margin-left:.5rem">' + msg + '</span>';
+        banner.style.display = '';
+      }
+    }, { passive: true });
+  </script>
   </body>
 </html>
-<script>
-  document.body.addEventListener('htmx:responseError', function (evt) {
-    // Fallback client-side banner when server couldn't render _flash.html
-    const flash = document.getElementById('flash');
-    if (flash) {
-      flash.innerHTML = '<div class="flash error"><strong>Error</strong> <span style="margin-left:.5rem">Request failed.</span></div>';
-    }
-  });
-</script>

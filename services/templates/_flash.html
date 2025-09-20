@@ -1,15 +1,13 @@
-<!-- Out-of-band swap: this will replace any #flash container on the page -->
+<!-- Out-of-band swap: replace the global #flash banner -->
 {% set _f = flash if (flash is defined and flash) else None %}
-{% set _level = (level if (level is defined) else (_f.level if _f else 'info')) %}
-{% set _title = (title if (title is defined) else (_f.title if _f else None)) %}
-{% set _message = (message if (message is defined) else (_f.message if _f else None)) %}
-<div id="flash" hx-swap-oob="true">
-  {% if _message %}
-  <div class="flash {{ _level|default('info') }}">
-    <strong>{{ _title or _level|capitalize }}</strong>
-    <span style="margin-left:.5rem">{{ _message }}</span>
-  </div>
-  {% else %}
-  <div id="flash"></div>
-  {% endif %}
-  </div>
+{% set _level = (level if (level is defined) else (_f.level if _f else 'error')) %}
+{% set _title = (title if (title is defined) else (_f.title if _f else 'Error')) %}
+{% set _message = (message if (message is defined) else (_f.message if _f else 'Request failed.')) %}
+
+<div id="flash"
+     class="flash {{ _level }}"
+     role="alert"
+     hx-swap-oob="true">
+  <strong>{{ _title }}</strong>
+  <span style="margin-left:.5rem">{{ _message }}</span>
+</div>
