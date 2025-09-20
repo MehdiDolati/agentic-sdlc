@@ -24,3 +24,30 @@ th, td { padding:8px 10px; border-bottom:1px solid #243049; }
 .flash.info { background:#eef; border:1px solid #99c; }
 .flash.success { background:#efe; border:1px solid #9c9; }
 .flash.error { background:#fee; border:1px solid #c99; }
+/* container that wraps each section card */
+.plan-section {
+  display: block;
+  position: static;           /* ensure no absolute stacking */
+  margin-bottom: 1rem;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+
+/* the artifacts “pill” list */
+.artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.artifacts .pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  background: #19202a;
+  border: 1px solid #2a3442;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
