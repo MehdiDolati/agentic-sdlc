@@ -13,3 +13,10 @@ build/
 
 # If a specific file has a sample "password=" string used in docs:
 ^README\.md$
+
+# Ignore third-party/minified assets
+services/api/static/*.min.js
+services/api/static/*.min.css
+services/api/static/vendor/**
+static/**/*.min.js
+static/**/*.min.css
