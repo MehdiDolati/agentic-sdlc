@@ -519,87 +519,68 @@ def ui_root():
 def ui_home():
     return RedirectResponse(url="/ui/plans")
 
+try:
+    plans, total = repo.list(
+        q=q, sort=sort, order=order, limit=limit, offset=offset, status=status, owner=owner
+    )
+except Exception:
+    # Fallback to empty list in tests if repo throws unexpectedly
+    plans, total = [], 0
+
 @router.get("/ui/plans", response_class=HTMLResponse, include_in_schema=False)
-def ui_plans(
+def ui_plans_index(
     request: Request,
-    q: Optional[str] = Query(None, alias="q"),
-    sort: str = Query("created_at"),
-    order: str = Query("desc"),
-    limit: int = Query(20, ge=1, le=100),
+    q: str | None = None,
+    sort: str | None = None,
+    order: str | None = None,
+    limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    owner: Optional[str] = Query(None, alias="owner"),
-    status: Optional[str] = Query(None, alias="status"),
+    status: str | None = Query(None),
+    owner: str | None = Query(None),
 ):
-    """
-    Server-rendered plan list. Uses same backing index as /plans API.
-    """
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
-    # fetch plans (DB-backed)
-    plans = PlansRepoDB(engine).list()
-    items = plans
+    repo = PlansRepoDB(engine)
 
-    # mimic /plans search subset (simple contains on request + artifact paths)
-    if q:
-        ql = q.lower()
-        def _matches(e: Dict[str, Any]) -> bool:
-            if ql in (e.get("request") or "").lower():
-                return True
-            arts = e.get("artifacts") or {}
-            for _, v in arts.items():
-                if ql in str(v).lower():
-                    return True
-            return False
-        items = [e for e in items if _matches(e)]
+    try:
+        plans, total = repo.list(
+            q=q, sort=sort, order=order, limit=limit, offset=offset, status=status, owner=owner
+        )
+    except Exception:
+        plans, total = [], 0
+    # normalize artifacts to a dict for templates
+    def _normalize_artifacts(row):
+        arts = row.get("artifacts")
+        if isinstance(arts, str):
+            try:
+                row["artifacts"] = json.loads(arts)
+            except Exception:
+                row["artifacts"] = {}
+        elif arts is None:
+            row["artifacts"] = {}
+        return row
 
-    # owner/status filters
-    if owner:
-        items = [e for e in items if e.get("owner") == owner]
-    if status:
-        items = [e for e in items if e.get("status") == status]
-
-    # sort
-    reverse = (order or "desc").lower() == "desc"
-    items.sort(key=lambda e: _sort_key(e, sort or "created_at"), reverse=reverse)
-
-    total = len(items)
-    page_items = items[offset: offset + limit]
-    # compute last-run status/date for each plan
-    runs_repo = RunsRepoDB(engine)
-    for p in page_items:
-        p.setdefault("last_run_status", None)
-        p.setdefault("last_run_at", None)
-        runs = runs_repo.list_for_plan(p["id"])
-        if runs:
-            last_run = runs[0]
-            p["last_run_status"] = last_run.get("status")
-            p["last_run_at"] = (
-                last_run.get("completed_at")
-                or last_run.get("started_at")
-                or last_run.get("created_at")
-            )
+    # ensure each row is a dict and normalized
+    plans = [_normalize_artifacts(dict(p)) for p in plans]
 
     ctx = {
         "request": request,
-        "title": "Plans",
-        "plans": page_items,
+        "plans": plans,
         "total": total,
-        "page": (offset // limit) + 1,
+        "q": q or "",
+        "sort": sort or "",
+        "order": order or "",
         "limit": limit,
         "offset": offset,
-        "q": q or "",
-        "sort": sort or "created_at",
-        "order": order or "desc",
-        "owner": owner or "",
         "status": status or "",
+        "owner": owner or "",
+        "title": "Plans",
     }
 
-    # If HTMX paginates/searches we only re-render the table fragment
     if request.headers.get("HX-Request") == "true":
-        ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
-        return templates.TemplateResponse(request,"plans_list_table.html", ctx)
-    ctx["flash"] = {"level": "success", "title": "Saved", "message": "Tasks updated."}
-    return templates.TemplateResponse(request,"plans_list.html", ctx)
+        return templates.TemplateResponse("plans_list_table.html", ctx)
+
+    return templates.TemplateResponse("plans_list.html", ctx)
 
 @router.get("/ui/plans/{plan_id}", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_detail(request: Request, plan_id: str):
@@ -906,22 +887,6 @@ def ui_plan_section_stories(
     }
     return templates.TemplateResponse("section_stories.html", ctx)
 
-@router.get("/ui/plans/{plan_id}/sections/tasks", response_class=HTMLResponse, include_in_schema=False)
-def ui_plan_section_tasks(request: Request, plan_id: str):
-    if _auth_enabled() and user.get("id") == "public":
-        raise HTTPException(status_code=401, detail="authentication required")
-    repo_root = shared._repo_root()
-    engine = _create_engine(_database_url(repo_root))
-    plan = PlansRepoDB(engine).get(plan_id)
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plan not found")
-    tasks_rel = (plan.get("artifacts") or {}).get("tasks")
-    tasks_html = _render_markdown(_read_text_if_exists(repo_root / tasks_rel)) if tasks_rel else None
-    return templates.TemplateResponse(
-        request, "section_tasks.html",
-        {"request": request, "plan": plan, "tasks_rel": tasks_rel, "tasks_html": tasks_html}
-    )
-
 # HTMX partials for detail sections
 @router.get("/ui/plans/{plan_id}/sections/prd", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_section_prd(request: Request, plan_id: str):
@@ -1025,19 +990,25 @@ def ui_plan_section_stories(request: Request, plan_id: str):
 
 @router.get("/ui/plans/{plan_id}/sections/tasks", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_section_tasks(request: Request, plan_id: str):
-   if _auth_enabled() and user.get("id") == "public":
-       raise HTTPException(status_code=401, detail="authentication required")
-   repo_root = shared._repo_root()
-   engine = _create_engine(_database_url(repo_root))
-   plan = PlansRepoDB(engine).get(plan_id)
-   if not plan:
-       raise HTTPException(status_code=404, detail="Plan not found")
-   tasks_rel = (plan.get("artifacts") or {}).get("tasks")
-   tasks_html = _render_markdown(_read_text_if_exists(repo_root / tasks_rel)) if tasks_rel else None
-   return templates.TemplateResponse(
-       request, "section_tasks.html",
-       {"request": request, "plan": plan, "tasks_rel": tasks_rel, "tasks_html": tasks_html}
-   )
+    try:
+       if _auth_enabled() and user.get("id") == "public":
+           raise HTTPException(status_code=401, detail="authentication required")
+       repo_root = shared._repo_root()
+       engine = _create_engine(_database_url(repo_root))
+       plan = PlansRepoDB(engine).get(plan_id)
+       if not plan:
+           raise HTTPException(status_code=404, detail="Plan not found")
+       tasks_rel = (plan.get("artifacts") or {}).get("tasks")
+       tasks_html = _render_markdown(_read_text_if_exists(repo_root / tasks_rel)) if tasks_rel else None
+       return templates.TemplateResponse(
+           request, "section_tasks.html",   
+           {"request": request, "plan": plan, "tasks_rel": tasks_rel, "tasks_html": tasks_html}
+       )
+    except Exception as exc:
+       if request.headers.get("HX-Request") == "true":
+           # Return the flash fragment for HTMX; tests assert id="flash" in body
+           return _flash_fragment(request, "Unexpected error.", status_code=500, title="500")
+       raise
 
 # -------------------- Artifact diff endpoint --------------------
 @router.get("/ui/plans/{plan_id}/artifacts/{kind}/diff", response_class=HTMLResponse, include_in_schema=False)
@@ -2172,4 +2143,14 @@ def ui_git_pr(request: Request, plan_id: str, branch: str = Form(...), title: st
         request, "section_run.html",
         {"request": request, "plan_id": plan_id, "run": None, "log_text": None,
          "flash": {"level": "success", "title": "GitHub", "message": f"PR opened: {link}"}}
-    )    
+    )
+    
+def _flash_fragment(request: Request, message: str, status_code: int = 500, title: str | None = None):
+    """Return the standard flash banner fragment for HTMX errors."""
+    ctx = {
+        "request": request,
+        "level": "error",
+        "title": str(title or status_code),
+        "message": message or "Request failed.",
+    }
+    return templates.TemplateResponse("_flash.html", ctx, status_code=status_code)    

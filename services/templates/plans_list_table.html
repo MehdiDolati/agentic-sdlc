@@ -1,5 +1,6 @@
-<div id="plans-table">
-  <table class="table">
+<div class="card">
+  <div id="plans-table">
+    <table class="table">
     <thead>
       <tr>
         <th>Created</th>
@@ -15,14 +16,20 @@
         <td class="nowrap">{{ p.get("created_at") or "-" }}</td>
         <td><a href="/ui/plans/{{ p['id'] }}">{{ p.get("request") or p['id'] }}</a></td>
         <td>{{ p.get("owner") or "-" }}</td>
-        <td class="nowrap">
-          {% set arts = p.get("artifacts") or {} %}
-          {% if arts.get("prd") %}<span class="pill">PRD</span>{% endif %}
-          {% if arts.get("adr") %}<span class="pill">ADR</span>{% endif %}
-          {% if arts.get("stories") %}<span class="pill">Stories</span>{% endif %}
-          {% if arts.get("tasks") %}<span class="pill">Tasks</span>{% endif %}
-          {% if arts.get("openapi") %}<span class="pill">OpenAPI</span>{% endif %}
-        </td>
+		<td class="nowrap">
+			{% set arts_raw = p.get("artifacts") %}
+			{% if arts_raw is mapping %}
+				{% set arts = arts_raw %}
+			{% else %}
+				{% set arts = {} %}
+			{% endif %}
+			
+			{% if arts.get("prd") %}<span class="pill">PRD</span>{% endif %}
+			{% if arts.get("adr") %}<span class="pill">ADR</span>{% endif %}
+			{% if arts.get("stories") %}<span class="pill">Stories</span>{% endif %}
+			{% if arts.get("tasks") %}<span class="pill">Tasks</span>{% endif %}
+			{% if arts.get("openapi") %}<span class="pill">OpenAPI</span>{% endif %}
+		</td>
         <td class="nowrap">
           {% if p.get("last_run_status") %}
             {{ p.get("last_run_status") }} · {{ p.get("last_run_at") or "-" }}
@@ -33,30 +40,31 @@
       </tr>
       {% endfor %}
     </tbody>
-  </table>
+    </table>
+	    <div class="pager">
+		{% set prev_off = (offset - limit) if (offset - limit) > 0 else 0 %}
+		{% set next_off = offset + limit %}
+		<button
+		  {% if offset <= 0 %}disabled{% endif %}
+		  hx-get="/ui/plans?limit={{ limit }}&offset={{ prev_off }}&q={{ q or '' }}&sort={{ sort or '' }}&order={{ order or '' }}&status={{ status or '' }}&owner={{ owner or '' }}"
+		  hx-target="#plans-table"
+		  hx-swap="outerHTML"
+		  hx-select="#plans-table">
+		  ‹ Prev
+		</button>
 
-  <!-- Pager -->
-  <div class="pager">
-    {% set prev_off = (offset - limit) if (offset - limit) > 0 else 0 %}
-    {% set next_off = offset + limit %}
-    <button
-      {% if offset <= 0 %}disabled{% endif %}
-      hx-get="/ui/plans?limit={{ limit }}&offset={{ prev_off }}&q={{ q }}&sort={{ sort }}&order={{ order }}"
-      hx-target="#plans-table"
-      hx-swap="outerHTML">
-      ‹ Prev
-    </button>
+		<span class="meta" style="margin:0 .5rem">
+		  Page {{ (offset // limit) + 1 }} of {{ ((total - 1) // limit) + 1 }}
+		</span>
 
-    <span class="meta" style="margin:0 .5rem">
-      Page {{ (offset // limit) + 1 }} of {{ ((total - 1) // limit) + 1 }}
-    </span>
-
-    <button
-      {% if next_off >= total %}disabled{% endif %}
-      hx-get="/ui/plans?limit={{ limit }}&offset={{ next_off }}&q={{ q }}&sort={{ sort }}&order={{ order }}"
-      hx-target="#plans-table"
-      hx-swap="outerHTML">
-      Next ›
-    </button>
+		<button
+		  {% if next_off >= total %}disabled{% endif %}
+		  hx-get="/ui/plans?limit={{ limit }}&offset={{ next_off }}&q={{ q or '' }}&sort={{ sort or '' }}&order={{ order or '' }}&status={{ status or '' }}&owner={{ owner or '' }}"
+		  hx-target="#plans-table"
+		  hx-swap="outerHTML"
+		  hx-select="#plans-table">
+		  Next ›
+		</button>
+    </div>
   </div>
 </div>

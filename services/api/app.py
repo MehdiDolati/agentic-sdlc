@@ -6,7 +6,7 @@ import re
 import hmac, hashlib, base64
 import services.api.core.shared as shared
 from contextlib import asynccontextmanager
-
+from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.exceptions import RequestValidationError
 import logging
@@ -322,19 +322,28 @@ def _wants_html_fragment(req: Request) -> bool:
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exc_handler(request: Request, exc: StarletteHTTPException):
-    msg = exc.detail or "Request failed."
-    if _wants_html_fragment(request):
-        return templates.TemplateResponse(
-            "_error_fragment.html",
-            {
-                "request": request,
-                "flash": {"level": "error", "title": f"{exc.status_code}", "message": msg},
-                "target_id": _hx_target_id(request),   # <-- add this
-            },
-            status_code=exc.status_code,
-        )
-    return JSONResponse({"detail": msg}, status_code=exc.status_code)
+    if request.headers.get("HX-Request") == "true":
+        ctx = {
+            "request": request,
+            "level": "error",
+            "title": str(exc.status_code),
+            "message": exc.detail or "Request failed.",
+        }
+        return templates.TemplateResponse("_flash.html", ctx, status_code=exc.status_code)
+    return JSONResponse({"detail": exc.detail or "Request failed."}, status_code=exc.status_code)
 
+# HTMX-aware 5xx catch-all
+@app.exception_handler(Exception)
+async def unhandled_exc_handler(request: Request, exc: Exception):
+    if request.headers.get("HX-Request") == "true":
+        ctx = {
+            "request": request,
+            "level": "error",
+            "title": "500",
+            "message": "Unexpected error.",
+        }
+        return templates.TemplateResponse("_flash.html", ctx, status_code=HTTP_500_INTERNAL_SERVER_ERROR)
+    return JSONResponse({"detail": "Unexpected error."}, status_code=HTTP_500_INTERNAL_SERVER_ERROR)
 
 @app.exception_handler(RequestValidationError)
 async def validation_exc_handler(request: Request, exc: RequestValidationError):
@@ -349,22 +358,6 @@ async def validation_exc_handler(request: Request, exc: RequestValidationError):
             status_code=422,
         )
     return JSONResponse({"detail": exc.errors()}, status_code=422)
-
-
-@app.exception_handler(Exception)
-async def unhandled_exc_handler(request: Request, exc: Exception):
-    logger.exception("Unhandled error while processing %s %s", request.method, request.url)
-    if _wants_html_fragment(request):
-        return templates.TemplateResponse(
-            "_error_fragment.html",
-            {
-                "request": request,
-                "flash": {"level": "error", "title": "Error", "message": "Unexpected error."},
-                "target_id": _hx_target_id(request),   # <-- add this
-            },
-            status_code=500,
-        )
-    return JSONResponse({"detail": "Unexpected error."}, status_code=500)
 
 FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
 @app.get("/favicon.ico", include_in_schema=False)

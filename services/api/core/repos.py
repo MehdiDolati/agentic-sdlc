@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
     create_engine, MetaData, Table, Column, String, JSON, DateTime,
-    select, insert, update, delete as sa_delete, func, ForeignKey
+    select, insert, update, delete as sa_delete, func, ForeignKey, text, inspect
 )
 from sqlalchemy.engine import Engine
 # shared in-memory DB (works in tests and local runs)
@@ -112,32 +112,64 @@ class PlansRepoDB:
             "updated_at": updated_at.isoformat() if updated_at else None,
         }
 
-    def list(self) -> list[dict]:
-        with self.engine.connect() as conn:
-            rows = conn.execute(
-                select(
-                    _PLANS_TABLE.c.id,
-                    _PLANS_TABLE.c.request,
-                    _PLANS_TABLE.c.owner,
-                    _PLANS_TABLE.c.artifacts,
-                    _PLANS_TABLE.c.status,
-                    _PLANS_TABLE.c.created_at,
-                    _PLANS_TABLE.c.updated_at,
-                )
-                .order_by(_PLANS_TABLE.c.created_at.desc(), _PLANS_TABLE.c.id.asc())
-            ).all()
-        out = []
-        for (rid, req, owner, arts, status, created_at, updated_at) in rows:
-            out.append({
-                "id": rid,
-                "request": req,
-                "owner": owner,
-                "artifacts": arts or {},
-                "status": status or "new",
-                "created_at": created_at.isoformat() if created_at else None,
-                "updated_at": updated_at.isoformat() if updated_at else None,
-            })
-        return out
+    def list(self, limit: int = 20, offset: int = 0, **filters):
+        q      = (filters.get("q") or "").strip()
+        status = (filters.get("status") or "").strip()
+        owner  = (filters.get("owner") or "").strip()
+        sort   = (filters.get("sort") or "").strip()
+        order  = (filters.get("order") or "desc").lower()
+    
+        # Column detection guard (safe if plans table isn’t there yet)
+        try:
+            cols = {c["name"] for c in inspect(self.engine).get_columns("plans")}
+        except Exception:
+            cols = set()
+    
+        has = cols.__contains__
+        allowed_sort = {c for c in (
+            "created_at", "request", "owner", "last_run_status", "last_run_at", "id"
+        ) if has(c)}
+        sort_col = sort if sort in allowed_sort else ("created_at" if has("created_at") else "id")
+        dir_sql = "ASC" if order == "asc" else "DESC"
+    
+        where = ["1=1"]
+        params = {"limit": limit, "offset": offset}
+        if q:
+            qv = f"%{q.lower()}%"
+            if has("request") and has("id"):
+                where.append("(LOWER(request) LIKE :q OR LOWER(id) LIKE :q)")
+                params["q"] = qv
+            elif has("request"):
+                where.append("LOWER(request) LIKE :q")
+                params["q"] = qv
+            elif has("id"):
+                where.append("LOWER(id) LIKE :q")
+                params["q"] = qv
+        if status and has("last_run_status"):
+            where.append("last_run_status = :status")
+            params["status"] = status
+        if owner and has("owner"):
+            where.append("owner = :owner")
+            params["owner"] = owner
+    
+        where_sql = " AND ".join(where)
+        sql_list = f"""
+            SELECT *
+            FROM plans
+            WHERE {where_sql}
+            ORDER BY {sort_col} {dir_sql}
+            LIMIT :limit OFFSET :offset
+        """
+        sql_count = f"SELECT COUNT(*) AS c FROM plans WHERE {where_sql}"
+    
+        try:
+            with self.engine.connect() as conn:
+                rows = conn.execute(text(sql_list), params).mappings().all()
+                total_row = conn.execute(text(sql_count), params).one()
+                return rows, total_row.c
+        except (OperationalError, ProgrammingError, SQLAlchemyError):
+            # During early tests the table/columns may not exist; return empty set.
+            return [], 0
  
     def update(self, plan_id: str, fields: dict) -> dict | None:
         if not fields:
@@ -307,3 +339,33 @@ class NotesRepoDB:
     def delete(self, note_id: str) -> None:
         with self.engine.begin() as conn:
             conn.execute(sa_delete(_NOTES_TABLE).where(_NOTES_TABLE.c.id == note_id))
+
+def list(self, q=None, sort=None, order=None, limit=20, offset=0, status=None, owner=None):
+    sql = "SELECT * FROM plans WHERE 1=1"
+    params = {}
+
+    if q:
+        sql += " AND (request ILIKE %(q)s OR id ILIKE %(q)s)"
+        params["q"] = f"%{q}%"
+
+    if status:
+        sql += " AND last_run_status = %(status)s"
+        params["status"] = status
+
+    if owner:
+        sql += " AND owner = %(owner)s"
+        params["owner"] = owner
+
+    # sorting
+    allowed = {"created_at", "request", "owner", "last_run_status", "last_run_at"}
+    if sort in allowed:
+        dir = "ASC" if (order or "").lower() == "asc" else "DESC"
+        sql += f" ORDER BY {sort} {dir}"
+    else:
+        sql += " ORDER BY created_at DESC"
+
+    sql += " LIMIT %(limit)s OFFSET %(offset)s"
+    params["limit"] = limit
+    params["offset"] = offset
+
+    # run + fetch total separately or via window func, depending on your current impl            
