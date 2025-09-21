@@ -5,8 +5,11 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
     create_engine, MetaData, Table, Column, String, JSON, DateTime,
-    select, insert, update, delete as sa_delete, func, ForeignKey, text, inspect
+    select, insert, update, delete as sa_delete, func, ForeignKey, 
+    text, inspect, cast, asc, desc, and_, or_, true as sql_true
+    
 )
+from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
 from sqlalchemy.engine import Engine
 # shared in-memory DB (works in tests and local runs)
 from services.api.state import DBS
@@ -118,59 +121,75 @@ class PlansRepoDB:
         owner  = (filters.get("owner") or "").strip()
         sort   = (filters.get("sort") or "").strip()
         order  = (filters.get("order") or "desc").lower()
-    
-        # Column detection guard (safe if plans table isn’t there yet)
-        try:
-            cols = {c["name"] for c in inspect(self.engine).get_columns("plans")}
-        except Exception:
-            cols = set()
-    
-        has = cols.__contains__
-        allowed_sort = {c for c in (
-            "created_at", "request", "owner", "last_run_status", "last_run_at", "id"
-        ) if has(c)}
-        sort_col = sort if sort in allowed_sort else ("created_at" if has("created_at") else "id")
-        dir_sql = "ASC" if order == "asc" else "DESC"
-    
-        where = ["1=1"]
-        params = {"limit": limit, "offset": offset}
-        if q:
-            qv = f"%{q.lower()}%"
-            if has("request") and has("id"):
-                where.append("(LOWER(request) LIKE :q OR LOWER(id) LIKE :q)")
-                params["q"] = qv
-            elif has("request"):
-                where.append("LOWER(request) LIKE :q")
-                params["q"] = qv
-            elif has("id"):
-                where.append("LOWER(id) LIKE :q")
-                params["q"] = qv
-        if status and has("last_run_status"):
-            where.append("last_run_status = :status")
-            params["status"] = status
-        if owner and has("owner"):
-            where.append("owner = :owner")
-            params["owner"] = owner
-    
-        where_sql = " AND ".join(where)
-        sql_list = f"""
-            SELECT *
-            FROM plans
-            WHERE {where_sql}
-            ORDER BY {sort_col} {dir_sql}
-            LIMIT :limit OFFSET :offset
-        """
-        sql_count = f"SELECT COUNT(*) AS c FROM plans WHERE {where_sql}"
-    
+
         try:
             with self.engine.connect() as conn:
-                rows = conn.execute(text(sql_list), params).mappings().all()
-                total_row = conn.execute(text(sql_count), params).one()
-                return rows, total_row.c
+                metadata = MetaData()
+                # reflect only the 'plans' table using the live connection
+                try:
+                    metadata.reflect(bind=conn, only=["plans"])
+                    plans = metadata.tables.get("plans")
+                    if plans is None:
+                        return [], 0
+                except Exception:
+                    # If reflection fails (table missing), return empty result
+                    return [], 0
+
+                cols = set(plans.c.keys())
+                has = cols.__contains__
+                allowed_sort = {c for c in (
+                    "created_at", "request", "owner", "last_run_status", "last_run_at", "id"
+                ) if has(c)}
+
+                # choose sort column
+                if sort in allowed_sort and sort in plans.c:
+                    sort_col = plans.c[sort]
+                elif "created_at" in cols and "created_at" in plans.c:
+                    sort_col = plans.c["created_at"]
+                elif "id" in cols and "id" in plans.c:
+                    sort_col = plans.c["id"]
+                else:
+                    return [], 0
+
+                order_by = asc(sort_col) if order == "asc" else desc(sort_col)
+
+                where_clauses = [sql_true()]
+
+                if q:
+                    qv = f"%{q.lower()}%"
+                    q_clauses = []
+                    if "request" in cols and "request" in plans.c:
+                        q_clauses.append(func.lower(plans.c.request).like(qv))
+                    if "id" in cols and "id" in plans.c:
+                        q_clauses.append(func.lower(cast(plans.c.id, String)).like(qv))
+                    if q_clauses:
+                        where_clauses.append(or_(*q_clauses))
+
+                if status and "last_run_status" in cols and "last_run_status" in plans.c:
+                    where_clauses.append(plans.c.last_run_status == status)
+
+                if owner and "owner" in cols and "owner" in plans.c:
+                    where_clauses.append(plans.c.owner == owner)
+
+                where_clause = and_(*where_clauses)
+
+                list_stmt = (
+                    select(plans)
+                    .where(where_clause)
+                    .order_by(order_by)
+                    .limit(limit)
+                    .offset(offset)
+                )
+
+                count_stmt = select(func.count()).select_from(plans).where(where_clause)
+
+                rows = conn.execute(list_stmt).mappings().all()
+                total = conn.execute(count_stmt).scalar_one()
+                return rows, int(total)
+
         except (OperationalError, ProgrammingError, SQLAlchemyError):
-            # During early tests the table/columns may not exist; return empty set.
             return [], 0
- 
+        
     def update(self, plan_id: str, fields: dict) -> dict | None:
         if not fields:
             return self.get(plan_id)
