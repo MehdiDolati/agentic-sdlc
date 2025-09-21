@@ -1,15 +1,35 @@
-<div class="card">
+<!-- services/templates/section_stories.html -->
+<div id="stories-section"
+     class="card"
+     hx-target="#stories-section"
+     hx-swap="outerHTML"
+     hx-boost="true">
+	 hx-select="#stories-section">
   <h2>Stories</h2>
+
   <div class="meta">{{ stories_rel }}</div>
-  <div style="margin-top:8px;" id="stories-content">{{ stories_html|safe }}</div>
+
+  <!-- Rendered markdown / content -->
+  <div id="stories-content" style="margin-top:8px;">
+    {{ stories_html|safe }}
+  </div>
+
   <div style="margin-top:8px;">
-    <button hx-get="/ui/plans/{{ plan['id'] }}/artifacts/stories/edit" 
-            hx-target="closest .card" hx-swap="outerHTML">Edit</button>
-    <a href="/plans/{{ plan['id'] }}/artifacts/stories/download" style="margin-left:.5rem">Download</a>
+    <!-- Always target the stable wrapper -->
+    <button
+      hx-get="/ui/plans/{{ plan_id }}/artifacts/stories/edit"
+      hx-target="#stories-section"
+      hx-swap="outerHTML">
+      Edit
+    </button>
+
+    <a href="/plans/{{ plan_id }}/artifacts/stories/download" style="margin-left:.5rem">Download</a>
+
     <button type="button" style="margin-left:.5rem"
             onclick="navigator.clipboard.writeText(document.getElementById('stories-content').innerText)">
       Copy
     </button>
   </div>
 </div>
+
 {% if flash %}{% include "_flash.html" with context %}{% endif %}

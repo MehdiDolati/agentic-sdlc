@@ -50,7 +50,7 @@ from typing import Callable, List, Dict, Optional, Any, Tuple
 from pydantic import BaseModel, Field, EmailStr
 from fastapi import Query
 from fastapi import Header, Body, BackgroundTasks, FastAPI, HTTPException, status, Depends, Cookie, Response, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, FileResponse
 from services.api.db import psycopg_conninfo_from_env, dsn_summary
 
 import psycopg
@@ -324,45 +324,57 @@ def _wants_html_fragment(req: Request) -> bool:
 async def http_exc_handler(request: Request, exc: StarletteHTTPException):
     msg = exc.detail or "Request failed."
     if _wants_html_fragment(request):
-        # HTMX request: return flash fragment with error message
         return templates.TemplateResponse(
-            "_flash.html",
+            "_error_fragment.html",
             {
                 "request": request,
                 "flash": {"level": "error", "title": f"{exc.status_code}", "message": msg},
+                "target_id": _hx_target_id(request),   # <-- add this
             },
             status_code=exc.status_code,
         )
     return JSONResponse({"detail": msg}, status_code=exc.status_code)
 
+
 @app.exception_handler(RequestValidationError)
 async def validation_exc_handler(request: Request, exc: RequestValidationError):
-    # Provide a unified message for validation errors
-    msg = "Validation error"
     if _wants_html_fragment(request):
         return templates.TemplateResponse(
-            "_flash.html",
+            "_error_fragment.html",
             {
                 "request": request,
-                "flash": {"level": "error", "title": "Validation error", "message": msg},
+                "flash": {"level": "error", "title": "Validation error", "message": "Validation error"},
+                "target_id": _hx_target_id(request),   # <-- add this
             },
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
         )
-    return JSONResponse({"detail": exc.errors()}, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    return JSONResponse({"detail": exc.errors()}, status_code=422)
 
 
 @app.exception_handler(Exception)
 async def unhandled_exc_handler(request: Request, exc: Exception):
-    # Log the full stack for debugging
     logger.exception("Unhandled error while processing %s %s", request.method, request.url)
-    msg = "Unexpected error."
     if _wants_html_fragment(request):
         return templates.TemplateResponse(
-            "_flash.html",
+            "_error_fragment.html",
             {
                 "request": request,
-                "flash": {"level": "error", "title": "Error", "message": msg},
+                "flash": {"level": "error", "title": "Error", "message": "Unexpected error."},
+                "target_id": _hx_target_id(request),   # <-- add this
             },
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
         )
-    return JSONResponse({"detail": msg}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return JSONResponse({"detail": "Unexpected error."}, status_code=500)
+
+FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    if FAVICON_PATH.exists():
+        return FileResponse(FAVICON_PATH)
+    # Optional: avoid 404 noise if it’s missing
+    return FileResponse(FAVICON_PATH, status_code=200)  # or return a 204       
+    
+def _hx_target_id(request: Request) -> str | None:
+    # HTMX sends the id of the target element (if it has an id)
+    return request.headers.get("HX-Target")
+    

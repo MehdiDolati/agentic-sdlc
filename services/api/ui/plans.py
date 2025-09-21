@@ -873,20 +873,38 @@ def download_artifact(plan_id: str, kind: str, user: Dict[str, Any] = Depends(ge
 
 # -------------------- Stories/Tasks sections --------------------
 @router.get("/ui/plans/{plan_id}/sections/stories", response_class=HTMLResponse, include_in_schema=False)
-def ui_plan_section_stories(request: Request, plan_id: str):
-    if _auth_enabled() and user.get("id") == "public":
-        raise HTTPException(status_code=401, detail="authentication required")
+def ui_plan_section_stories(
+    request: Request,
+    plan_id: str,
+    page: int = Query(1, ge=1),
+):
+    """
+    Render the stories section for a given page (server-side pagination).
+    If your paging is purely in markdown, you can ignore `page` or use it
+    to select the correct chunk/slice before rendering.
+    """
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
-    stories_rel = (plan.get("artifacts") or {}).get("stories")
-    stories_html = _render_markdown(_read_text_if_exists(repo_root / stories_rel)) if stories_rel else None
-    return templates.TemplateResponse(
-        request, "section_stories.html",
-        {"request": request, "plan": plan, "stories_rel": stories_rel, "stories_html": stories_html}
-    )
+
+    artifacts = plan.get("artifacts") or {}
+    stories_rel = artifacts.get("stories")
+
+    # Read the source and render markdown. If you actually split by pages,
+    # slice here based on `page` before rendering.
+    stories_text = _read_text_if_exists(repo_root / stories_rel) if stories_rel else None
+    stories_html = _render_markdown(stories_text) if stories_text else "<div class='meta'>No stories.</div>"
+
+    ctx = {
+        "request": request,
+        "plan_id": plan_id,
+        "stories_rel": stories_rel,
+        "stories_html": stories_html,
+        "page": page,
+    }
+    return templates.TemplateResponse("section_stories.html", ctx)
 
 @router.get("/ui/plans/{plan_id}/sections/tasks", response_class=HTMLResponse, include_in_schema=False)
 def ui_plan_section_tasks(request: Request, plan_id: str):

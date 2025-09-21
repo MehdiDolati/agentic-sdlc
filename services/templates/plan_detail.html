@@ -72,17 +72,17 @@
     </div>
   </div>
 
-  <div class="card">
-    <h2>Stories</h2>
-    <div
-      hx-get="/ui/plans/{{ plan['id'] }}/sections/stories"
+  <div id="stories-section"
+      class="card"
+      hx-get="/ui/plans/{{ plan['id'] }}/sections/stories?page=1"
       hx-trigger="load"
-      hx-target="this"
-      hx-swap="outerHTML">
+      hx-target="#stories-section"
+      hx-swap="outerHTML"
+      hx-select="#stories-section">
+      <h2>Stories</h2>
       <div class="meta">Loading…</div>
-    </div>
-  </div>
-
+  </div>  
+  
   <div class="card">
     <h2>Tasks</h2>
     <div
@@ -133,20 +133,7 @@
         </dd>
       </div>
       {% endif %}
-
-      {% if stories_rel %}
-      <div class="artifact-row">
-        <dt>Stories:</dt>
-        <dd>
-          <a class="artifact-path pill"
-             href="/ui/artifact?path={{ stories_rel | urlencode }}"
-             target="_blank" rel="noopener">{{ stories_rel }}</a>
-          <button type="button" class="copy-btn"
-                  onclick="navigator.clipboard.writeText('{{ stories_rel }}')">Copy</button>
-        </dd>
-      </div>
-      {% endif %}
-
+	
       {% if tasks_rel %}
       <div class="artifact-row">
         <dt>Tasks:</dt>
