@@ -5,44 +5,54 @@
   <a href="/ui/requests/new" class="badge">New Plan</a>
 </div>
 <div class="card" style="margin-top:12px;">
-  <form id="searchForm"
-        hx-get="/ui/plans"
-        hx-target="#results"
-        hx-push-url="true"
-        hx-trigger="submit, keyup delay:300ms from:#q">
-    <div class="grid grid-2">
-      <input id="q" name="q" value="{{ q or '' }}" placeholder="Search (goal, artifacts)...">
-      <div style="display:flex; gap:8px; align-items:center;">
-		<select name="owner">
-		  <option value="" {{ 'selected' if owner=='' else '' }}>Owner: Any</option>
-		  <option value="public" {{ 'selected' if owner=='public' else '' }}>public</option>
-		  <option value="ui" {{ 'selected' if owner=='ui' else '' }}>ui</option>
-		</select>
-		<select name="status">
-		  <option value="" {{ 'selected' if status=='' else '' }}>Status: Any</option>
-		  <option value="new" {{ 'selected' if status=='new' else '' }}>new</option>
-		  <option value="queued" {{ 'selected' if status=='queued' else '' }}>queued</option>
-		  <option value="running" {{ 'selected' if status=='running' else '' }}>running</option>
-		  <option value="failed" {{ 'selected' if status=='failed' else '' }}>failed</option>
-		  <option value="completed" {{ 'selected' if status=='completed' else '' }}>completed</option>
-		  <option value="cancelled" {{ 'selected' if status=='cancelled' else '' }}>cancelled</option>
-		</select>	  
-        <select name="sort">
-          <option value="created_at" {{ 'selected' if sort=='created_at' else '' }}>Sort by created_at</option>
-          <option value="request" {{ 'selected' if sort=='request' else '' }}>Sort by request</option>
-        </select>
-        <select name="order">
-          <option value="desc" {{ 'selected' if order=='desc' else '' }}>Desc</option>
-          <option value="asc"  {{ 'selected' if order=='asc' else '' }}>Asc</option>
-        </select>
-        <input type="number" name="limit" value="{{ limit }}" min="1" max="100" style="width:100px;">
-        <button type="submit">Apply</button>
-      </div>
-    </div>
-  </form>
-</div>
+  <!-- filters -->
+<form id="plans-filters"
+      class="filters"
+      hx-get="/ui/plans"
+      hx-target="#plans-table"
+      hx-swap="outerHTML"
+      hx-select="#plans-table"
+      hx-push-url="true">
+  <!-- Status -->
+  <label>Status:</label>
+  <select name="status" onchange="this.form.requestSubmit()">
+    <option value="" {{ '' == (status or '') and 'selected' or '' }}>All</option>
+    <option value="queued"  {{ status == 'queued'  and 'selected' or '' }}>Queued</option>
+    <option value="running" {{ status == 'running' and 'selected' or '' }}>Running</option>
+    <option value="success" {{ status == 'success' and 'selected' or '' }}>Success</option>
+    <option value="failed"  {{ status == 'failed'  and 'selected' or '' }}>Failed</option>
+  </select>
 
-<div id="plans-table" hx-swap="outerHTML" style="margin-top:12px;">
+  <!-- Owner (free text keeps it simple & robust) -->
+  <label style="margin-left:1rem;">Owner:</label>
+  <input type="text" name="owner" value="{{ owner or '' }}" placeholder="owner email/id"
+         onkeydown="if(event.key==='Enter'){event.preventDefault(); this.form.requestSubmit();}">
+  <button type="button" onclick="this.form.requestSubmit()">Apply</button>
+
+  <!-- Sort -->
+  <label style="margin-left:1rem;">Sort by:</label>
+  <select name="sort" onchange="this.form.requestSubmit()">
+    <option value=""                {{ (sort or '')==''                and 'selected' or '' }}>Default</option>
+    <option value="created_at"      {{ sort=='created_at'              and 'selected' or '' }}>Created</option>
+    <option value="request"         {{ sort=='request'                 and 'selected' or '' }}>Request</option>
+    <option value="owner"           {{ sort=='owner'                   and 'selected' or '' }}>Owner</option>
+    <option value="last_run_status" {{ sort=='last_run_status'         and 'selected' or '' }}>Last Run Status</option>
+    <option value="last_run_at"     {{ sort=='last_run_at'             and 'selected' or '' }}>Last Run Time</option>
+  </select>
+
+  <select name="order" onchange="this.form.requestSubmit()">
+    <option value="desc" {{ order=='desc' and 'selected' or '' }}>Desc</option>
+    <option value="asc"  {{ order=='asc'  and 'selected' or '' }}>Asc</option>
+  </select>
+
+  <!-- keep other query params; reset offset on filter/sort change -->
+  <input type="hidden" name="q"     value="{{ q or '' }}">
+  <input type="hidden" name="limit" value="{{ limit }}">
+  <input type="hidden" name="offset" value="0">
+</form>
+
+<!-- stable wrapper that NEVER disappears -->
+<div id="plans-table">
   {% include "plans_list_table.html" %}
 </div>
 {% endblock %}
