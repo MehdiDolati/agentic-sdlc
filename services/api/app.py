@@ -61,7 +61,17 @@ from fastapi.staticfiles import StaticFiles
 _TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
-app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json")
+# Lifespan handler (used to init schemas)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _init_schemas()
+    try:
+        yield
+    finally:
+        pass
+
+# Create app with lifespan wired (replaces deprecated on_event usage)
+app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json", lifespan=lifespan)
 app.include_router(ui_requests_router)
 app.include_router(ui_plans_router)
 app.include_router(ui_auth_router)
@@ -76,15 +86,6 @@ _STATIC_DIR = _THIS_DIR / "static"
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
-# Ensure DB schemas on application startup (lifespan function below is not wired).
-@app.on_event("startup")
-async def _startup_init_schemas():
-    try:
-        _init_schemas()
-    except Exception:
-        # Keep startup resilient; avoid crashing the app on schema errors in dev
-        pass
 
 # -------------------- Artifact view endpoints --------------------
     
@@ -210,10 +211,13 @@ def _init_schemas():
 async def lifespan(app: FastAPI):
     # ---- startup (was @app.on_event("startup")) ----
     _init_schemas()
-    yield
-    # ---- shutdown (was @app.on_event("shutdown")) ----
-    # nothing to do here right now
-    # e.g., close DBs/threads if you add them later
+    try:
+        yield
+    finally:
+        # ---- shutdown (was @app.on_event("shutdown")) ----
+        # nothing to do here right now
+        # e.g., close DBs/threads if you add them later
+        pass
 # --------------------------------------------------------------------------------------
 # Health
 # --------------------------------------------------------------------------------------
