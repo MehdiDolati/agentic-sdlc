@@ -77,6 +77,15 @@ _STATIC_DIR = _THIS_DIR / "static"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+# Ensure DB schemas on application startup (lifespan function below is not wired).
+@app.on_event("startup")
+async def _startup_init_schemas():
+    try:
+        _init_schemas()
+    except Exception:
+        # Keep startup resilient; avoid crashing the app on schema errors in dev
+        pass
+
 # -------------------- Artifact view endpoints --------------------
     
 def _write_text_abs(abs_path: Path, content: str) -> None:

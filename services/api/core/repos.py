@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
 from sqlalchemy.engine import Engine
 # shared in-memory DB (works in tests and local runs)
 from services.api.state import DBS
+import uuid
     
 # Use one metadata object for all tables
 _PROJECTS_METADATA = MetaData()
@@ -24,8 +25,8 @@ _PROJECTS_TABLE = Table(
     Column("description", String, nullable=True),
     Column("owner", String, nullable=False),
     Column("status", String, nullable=False, server_default="new"),
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
-    Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
 )
 
 _PLANS_METADATA = MetaData()
@@ -38,8 +39,8 @@ _PLANS_TABLE = Table(
     Column("owner", String, nullable=False),
     Column("artifacts", JSON, nullable=False),
     Column("status", String, nullable=False, server_default="new"),
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
-    Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
 )
 
 _RUNS_METADATA = MetaData()
@@ -51,10 +52,10 @@ _RUNS_TABLE = Table(
     Column("status", String, nullable=False, server_default="queued"),
     Column("manifest_path", String, nullable=True),
     Column("log_path", String, nullable=True),
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
     Column("started_at", DateTime(timezone=True), nullable=True),
     Column("completed_at", DateTime(timezone=True), nullable=True),
-    Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
 )
 
 _NOTES_METADATA = MetaData()
@@ -64,7 +65,7 @@ _NOTES_TABLE = Table(
     _NOTES_METADATA,
     Column("id", String, primary_key=True),
     Column("data", JSON, nullable=False),
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
 )
 
 _DB: Dict[str, Any] = DBS.setdefault("notes", {})
@@ -80,7 +81,7 @@ _NOTES_TABLE = Table(
     _NOTES_METADATA,
     Column("id", String, primary_key=True),          # short hex id
     Column("data", JSON, nullable=False),            # the payload you POST/PUT (e.g., {"text": "...", ...})
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
 )
 
 def ensure_notes_schema(engine: Engine) -> None:
@@ -227,6 +228,27 @@ class PlansRepoDB:
         ensure_plans_schema(engine)
 
     def create(self, entry: dict) -> dict:
+        # Ensure a project exists and a project_id is set; create a default project on-the-fly
+        pid = (entry or {}).get("project_id")
+        if not pid:
+            # Create or reuse a deterministic project id based on plan id if present
+            import uuid
+            plan_id = (entry or {}).get("id") or uuid.uuid4().hex[:8]
+            pid = f"proj-{plan_id}"
+            # Best-effort: ensure the projects table exists and insert a minimal project row
+            try:
+                ProjectsRepoDB(self.engine).create({
+                    "id": pid,
+                    "title": (entry or {}).get("request") or plan_id,
+                    "description": (entry or {}).get("request") or "",
+                    "owner": (entry or {}).get("owner") or "ui",
+                    "status": (entry or {}).get("status") or "new",
+                })
+            except Exception:
+                # If project creation fails, still proceed with setting the id; DB will enforce if truly missing
+                pass
+            entry = dict(entry or {})
+            entry["project_id"] = pid
         with self.engine.begin() as conn:
             conn.execute(insert(_PLANS_TABLE).values(**entry))
         return entry
@@ -467,13 +489,8 @@ class NotesRepoDB:
 
     def update_artifacts(self, plan_id: str, artifacts: dict):
         """Minimal partial update for the artifacts JSON field."""
-        with self.engine.begin() as conn:
-            conn.execute(
-                plans_table.update()
-                .where(plans_table.c.id == plan_id)
-                .values(artifacts=artifacts)
-            )
-            return self.get(plan_id)        
+        # This method is not applicable to Notes; leaving a safe no-op for compatibility
+        return None        
 
     def get(self, note_id: str) -> dict | None:
         with self.engine.connect() as conn:
