@@ -26,7 +26,7 @@ from services.api.core.shared import (
     _new_id,
     AUTH_MODE
 )
-from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema
+from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
@@ -184,6 +184,10 @@ def _engine():
 
 def _init_schemas():
     eng = _engine()
+    try:
+        ensure_projects_schema(eng)
+    except Exception:
+        pass
     try:
         ensure_plans_schema(eng)
     except Exception:

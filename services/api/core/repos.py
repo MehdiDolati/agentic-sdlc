@@ -17,7 +17,7 @@ from services.api.state import DBS
 # Use one metadata object for all tables
 _PROJECTS_METADATA = MetaData()
 _PROJECTS_TABLE = Table(
-    "Projects",
+    "projects",
     _PROJECTS_METADATA,
     Column("id", String, primary_key=True),
     Column("title", String, nullable=False),
@@ -112,7 +112,7 @@ class ProjectsRepoDB:
                 select(
                     _PROJECTS_TABLE.c.id,
                     _PROJECTS_TABLE.c.title,
-                    _PROJECTS_TABLE.c.description
+                    _PROJECTS_TABLE.c.description,
                     _PROJECTS_TABLE.c.owner,
                     _PROJECTS_TABLE.c.status,
                     _PROJECTS_TABLE.c.created_at,

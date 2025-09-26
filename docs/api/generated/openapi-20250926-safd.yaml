@@ -1,0 +1,34 @@
+openapi: 3.1.0
+info:
+  title: Safd API
+  version: 0.1.0
+paths:
+  /api/safd:
+    get:
+      summary: List safd
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create safd
+      responses:
+        '201':
+          description: Created
+  /api/safd/{id}:
+    get:
+      summary: Get safd
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not Found
+    put:
+      summary: Update safd
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete safd
+      responses:
+        '204':
+          description: No Content
