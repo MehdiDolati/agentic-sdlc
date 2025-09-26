@@ -1,0 +1,34 @@
+openapi: 3.1.0
+info:
+  title: Hello API
+  version: 0.1.0
+paths:
+  /api/hello:
+    get:
+      summary: List hello
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create hello
+      responses:
+        '201':
+          description: Created
+  /api/hello/{id}:
+    get:
+      summary: Get hello
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not Found
+    put:
+      summary: Update hello
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete hello
+      responses:
+        '204':
+          description: No Content

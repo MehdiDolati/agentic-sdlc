@@ -1,0 +1,34 @@
+openapi: 3.1.0
+info:
+  title: Sfgdfgsgsdfgdfs API
+  version: 0.1.0
+paths:
+  /api/sfgdfgsgsdfgdfs:
+    get:
+      summary: List sfgdfgsgsdfgdfs
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create sfgdfgsgsdfgdf
+      responses:
+        '201':
+          description: Created
+  /api/sfgdfgsgsdfgdfs/{id}:
+    get:
+      summary: Get sfgdfgsgsdfgdf
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not Found
+    put:
+      summary: Update sfgdfgsgsdfgdf
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete sfgdfgsgsdfgdf
+      responses:
+        '204':
+          description: No Content

@@ -13,19 +13,34 @@ from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
 from sqlalchemy.engine import Engine
 # shared in-memory DB (works in tests and local runs)
 from services.api.state import DBS
+import uuid
     
 # Use one metadata object for all tables
+_PROJECTS_METADATA = MetaData()
+_PROJECTS_TABLE = Table(
+    "projects",
+    _PROJECTS_METADATA,
+    Column("id", String, primary_key=True),
+    Column("title", String, nullable=False),
+    Column("description", String, nullable=True),
+    Column("owner", String, nullable=False),
+    Column("status", String, nullable=False, server_default="new"),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
+)
+
 _PLANS_METADATA = MetaData()
 _PLANS_TABLE = Table(
     "plans",
     _PLANS_METADATA,
     Column("id", String, primary_key=True),
+    Column("project_id", String, nullable=False),
     Column("request", String, nullable=False),
     Column("owner", String, nullable=False),
     Column("artifacts", JSON, nullable=False),
     Column("status", String, nullable=False, server_default="new"),
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
-    Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
 )
 
 _RUNS_METADATA = MetaData()
@@ -37,10 +52,10 @@ _RUNS_TABLE = Table(
     Column("status", String, nullable=False, server_default="queued"),
     Column("manifest_path", String, nullable=True),
     Column("log_path", String, nullable=True),
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
     Column("started_at", DateTime(timezone=True), nullable=True),
     Column("completed_at", DateTime(timezone=True), nullable=True),
-    Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
 )
 
 _NOTES_METADATA = MetaData()
@@ -50,7 +65,7 @@ _NOTES_TABLE = Table(
     _NOTES_METADATA,
     Column("id", String, primary_key=True),
     Column("data", JSON, nullable=False),
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
 )
 
 _DB: Dict[str, Any] = DBS.setdefault("notes", {})
@@ -66,7 +81,7 @@ _NOTES_TABLE = Table(
     _NOTES_METADATA,
     Column("id", String, primary_key=True),          # short hex id
     Column("data", JSON, nullable=False),            # the payload you POST/PUT (e.g., {"text": "...", ...})
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
 )
 
 def ensure_notes_schema(engine: Engine) -> None:
@@ -78,6 +93,134 @@ def ensure_plans_schema(engine: Engine) -> None:
 
 def ensure_runs_schema(engine: Engine) -> None:
     _RUNS_METADATA.create_all(engine)
+
+def ensure_projects_schema(engine: Engine) -> None:
+    _PROJECTS_METADATA.create_all(engine)
+
+class ProjectsRepoDB:
+    def __init__(self, engine: Engine):
+        self.engine = engine
+        ensure_projects_schema(engine)
+    
+    def create(self, entry: dict) -> dict:
+        with self.engine.begin() as conn:
+            conn.execute(insert(_PROJECTS_TABLE).values(**entry))
+        return entry
+    
+    def get(self, project_id: str) -> dict | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                select(
+                    _PROJECTS_TABLE.c.id,
+                    _PROJECTS_TABLE.c.title,
+                    _PROJECTS_TABLE.c.description,
+                    _PROJECTS_TABLE.c.owner,
+                    _PROJECTS_TABLE.c.status,
+                    _PROJECTS_TABLE.c.created_at,
+                    _PROJECTS_TABLE.c.updated_at,
+                ).where(_PROJECTS_TABLE.c.id == project_id)
+            ).first()
+        if not row:
+            return None
+        pid, title, description,  owner, status, created_at, updated_at = row
+        return {
+            "id": pid,
+            "title": title,
+            "description": description,
+            "owner": owner,
+            "status": status or "new",
+            "created_at": created_at.isoformat() if created_at else None,
+            "updated_at": updated_at.isoformat() if updated_at else None,
+        }
+
+    def list(self, limit: int = 20, offset: int = 0, **filters):
+        q      = (filters.get("q") or "").strip()
+        status = (filters.get("status") or "").strip()
+        owner  = (filters.get("owner") or "").strip()
+        sort   = (filters.get("sort") or "").strip()
+        order  = (filters.get("order") or "desc").lower()
+
+        try:
+            with self.engine.connect() as conn:
+                metadata = MetaData()
+                # reflect only the 'plans' table using the live connection
+                try:
+                    metadata.reflect(bind=conn, only=["projects"])
+                    projects = metadata.tables.get("projects")
+                    if projects is None:
+                        return [], 0
+                except Exception:
+                    # If reflection fails (table missing), return empty result
+                    return [], 0
+
+                cols = set(projects.c.keys())
+                has = cols.__contains__
+                allowed_sort = {c for c in (
+                    "created_at", "title", "description", "owner", "last_run_status", "last_run_at", "id"
+                ) if has(c)}
+
+                # choose sort column
+                if sort in allowed_sort and sort in projects.c:
+                    sort_col = projects.c[sort]
+                elif "created_at" in cols and "created_at" in projects.c:
+                    sort_col = projects.c["created_at"]
+                elif "id" in cols and "id" in projects.c:
+                    sort_col = projects.c["id"]
+                else:
+                    return [], 0
+
+                order_by = asc(sort_col) if order == "asc" else desc(sort_col)
+
+                where_clauses = [sql_true()]
+
+                if q:
+                    qv = f"%{q.lower()}%"
+                    q_clauses = []
+                    if "id" in cols and "id" in projects.c:
+                        q_clauses.append(func.lower(cast(projects.c.id, String)).like(qv))
+                    if q_clauses:
+                        where_clauses.append(or_(*q_clauses))
+
+                if status and "last_run_status" in cols and "last_run_status" in projects.c:
+                    where_clauses.append(projects.c.last_run_status == status)
+
+                if owner and "owner" in cols and "owner" in projects.c:
+                    where_clauses.append(projects.c.owner == owner)
+
+                where_clause = and_(*where_clauses)
+
+                list_stmt = (
+                    select(projects)
+                    .where(where_clause)
+                    .order_by(order_by)
+                    .limit(limit)
+                    .offset(offset)
+                )
+
+                count_stmt = select(func.count()).select_from(projects).where(where_clause)
+
+                rows = conn.execute(list_stmt).mappings().all()
+                total = conn.execute(count_stmt).scalar_one()
+                return rows, int(total)
+
+        except (OperationalError, ProgrammingError, SQLAlchemyError):
+            return [], 0
+        
+    def update(self, project_id: str, fields: dict) -> dict | None:
+        if not fields:
+            return self.get(project_id)
+        allowed = {"title", "description", "owner", "artifacts", "status"}
+        payload = {k: v for k, v in fields.items() if k in allowed}
+        if not payload:
+            return self.get(project_id)
+        with self.engine.begin() as conn:
+            res = conn.execute(
+                update(_PROJECTS_TABLE)
+                .where(_PROJECTS_TABLE.c.id == project_id)
+                .values(**payload)
+            )
+            # res.rowcount might be 0 if not found
+        return self.get(project_id)
     
 class PlansRepoDB:
     def __init__(self, engine: Engine):
@@ -85,6 +228,27 @@ class PlansRepoDB:
         ensure_plans_schema(engine)
 
     def create(self, entry: dict) -> dict:
+        # Ensure a project exists and a project_id is set; create a default project on-the-fly
+        pid = (entry or {}).get("project_id")
+        if not pid:
+            # Create or reuse a deterministic project id based on plan id if present
+            import uuid
+            plan_id = (entry or {}).get("id") or uuid.uuid4().hex[:8]
+            pid = f"proj-{plan_id}"
+            # Best-effort: ensure the projects table exists and insert a minimal project row
+            try:
+                ProjectsRepoDB(self.engine).create({
+                    "id": pid,
+                    "title": (entry or {}).get("request") or plan_id,
+                    "description": (entry or {}).get("request") or "",
+                    "owner": (entry or {}).get("owner") or "ui",
+                    "status": (entry or {}).get("status") or "new",
+                })
+            except Exception:
+                # If project creation fails, still proceed with setting the id; DB will enforce if truly missing
+                pass
+            entry = dict(entry or {})
+            entry["project_id"] = pid
         with self.engine.begin() as conn:
             conn.execute(insert(_PLANS_TABLE).values(**entry))
         return entry
@@ -94,6 +258,7 @@ class PlansRepoDB:
             row = conn.execute(
                 select(
                     _PLANS_TABLE.c.id,
+                    _PLANS_TABLE.c.project_id,
                     _PLANS_TABLE.c.request,
                     _PLANS_TABLE.c.owner,
                     _PLANS_TABLE.c.artifacts,
@@ -104,9 +269,10 @@ class PlansRepoDB:
             ).first()
         if not row:
             return None
-        rid, req, owner, arts, status, created_at, updated_at = row
+        rid, pid, req, owner, arts, status, created_at, updated_at = row
         return {
             "id": rid,
+            "project_id": pid,
             "request": req,
             "owner": owner,
             "artifacts": arts or {},
@@ -323,13 +489,8 @@ class NotesRepoDB:
 
     def update_artifacts(self, plan_id: str, artifacts: dict):
         """Minimal partial update for the artifacts JSON field."""
-        with self.engine.begin() as conn:
-            conn.execute(
-                plans_table.update()
-                .where(plans_table.c.id == plan_id)
-                .values(artifacts=artifacts)
-            )
-            return self.get(plan_id)        
+        # This method is not applicable to Notes; leaving a safe no-op for compatibility
+        return None        
 
     def get(self, note_id: str) -> dict | None:
         with self.engine.connect() as conn:

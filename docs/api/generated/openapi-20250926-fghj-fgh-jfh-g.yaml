@@ -1,0 +1,34 @@
+openapi: 3.1.0
+info:
+  title: Fghj API
+  version: 0.1.0
+paths:
+  /api/fghj:
+    get:
+      summary: List fghj
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create fghj
+      responses:
+        '201':
+          description: Created
+  /api/fghj/{id}:
+    get:
+      summary: Get fghj
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not Found
+    put:
+      summary: Update fghj
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete fghj
+      responses:
+        '204':
+          description: No Content

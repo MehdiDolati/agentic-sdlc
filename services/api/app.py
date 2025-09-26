@@ -26,7 +26,7 @@ from services.api.core.shared import (
     _new_id,
     AUTH_MODE
 )
-from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema
+from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
@@ -61,7 +61,17 @@ from fastapi.staticfiles import StaticFiles
 _TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
-app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json")
+# Lifespan handler (used to init schemas)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _init_schemas()
+    try:
+        yield
+    finally:
+        pass
+
+# Create app with lifespan wired (replaces deprecated on_event usage)
+app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json", lifespan=lifespan)
 app.include_router(ui_requests_router)
 app.include_router(ui_plans_router)
 app.include_router(ui_auth_router)
@@ -185,6 +195,10 @@ def _engine():
 def _init_schemas():
     eng = _engine()
     try:
+        ensure_projects_schema(eng)
+    except Exception:
+        pass
+    try:
         ensure_plans_schema(eng)
     except Exception:
         pass
@@ -197,10 +211,13 @@ def _init_schemas():
 async def lifespan(app: FastAPI):
     # ---- startup (was @app.on_event("startup")) ----
     _init_schemas()
-    yield
-    # ---- shutdown (was @app.on_event("shutdown")) ----
-    # nothing to do here right now
-    # e.g., close DBs/threads if you add them later
+    try:
+        yield
+    finally:
+        # ---- shutdown (was @app.on_event("shutdown")) ----
+        # nothing to do here right now
+        # e.g., close DBs/threads if you add them later
+        pass
 # --------------------------------------------------------------------------------------
 # Health
 # --------------------------------------------------------------------------------------

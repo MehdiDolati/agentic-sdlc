@@ -10,6 +10,14 @@ RETRIES = int(os.getenv("DB_INIT_RETRIES", "30"))
 DELAY = float(os.getenv("DB_INIT_DELAY", "1.0"))
 
 SQL = """
+CREATE TABLE IF NOT EXISTS projects(
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'new',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 CREATE TABLE IF NOT EXISTS runs(
   id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL,

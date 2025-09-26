@@ -39,13 +39,23 @@
       <button id="saveBtn" type="button">Persist Plan</button>
       <pre id="saveResult" style="margin-top:0.5rem"></pre>
     </div>
+    <script id="plan-artifacts" type="application/json">{{ plan.get('artifacts') | tojson }}</script>
     <script>
       document.getElementById('saveBtn').addEventListener('click', async () => {
         const id = document.getElementById('planId').value.trim();
+        const goal = (document.querySelector('pre')?.textContent || '').trim();
+        let artifacts = {};
+        try {
+          const el = document.getElementById('plan-artifacts');
+          artifacts = el && el.textContent ? JSON.parse(el.textContent) : {};
+        } catch (_) {
+          artifacts = {};
+        }
         const body = {
           id,
           owner: "ui",
-          artifacts: ({{ plan.get('artifacts') | tojson }}) || {},
+          goal,
+          artifacts,
           meta: {}
         };
         const r = await fetch('/plans', {

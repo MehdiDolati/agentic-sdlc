@@ -1,0 +1,12 @@
+- id: US-0001
+  persona: end-user
+  story: As an end-user, I want test plam so that I can achieve the desired outcome.
+  acceptance_criteria:
+  - Given the service is running, When I call the primary endpoint, Then I receive
+    a 200 response.
+  - Given invalid input, When I call the endpoint, Then I receive a 4xx response with
+    an error body.
+  priority: Must
+  estimates:
+    size: S
+    confidence: 0.6
