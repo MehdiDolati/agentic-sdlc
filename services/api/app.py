@@ -76,18 +76,26 @@ async def lifespan(app: FastAPI):
 # Create app with lifespan wired (replaces deprecated on_event usage)
 app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json", lifespan=lifespan)
 # CORS: allow frontend dev server and common local origins
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+def get_allowed_origins():
+    raw = os.getenv("ALLOWED_ORIGINS", "")
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()]
+    # fallback defaults for local development
+    return [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "*",
-    ],
-    allow_credentials=True,
+    ]
+
+allowed_origins = get_allowed_origins()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,   # no "*" here
+    allow_credentials=True,          # ok because origins are explicit
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 app.include_router(ui_requests_router)
 app.include_router(dashboard_router)
