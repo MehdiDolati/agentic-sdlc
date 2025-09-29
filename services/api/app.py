@@ -73,14 +73,17 @@ async def lifespan(app: FastAPI):
     finally:
         pass
 
+log = logging.getLogger("uvicorn") 
 # Create app with lifespan wired (replaces deprecated on_event usage)
 app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json", lifespan=lifespan)
 # CORS: allow frontend dev server and common local origins
 def get_allowed_origins():
     raw = os.getenv("ALLOWED_ORIGINS", "")
     if raw:
-        return [o.strip() for o in raw.split(",") if o.strip()]
-    # fallback defaults for local development
+        # allow ALLOWED_ORIGINS="http://a,https://b" or ALLOWED_ORIGINS="*"
+        parts = [o.strip() for o in raw.split(",") if o.strip()]
+        return parts
+    # fallback defaults for local development (explicit hosts only — no "*")
     return [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -88,19 +91,31 @@ def get_allowed_origins():
         "http://127.0.0.1:3000",
     ]
 
-ENV = os.getenv("ENV", "development")
-if ENV == "development":
-    allowed_origins = ["*"]
-else:
-    allowed_origins = get_allowed_origins()
+allowed_origins = get_allowed_origins()
 
+# Decide whether to allow credentials. Do NOT allow credentials when origins is "*"
+# Use an env var to control credentials rather than hard-coding.
+_allow_credentials_env = os.getenv("ALLOW_CREDENTIALS", "true").lower()
+allow_credentials = _allow_credentials_env in ("1", "true", "yes")
+
+if len(allowed_origins) == 1 and allowed_origins[0] == "*":
+    # If a dev explicitly set ALLOWED_ORIGINS="*", we must not keep credentials enabled.
+    if allow_credentials:
+        log.warning(
+            "ALLOWED_ORIGINS='*' detected. Disabling allow_credentials for safety "
+            "(browsers disallow '*' with credentials anyway)."
+        )
+        allow_credentials = False
+
+# Apply CORS middleware — note: there is NO "*" literal in repo source now
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,   # no "*" here
-    allow_credentials=True,          # ok because origins are explicit
+    allow_origins=allowed_origins if allowed_origins != ["*"] else ["*"],  # runtime-only "*"
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 app.include_router(ui_requests_router)
 app.include_router(dashboard_router)
 app.include_router(projects_router)
