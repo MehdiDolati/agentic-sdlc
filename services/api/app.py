@@ -33,6 +33,8 @@ from services.api.auth.tokens import read_token
 from services.api.auth.routes import router as auth_router, get_current_user
 from services.api.runs.routes import router as runs_router
 from services.api.routes.ui_requests import router as ui_requests_router
+from services.api.routes.dashboard import router as dashboard_router
+from services.api.routes.projects import router as projects_router
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.settings import router as ui_settings_router
 
@@ -57,6 +59,7 @@ import psycopg
 
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 _TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -72,7 +75,23 @@ async def lifespan(app: FastAPI):
 
 # Create app with lifespan wired (replaces deprecated on_event usage)
 app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json", lifespan=lifespan)
+# CORS: allow frontend dev server and common local origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "*",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 app.include_router(ui_requests_router)
+app.include_router(dashboard_router)
+app.include_router(projects_router)
 app.include_router(ui_plans_router)
 app.include_router(ui_auth_router)
 app.include_router(auth_router)
