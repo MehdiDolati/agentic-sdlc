@@ -1,12 +1,6 @@
 name: CI
 run-name: "PR #${{ github.event.pull_request.number }} • ${{ github.event.pull_request.title || github.ref_name }}"
 
-ENV = os.getenv("ENV", "development")
-if ENV == "development":
-    allowed_origins = ["*"]
-else:
-    allowed_origins = get_allowed_origins()
-    
 on:
   push:
     branches: [ main ]

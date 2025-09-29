@@ -88,7 +88,11 @@ def get_allowed_origins():
         "http://127.0.0.1:3000",
     ]
 
-allowed_origins = get_allowed_origins()
+ENV = os.getenv("ENV", "development")
+if ENV == "development":
+    allowed_origins = ["*"]
+else:
+    allowed_origins = get_allowed_origins()
 
 app.add_middleware(
     CORSMiddleware,
