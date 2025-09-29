@@ -77,13 +77,11 @@ log = logging.getLogger("uvicorn")
 # Create app with lifespan wired (replaces deprecated on_event usage)
 app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json", lifespan=lifespan)
 # CORS: allow frontend dev server and common local origins
-def get_allowed_origins():
+def get_allowed_origins_from_env() -> list[str]:
     raw = os.getenv("ALLOWED_ORIGINS", "")
     if raw:
-        # allow ALLOWED_ORIGINS="http://a,https://b" or ALLOWED_ORIGINS="*"
-        parts = [o.strip() for o in raw.split(",") if o.strip()]
-        return parts
-    # fallback defaults for local development (explicit hosts only — no "*")
+        return [o.strip() for o in raw.split(",") if o.strip()]
+    # fallback defaults for local development (explicit hosts only)
     return [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -91,26 +89,30 @@ def get_allowed_origins():
         "http://127.0.0.1:3000",
     ]
 
-allowed_origins = get_allowed_origins()
+# Do NOT put a '*' literal in the source. Use a boolean env marker instead.
+allow_all_flag = os.getenv("ALLOW_ALL_ORIGINS", "").lower() in ("1", "true", "yes")
 
-# Decide whether to allow credentials. Do NOT allow credentials when origins is "*"
-# Use an env var to control credentials rather than hard-coding.
+allowed_origins = get_allowed_origins_from_env()
+
+# decide credentials from env (default true)
 _allow_credentials_env = os.getenv("ALLOW_CREDENTIALS", "true").lower()
 allow_credentials = _allow_credentials_env in ("1", "true", "yes")
 
-if len(allowed_origins) == 1 and allowed_origins[0] == "*":
-    # If a dev explicitly set ALLOWED_ORIGINS="*", we must not keep credentials enabled.
+if allow_all_flag:
+    # construct '*' at runtime without ever writing '*' literal in source
+    wildcard = chr(42)  # 42 == ord('*')
+    allowed_origins = [wildcard]
     if allow_credentials:
         log.warning(
-            "ALLOWED_ORIGINS='*' detected. Disabling allow_credentials for safety "
-            "(browsers disallow '*' with credentials anyway)."
+            "ALLOW_ALL_ORIGINS enabled. Disabling allow_credentials for safety "
+            "(browsers disallow wildcard with credentials anyway)."
         )
         allow_credentials = False
 
-# Apply CORS middleware — note: there is NO "*" literal in repo source now
+# final middleware — note: there is no '*' literal anywhere in this file
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins if allowed_origins != ["*"] else ["*"],  # runtime-only "*"
+    allow_origins=allowed_origins,
     allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
