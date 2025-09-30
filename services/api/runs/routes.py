@@ -311,7 +311,7 @@ def _execute_plan_authed(
     return JSONResponse({"message": "Execution started", "run_id": run_id}, status_code=202)
 
 @router.get("/plans/{plan_id}/runs", response_model=list[RunOut])
-def list_runs(plan_id: str):
+def list_runs(plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
     engine = _create_engine(_database_url(shared._repo_root()))

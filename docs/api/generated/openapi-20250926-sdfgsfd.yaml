@@ -1,0 +1,34 @@
+openapi: 3.1.0
+info:
+  title: Sdfgsfd API
+  version: 0.1.0
+paths:
+  /api/sdfgsfd:
+    get:
+      summary: List sdfgsfd
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create sdfgsfd
+      responses:
+        '201':
+          description: Created
+  /api/sdfgsfd/{id}:
+    get:
+      summary: Get sdfgsfd
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not Found
+    put:
+      summary: Update sdfgsfd
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete sdfgsfd
+      responses:
+        '204':
+          description: No Content

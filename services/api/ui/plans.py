@@ -5,6 +5,7 @@ from pathlib import Path as _P
 from typing import Optional, Dict, Any, Tuple, List
 from pathlib import Path
 from fastapi import APIRouter, Query, Request, HTTPException, Depends, UploadFile, File, Form
+import json
 import mimetypes
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
@@ -519,13 +520,7 @@ def ui_root():
 def ui_home():
     return RedirectResponse(url="/ui/plans")
 
-try:
-    plans, total = repo.list(
-        q=q, sort=sort, order=order, limit=limit, offset=offset, status=status, owner=owner
-    )
-except Exception:
-    # Fallback to empty list in tests if repo throws unexpectedly
-    plans, total = [], 0
+
 
 @router.get("/ui/plans", response_class=HTMLResponse, include_in_schema=False)
 def ui_plans_index(
@@ -537,14 +532,19 @@ def ui_plans_index(
     offset: int = Query(0, ge=0),
     status: str | None = Query(None),
     owner: str | None = Query(None),
+    user: Dict[str, Any] = Depends(get_current_user),
 ):
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     repo = PlansRepoDB(engine)
 
+    # Only show plans owned by the current user (unless public or admin logic is added)
+    user_owner = user.get("id")
     try:
         plans, total = repo.list(
-            q=q, sort=sort, order=order, limit=limit, offset=offset, status=status, owner=owner
+            q=q, sort=sort, order=order, limit=limit, offset=offset, status=status, owner=user_owner
         )
     except Exception:
         plans, total = [], 0
@@ -583,14 +583,17 @@ def ui_plans_index(
     return templates.TemplateResponse("plans_list.html", ctx)
 
 @router.get("/ui/plans/{plan_id}", response_class=HTMLResponse, include_in_schema=False)
-def ui_plan_detail(request: Request, plan_id: str):
+def ui_plan_detail(request: Request, plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
     if _auth_enabled() and user.get("id") == "public":
-        raise HTTPException(status_code=401, detail="authentication required")    
+        raise HTTPException(status_code=401, detail="authentication required")
     repo_root = shared._repo_root()
     engine = _create_engine(_database_url(repo_root))
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
+    # Authorization: only owner can access
+    if _auth_enabled() and plan.get("owner") != user.get("id"):
+        raise HTTPException(status_code=403, detail="Not authorized to access this plan")
 
     artifacts = plan.get("artifacts") or {}
     prd_rel = artifacts.get("prd")
@@ -673,6 +676,9 @@ def ui_artifact(path: str):
     plan = PlansRepoDB(engine).get(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
+    # Authorization: only owner can execute
+    if _auth_enabled() and plan.get("owner") != user.get("id"):
+        raise HTTPException(status_code=403, detail="Not authorized to execute this plan")
     run_id = _new_id("run")
     RunsRepoDB(engine).create(run_id, plan_id)
     _RUN_QUEUE.put((plan_id, run_id))
@@ -889,7 +895,7 @@ def ui_plan_section_stories(
 
 # HTMX partials for detail sections
 @router.get("/ui/plans/{plan_id}/sections/prd", response_class=HTMLResponse, include_in_schema=False)
-def ui_plan_section_prd(request: Request, plan_id: str):
+def ui_plan_section_prd(request: Request, plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = shared._repo_root()
@@ -909,7 +915,7 @@ def ui_plan_section_prd(request: Request, plan_id: str):
     })
 
 @router.get("/ui/plans/{plan_id}/sections/adr", response_class=HTMLResponse, include_in_schema=False)
-def ui_plan_section_adr(request: Request, plan_id: str):
+def ui_plan_section_adr(request: Request, plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = shared._repo_root()
@@ -930,7 +936,7 @@ def ui_plan_section_adr(request: Request, plan_id: str):
 
 
 @router.get("/ui/plans/{plan_id}/sections/openapi", response_class=HTMLResponse, include_in_schema=False)
-def ui_plan_section_openapi(request: Request, plan_id: str):
+def ui_plan_section_openapi(request: Request, plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
     repo_root = shared._repo_root()
@@ -989,7 +995,7 @@ def ui_plan_section_stories(request: Request, plan_id: str):
    )
 
 @router.get("/ui/plans/{plan_id}/sections/tasks", response_class=HTMLResponse, include_in_schema=False)
-def ui_plan_section_tasks(request: Request, plan_id: str):
+def ui_plan_section_tasks(request: Request, plan_id: str, user: Dict[str, Any] = Depends(get_current_user)):
     try:
        if _auth_enabled() and user.get("id") == "public":
            raise HTTPException(status_code=401, detail="authentication required")
@@ -1013,7 +1019,7 @@ def ui_plan_section_tasks(request: Request, plan_id: str):
 # -------------------- Artifact diff endpoint --------------------
 @router.get("/ui/plans/{plan_id}/artifacts/{kind}/diff", response_class=HTMLResponse, include_in_schema=False)
 def ui_artifact_diff(request: Request, plan_id: str, kind: str,
-                     frm: Optional[str] = None, to: Optional[str] = None):
+                     frm: Optional[str] = None, to: Optional[str] = None, user: Dict[str, Any] = Depends(get_current_user)):
     """Visual side-by-side diff between two artifact files.
        - If frm/to are given, treat them as repo-relative file paths.
        - If omitted, try to diff the latest two files of this kind by mtime.
