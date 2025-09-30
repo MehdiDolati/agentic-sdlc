@@ -17,8 +17,9 @@ router = APIRouter(tags=["ui"])
 
 @router.get("/ui/logout", include_in_schema=False)
 def ui_logout() -> RedirectResponse:
-    # UI logout is a page-level redirect; the cookie is actually cleared by /auth/logout
-    return RedirectResponse(url="/ui/login")
+    resp = RedirectResponse(url="/ui/login")
+    resp.delete_cookie("session")
+    return resp
 
 
 @router.get("/ui/login", response_class=HTMLResponse, include_in_schema=False)
