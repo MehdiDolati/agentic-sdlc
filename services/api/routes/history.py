@@ -19,7 +19,7 @@ class HistoryIn(BaseModel):
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def log_interaction(entry: HistoryIn, repo=Depends(get_repo)):
-    repo.add(entry.dict())
+    repo.add(entry.model_dump())
     return {"ok": True}
 
 @router.get("/", response_model=list)

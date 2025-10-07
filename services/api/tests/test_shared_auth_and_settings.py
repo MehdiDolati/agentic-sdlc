@@ -1,16 +1,12 @@
 from pathlib import Path
 from services.api.core.shared import _repo_root, _auth_enabled
 from services.api.core.settings import update_settings, load_settings
+import services.api.core.shared as shared
 
 def test_repo_root_prefers_app_state_dir(monkeypatch, tmp_path: Path):
-    # Remove REPO_ROOT for this test and clear cache so APP_STATE_DIR is preferred
-    monkeypatch.delenv("REPO_ROOT", raising=False)
     monkeypatch.setenv("APP_STATE_DIR", str(tmp_path))
-    from services.api.core import shared
-    shared._reset_repo_root_cache_for_tests()
     assert _repo_root() == tmp_path
-    shared._reset_repo_root_cache_for_tests()
-
+    
 def test_auth_env_overrides_settings(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("APP_STATE_DIR", str(tmp_path))
     # Persist auth_enabled = False

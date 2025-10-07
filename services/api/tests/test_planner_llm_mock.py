@@ -3,24 +3,22 @@ import os
 from pathlib import Path
 from fastapi.testclient import TestClient
 
-import importlib
-
 def test_planner_uses_mock_llm(tmp_path: Path, monkeypatch):
     # Isolate repo root to a temp dir so we don't pollute real docs/
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
     # Force LLM on, but mock provider (offline/deterministic)
     monkeypatch.setenv("LLM_PROVIDER", "mock")
+    
+    # Reset cache and set REPO_ROOT properly
+    from services.api.core import shared
+    shared._reset_repo_root_cache_for_tests()
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
 
-    # Re-import app after env tweaks so it picks up the settings
-    import app as app_module
-    importlib.reload(app_module)
-    app = app_module.app
-
-    # Point the app's repo root to temp (there's a helper named _repo_root())
-    def _fake_repo_root():
-        return tmp_path
-    app_module._repo_root = _fake_repo_root  # type: ignore
-
+    # Import app directly without reloading
+    # Adjust this import based on your actual app location
+    from services.api.app import app  # or wherever your app is defined
+    
+    # Create client and make request
     client = TestClient(app)
 
     r = client.post("/requests", json={"text": "Add search to notes list"})
@@ -31,8 +29,25 @@ def test_planner_uses_mock_llm(tmp_path: Path, monkeypatch):
     # Look for generated files
     prd_dir = tmp_path / "docs" / "prd"
     api_dir = tmp_path / "docs" / "api" / "generated"
-    assert prd_dir.exists()
-    assert api_dir.exists()
+    
+    # Add debug output
+    print(f"Looking for PRD dir: {prd_dir}")
+    print(f"PRD dir exists: {prd_dir.exists()}")
+    if tmp_path.exists():
+        print(f"Tmp path contents: {list(tmp_path.iterdir())}")
+    
+    # The directories might not exist yet - the test might need to wait for async processing
+    # Let's check if we need to give it some time
+    import time
+    max_wait = 5  # seconds
+    start_time = time.time()
+    while time.time() - start_time < max_wait:
+        if prd_dir.exists() and api_dir.exists():
+            break
+        time.sleep(0.1)
+    
+    assert prd_dir.exists(), f"PRD directory {prd_dir} was not created"
+    assert api_dir.exists(), f"API directory {api_dir} was not created"
 
     prd_paths = list(prd_dir.glob("*.md"))
     api_paths = list(api_dir.glob("*.yaml"))

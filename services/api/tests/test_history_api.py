@@ -2,19 +2,10 @@ import pytest
 import os
 from fastapi.testclient import TestClient
 from services.api.app import app
-import services.api.core.shared as shared
-
-client = TestClient(app)
-
-@pytest.fixture(autouse=True)
-def isolate_repo_root(tmp_path, monkeypatch):
-    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
-    shared._reset_repo_root_cache_for_tests()
-    yield
-    shared._reset_repo_root_cache_for_tests()
 
 def test_log_interaction_and_list():
     # Log a new interaction
+    client = TestClient(app)
     payload = {
         "project_id": "test-proj-1",
         "prompt": "What are the requirements?",
