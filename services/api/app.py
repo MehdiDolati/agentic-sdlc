@@ -118,6 +118,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+from services.api.routes.history import router as history_router
 app.include_router(ui_requests_router)
 app.include_router(dashboard_router)
 app.include_router(projects_router)
@@ -126,6 +128,7 @@ app.include_router(ui_auth_router)
 app.include_router(auth_router)
 app.include_router(runs_router)
 app.include_router(ui_settings_router)
+app.include_router(history_router)
 
 # --- UI wiring (templates + static) ---
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")

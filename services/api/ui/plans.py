@@ -1550,7 +1550,7 @@ def create_plan(plan: PlanModel):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")    
     try:
-        saved = plan_store.upsert_plan(plan.dict())
+        saved = plan_store.upsert_plan(plan.model_dump())
         return {"ok": True, "plan": saved}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"persist failed: {e}")

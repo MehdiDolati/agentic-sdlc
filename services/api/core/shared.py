@@ -12,29 +12,49 @@ import secrets
 from services.api.core.settings import load_settings
 
 AUTH_MODE = os.getenv("AUTH_MODE", "disabled").lower() # "disabled" | "token"
-@lru_cache(maxsize=1)
+# Module-level cache for repo root
+_repo_root_cache = None
+
 def _repo_root() -> Path:
-    # Prefer env override (used in docker/CI)
+    """
+    Return repo root, preferring APP_STATE_DIR then REPO_ROOT, with a cache
+    that does not automatically invalidate when env vars change.
+    """
+    global _repo_root_cache
+    if _repo_root_cache is not None:
+        return _repo_root_cache
+
+    env_app_state = os.getenv("APP_STATE_DIR")
     env_root = os.getenv("REPO_ROOT")
+
+    if env_app_state:
+        p = Path(env_app_state)
+        p.mkdir(parents=True, exist_ok=True)
+        _repo_root_cache = p
+        return p
+
     if env_root:
         p = Path(env_root)
         p.mkdir(parents=True, exist_ok=True)
+        _repo_root_cache = p
         return p
 
-    # Default to repository root (current /app in image). If not writable, use /tmp.
     p = Path.cwd()
     try:
         (p / ".write_test").write_text("ok", encoding="utf-8")
         (p / ".write_test").unlink(missing_ok=True)
+        _repo_root_cache = p
         return p
     except Exception:
         tmp = Path("/tmp/agentic-sdlc")
         tmp.mkdir(parents=True, exist_ok=True)
+        _repo_root_cache = tmp
         return tmp
 
 def _reset_repo_root_cache_for_tests() -> None:
-    _repo_root.cache_clear()
-
+    """Clear the repo-root cache (used by tests/conftest)."""
+    global _repo_root_cache
+    _repo_root_cache = None
 
 def _plans_db_path(repo_root: Path | str | None = None) -> Path:
     base = Path(repo_root) if repo_root is not None else _repo_root()
@@ -121,15 +141,20 @@ def _app_state_dir() -> Path:
     Where the app can write state (users.json, etc).
     Priority:
       1) APP_STATE_DIR env
-      2) repo root (current file two levels up)  -> <repo>/   (local dev/tests)
+      2) repo root (fallback)
     """
     env_dir = os.getenv("APP_STATE_DIR")
     if env_dir:
         p = Path(env_dir)
-    else:
-        # repo root = services/api/../../
-        p = Path(__file__).resolve().parents[2]
-    return p
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    # fallback to repo root
+    p = _repo_root()
+    # keep app state under a subdirectory to avoid cluttering repo root
+    app_state = p / ".app_state"
+    app_state.mkdir(parents=True, exist_ok=True)
+    return app_state
 
 def _users_file() -> Path:
     """
