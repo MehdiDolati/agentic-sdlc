@@ -68,9 +68,50 @@ _NOTES_TABLE = Table(
     Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
 )
 
+
+# --- Interaction History Table ---
+_HISTORY_METADATA = MetaData()
+_HISTORY_TABLE = Table(
+    "interaction_history",
+    _HISTORY_METADATA,
+    Column("id", String, primary_key=True),
+    Column("project_id", String, nullable=True),
+    Column("prompt", String, nullable=False),
+    Column("response", String, nullable=False),
+    Column("role", String, nullable=True),  # e.g., 'user', 'assistant'
+    Column("metadata", JSON, nullable=True),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
+)
+
 _DB: Dict[str, Any] = DBS.setdefault("notes", {})
 
-# ---------- Notes DB (Postgres/SQLite via SQLAlchemy) ----------
+
+# ---------- Interaction History DB (Postgres/SQLite via SQLAlchemy) ----------
+def ensure_history_schema(engine: Engine) -> None:
+    _HISTORY_METADATA.create_all(engine)
+
+class InteractionHistoryRepoDB:
+    def __init__(self, engine: Engine):
+        ensure_history_schema(engine)
+        self.engine = engine
+
+    def add(self, entry: dict) -> None:
+        with self.engine.begin() as conn:
+            if "id" not in entry:
+                entry["id"] = str(uuid.uuid4())
+            conn.execute(insert(_HISTORY_TABLE).values(**entry))
+
+    def list_by_project(self, project_id: str) -> list[dict]:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                select(_HISTORY_TABLE).where(_HISTORY_TABLE.c.project_id == project_id)
+            )
+            return [dict(row) for row in result.mappings()]
+
+    def list_all(self) -> list[dict]:
+        with self.engine.begin() as conn:
+            result = conn.execute(select(_HISTORY_TABLE))
+            return [dict(row) for row in result.mappings()]
 
 # A single metadata object for our schema
 _NOTES_METADATA = MetaData()
