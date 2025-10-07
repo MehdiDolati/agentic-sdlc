@@ -1,3 +1,13 @@
+import pytest
+import os
+import services.api.core.shared as shared
+
+@pytest.fixture(autouse=True)
+def isolate_repo_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
+    shared._reset_repo_root_cache_for_tests()
+    yield
+    shared._reset_repo_root_cache_for_tests()
 import os, sys
 from pathlib import Path
 import importlib, sys, pytest, os
