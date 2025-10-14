@@ -5,5 +5,11 @@
     "id": "u_a2880a",
     "email": "u1@example.com",
     "password_hash": "f64551fcd6f07823cb87971cfb91446425da18286b3ab1ef935e0cbd7a69f68a"
+  },
+  "u_af75c8": {
+    "id": "u_af75c8",
+    "email": "persianmd@yahoo.com",
+    "password_hash": "92e07b2e82bd5be8d7a93c3e1e83573fb470b866c488f25ac847534d64377a9d",
+	"role": "admin"
   }
 }
