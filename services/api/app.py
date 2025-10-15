@@ -37,6 +37,10 @@ from services.api.routes.dashboard import router as dashboard_router
 from services.api.routes.projects import router as projects_router
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.settings import router as ui_settings_router
+from services.api.routes.dashboard import router as dashboard_router
+from services.api.routes.profile import router as profile_router
+from services.api.routes.admin import router as admin_router
+
 
 _BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
@@ -129,6 +133,8 @@ app.include_router(auth_router)
 app.include_router(runs_router)
 app.include_router(ui_settings_router)
 app.include_router(history_router)
+app.include_router(profile_router)
+app.include_router(admin_router)
 
 # --- UI wiring (templates + static) ---
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")
