@@ -33,15 +33,94 @@ def table_exists(cursor, table_name):
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
     return cursor.fetchone() is not None
 
+import re
+from typing import List
+
+def _parse_columns_from_create_table_sql(create_sql: str) -> List[str]:
+    """
+    Extract column names from a CREATE TABLE ... (...) SQL string.
+
+    This is a lightweight parser:
+    - finds the outer parentheses block,
+    - splits top-level comma-separated column/constraint entries,
+    - returns the first token of each column-definition entry as the column name.
+    It ignores table-level constraints (CHECK, PRIMARY KEY(...) with no leading column name).
+    """
+    if not create_sql:
+        return []
+
+    # find the first opening '(' that starts the column list and the matching closing ')'
+    m = re.search(r'\((.*)\)\s*$', create_sql.strip(), re.S)
+    if not m:
+        return []
+
+    inner = m.group(1).strip()
+
+    # split at top-level commas (ignore commas inside parentheses)
+    cols: List[str] = []
+    buf = []
+    paren = 0
+    for ch in inner:
+        if ch == '(':
+            paren += 1
+        elif ch == ')':
+            paren -= 1
+        if ch == ',' and paren == 0:
+            item = ''.join(buf).strip()
+            if item:
+                cols.append(item)
+            buf = []
+        else:
+            buf.append(ch)
+    # leftover
+    last = ''.join(buf).strip()
+    if last:
+        cols.append(last)
+
+    # for each column definition, take the first token as the column name (skip constraints)
+    col_names = []
+    for item in cols:
+        # skip entries that start with constraint keywords
+        if re.match(r'^\s*(CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)\b', item, re.I):
+            continue
+        # column name is the first word (possibly quoted)
+        item = item.lstrip()
+        # handle quoted identifiers: "name", 'name', [name], or `name`
+        q = item[0]
+        if q in ('"', "'", '`', '['):
+            # find matching quote/bracket
+            if q == '[':
+                closing = ']'
+            else:
+                closing = q
+            # column name is up to the closing quote/bracket
+            try:
+                end = item.index(closing, 1)
+                col = item[1:end]
+            except ValueError:
+                # malformed quoting - fallback
+                parts = item.split()
+                col = parts[0]
+        else:
+            # unquoted: first token
+            parts = item.split(None, 1)
+            col = parts[0]
+        col_names.append(col)
+    return col_names
+
 def column_exists(cursor, table_name, column_name):
-    """Check if a column exists in a table."""
-    # Validate table name to prevent SQL injection
+    """Check if a column exists in a table using parameterized sqlite_master lookup."""
+    # Validate table name to be conservative (defense-in-depth)
     validate_identifier(table_name, "table name")
-    
-    # PRAGMA statements don't support parameterized queries in SQLite,
-    # but we validate the input above to prevent injection
-    cursor.execute(f"PRAGMA table_info({table_name})")
-    columns = [column[1] for column in cursor.fetchall()]
+
+    # Use a parameterized query against sqlite_master to avoid formatting SQL with user input
+    cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name = ?", (table_name,))
+    row = cursor.fetchone()
+    if not row:
+        return False
+
+    create_sql = row[0]
+    columns = _parse_columns_from_create_table_sql(create_sql)
     return column_name in columns
 
 def migrate_sqlite_database():
