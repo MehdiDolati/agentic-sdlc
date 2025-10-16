@@ -104,16 +104,30 @@ def list_repositories(
     offset: int = Query(default=0, ge=0),
     type: Optional[str] = Query(default=None),
     is_active: Optional[bool] = Query(default=None),
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    include_public: Optional[bool] = Query(default=True),
 ):
     """List repositories with filtering and pagination."""
     try:
         engine = _get_engine()
         repos_repo = RepositoriesRepoDB(engine)
         
-        filters = {
-            "owner": user.get("id", "public")
-        }
+        user_id = user.get("id", "public")
+        
+        # Build OR filter: user's own agents OR public agents
+        if include_public:
+            # Get both user's agents and public agents from other users
+            filters = {
+                "$or": [
+                    {"owner": user_id},  # User's own agents
+                    {"is_public": True}  # Public agents from any user
+                ]
+            }
+        else:
+            # Only user's own agents
+            filters = {"owner": user_id}
+        
+
         if type:
             filters["type"] = type
         if is_active is not None:

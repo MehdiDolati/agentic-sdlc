@@ -26,7 +26,11 @@ from services.api.core.shared import (
     _new_id,
     AUTH_MODE
 )
-from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema
+from services.api.core.repos import (
+    PlansRepoDB, NotesRepoDB, 
+    ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema,
+    ensure_repositories_schema, ensure_agents_schema, ensure_agent_runs_schema
+)
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
@@ -257,18 +261,24 @@ def _engine():
 
 def _init_schemas():
     eng = _engine()
-    try:
-        ensure_projects_schema(eng)
-    except Exception:
-        pass
-    try:
-        ensure_plans_schema(eng)
-    except Exception:
-        pass
-    try:
-        ensure_runs_schema(eng)
-    except Exception:
-        pass
+    # Initialize all database schemas
+    schemas_to_init = [
+        ("projects", ensure_projects_schema),
+        ("plans", ensure_plans_schema),
+        ("runs", ensure_runs_schema),
+        ("notes", ensure_notes_schema),
+        ("repositories", ensure_repositories_schema),
+        ("agents", ensure_agents_schema),
+        ("agent_runs", ensure_agent_runs_schema),
+    ]
+    
+    for schema_name, schema_func in schemas_to_init:
+        try:
+            schema_func(eng)
+            print(f"[app] ✅ {schema_name} schema initialized")
+        except Exception as e:
+            print(f"[app] ⚠️  {schema_name} schema failed: {e}")
+            pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
