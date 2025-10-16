@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
-    create_engine, MetaData, Table, Column, String, JSON, DateTime,
+    create_engine, MetaData, Table, Column, String, JSON, DateTime, Boolean,
     select, insert, update, delete as sa_delete, func, ForeignKey, 
     text, inspect, cast, asc, desc, and_, or_, true as sql_true
     
@@ -83,8 +83,70 @@ _HISTORY_TABLE = Table(
     Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
 )
 
-_DB: Dict[str, Any] = DBS.setdefault("notes", {})
+# Add these table definitions after the existing tables
 
+# --- Repositories Table ---
+# ... after your existing table definitions, add the new tables with Boolean fix:
+
+# --- Repositories Table ---
+_REPOSITORIES_METADATA = MetaData()
+_REPOSITORIES_TABLE = Table(
+    "repositories",
+    _REPOSITORIES_METADATA,
+    Column("id", String, primary_key=True),
+    Column("name", String, nullable=False),
+    Column("url", String, nullable=False),
+    Column("api_url", String, nullable=True),  # Added API URL field
+    Column("description", String, nullable=True),
+    Column("type", String, nullable=False, server_default="git"),  # git, svn, etc.
+    Column("branch", String, nullable=True),
+    Column("auth_type", String, nullable=True),  # ssh, token, basic, none
+    Column("auth_config", JSON, nullable=True),  # Store encrypted credentials
+    Column("owner", String, nullable=False),
+    Column("is_active", Boolean, nullable=False, server_default=text('true')),  # Fixed Boolean
+    Column("last_sync_status", String, nullable=True),
+    Column("last_sync_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
+)
+
+# --- Agents Table ---
+_AGENTS_METADATA = MetaData()
+_AGENTS_TABLE = Table(
+    "agents",
+    _AGENTS_METADATA,
+    Column("id", String, primary_key=True),
+    Column("name", String, nullable=False),
+    Column("description", String, nullable=True),
+    Column("agent_type", String, nullable=False),  # code_analyzer, test_runner, deployer, etc.
+    Column("config", JSON, nullable=False),  # Agent-specific configuration
+    Column("status", String, nullable=False, server_default="inactive"),  # active, inactive, error
+    Column("last_heartbeat", DateTime(timezone=True), nullable=True),
+    Column("capabilities", JSON, nullable=True),  # What this agent can do
+    Column("owner", String, nullable=False),
+    Column("is_public", Boolean, nullable=False, server_default=text('false')),  # Fixed Boolean
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
+)
+
+# --- Agent Runs Table (for tracking agent executions) ---
+_AGENT_RUNS_METADATA = MetaData()
+_AGENT_RUNS_TABLE = Table(
+    "agent_runs",
+    _AGENT_RUNS_METADATA,
+    Column("id", String, primary_key=True),
+    Column("agent_id", String, nullable=False),
+    Column("project_id", String, nullable=True),
+    Column("plan_id", String, nullable=True),
+    Column("status", String, nullable=False, server_default="queued"),
+    Column("input_data", JSON, nullable=True),
+    Column("output_data", JSON, nullable=True),
+    Column("started_at", DateTime(timezone=True), nullable=True),
+    Column("completed_at", DateTime(timezone=True), nullable=True),
+    Column("error_message", String, nullable=True),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
+)
 
 # ---------- Interaction History DB (Postgres/SQLite via SQLAlchemy) ----------
 def ensure_history_schema(engine: Engine) -> None:
@@ -137,6 +199,278 @@ def ensure_runs_schema(engine: Engine) -> None:
 
 def ensure_projects_schema(engine: Engine) -> None:
     _PROJECTS_METADATA.create_all(engine)
+
+# Schema creation functions - place these AFTER all table definitions
+def ensure_repositories_schema(engine: Engine) -> None:
+    _REPOSITORIES_METADATA.create_all(engine)
+
+def ensure_agents_schema(engine: Engine) -> None:
+    _AGENTS_METADATA.create_all(engine)
+
+def ensure_agent_runs_schema(engine: Engine) -> None:
+    _AGENT_RUNS_METADATA.create_all(engine)
+
+class RepositoriesRepoDB:
+    def __init__(self, engine: Engine):
+        self.engine = engine
+        ensure_repositories_schema(engine)
+    
+    def create(self, entry: dict) -> dict:
+        with self.engine.begin() as conn:
+            if "id" not in entry:
+                entry["id"] = uuid.uuid4().hex[:8]
+            conn.execute(insert(_REPOSITORIES_TABLE).values(**entry))
+        return entry
+    
+    def get(self, repo_id: str) -> dict | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                select(_REPOSITORIES_TABLE).where(_REPOSITORIES_TABLE.c.id == repo_id)
+            ).first()
+            if not row:
+                return None
+            return dict(row._mapping)
+    
+    def list(self, limit: int = 20, offset: int = 0, **filters) -> tuple[list[dict], int]:
+        owner = filters.get("owner")
+        is_active = filters.get("is_active")
+        repo_type = filters.get("type")
+        
+        try:
+            with self.engine.connect() as conn:
+                where_clauses = [sql_true()]
+                
+                if owner:
+                    where_clauses.append(_REPOSITORIES_TABLE.c.owner == owner)
+                
+                if is_active is not None:
+                    where_clauses.append(_REPOSITORIES_TABLE.c.is_active == is_active)
+                
+                if repo_type:
+                    where_clauses.append(_REPOSITORIES_TABLE.c.type == repo_type)
+                
+                where_clause = and_(*where_clauses)
+                
+                # Get total count
+                count_stmt = select(func.count()).select_from(_REPOSITORIES_TABLE).where(where_clause)
+                total = conn.execute(count_stmt).scalar_one()
+                
+                # Get paginated results
+                list_stmt = (
+                    select(_REPOSITORIES_TABLE)
+                    .where(where_clause)
+                    .order_by(desc(_REPOSITORIES_TABLE.c.updated_at))
+                    .limit(limit)
+                    .offset(offset)
+                )
+                
+                rows = conn.execute(list_stmt).mappings().all()
+                return [dict(row) for row in rows], int(total)
+                
+        except Exception:
+            return [], 0
+    
+    def update(self, repo_id: str, fields: dict) -> dict | None:
+        if not fields:
+            return self.get(repo_id)
+        
+        allowed_fields = {"name", "url", "api_url", "description", "type", "branch", "auth_type", "auth_config", "is_active", "last_sync_status", "last_sync_at"}
+        payload = {k: v for k, v in fields.items() if k in allowed_fields}
+        
+        if not payload:
+            return self.get(repo_id)
+        
+        with self.engine.begin() as conn:
+            conn.execute(
+                update(_REPOSITORIES_TABLE)
+                .where(_REPOSITORIES_TABLE.c.id == repo_id)
+                .values(**payload)
+            )
+        return self.get(repo_id)
+    
+    def delete(self, repo_id: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                sa_delete(_REPOSITORIES_TABLE).where(_REPOSITORIES_TABLE.c.id == repo_id)
+            )
+            return result.rowcount > 0
+
+class AgentsRepoDB:
+    def __init__(self, engine: Engine):
+        self.engine = engine
+        ensure_agents_schema(engine)
+    
+    def create(self, entry: dict) -> dict:
+        with self.engine.begin() as conn:
+            if "id" not in entry:
+                entry["id"] = uuid.uuid4().hex[:8]
+            conn.execute(insert(_AGENTS_TABLE).values(**entry))
+        return entry
+    
+    def get(self, agent_id: str) -> dict | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                select(_AGENTS_TABLE).where(_AGENTS_TABLE.c.id == agent_id)
+            ).first()
+            if not row:
+                return None
+            return dict(row._mapping)
+    
+    def list(self, limit: int = 20, offset: int = 0, **filters) -> tuple[list[dict], int]:
+        owner = filters.get("owner")
+        agent_type = filters.get("agent_type")
+        status = filters.get("status")
+        is_public = filters.get("is_public")
+        
+        try:
+            with self.engine.connect() as conn:
+                where_clauses = [sql_true()]
+                
+                if owner:
+                    where_clauses.append(_AGENTS_TABLE.c.owner == owner)
+                
+                if agent_type:
+                    where_clauses.append(_AGENTS_TABLE.c.agent_type == agent_type)
+                
+                if status:
+                    where_clauses.append(_AGENTS_TABLE.c.status == status)
+                
+                if is_public is not None:
+                    if is_public:
+                        where_clauses.append(_AGENTS_TABLE.c.is_public == True)
+                    else:
+                        where_clauses.append(or_(
+                            _AGENTS_TABLE.c.is_public == False,
+                            _AGENTS_TABLE.c.owner == owner
+                        ))
+                
+                where_clause = and_(*where_clauses)
+                
+                # Get total count
+                count_stmt = select(func.count()).select_from(_AGENTS_TABLE).where(where_clause)
+                total = conn.execute(count_stmt).scalar_one()
+                
+                # Get paginated results
+                list_stmt = (
+                    select(_AGENTS_TABLE)
+                    .where(where_clause)
+                    .order_by(desc(_AGENTS_TABLE.c.updated_at))
+                    .limit(limit)
+                    .offset(offset)
+                )
+                
+                rows = conn.execute(list_stmt).mappings().all()
+                return [dict(row) for row in rows], int(total)
+                
+        except Exception:
+            return [], 0
+    
+    def update(self, agent_id: str, fields: dict) -> dict | None:
+        if not fields:
+            return self.get(agent_id)
+        
+        allowed_fields = {"name", "description", "agent_type", "config", "status", "last_heartbeat", "capabilities", "is_public"}
+        payload = {k: v for k, v in fields.items() if k in allowed_fields}
+        
+        if not payload:
+            return self.get(agent_id)
+        
+        with self.engine.begin() as conn:
+            conn.execute(
+                update(_AGENTS_TABLE)
+                .where(_AGENTS_TABLE.c.id == agent_id)
+                .values(**payload)
+            )
+        return self.get(agent_id)
+    
+    def delete(self, agent_id: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                sa_delete(_AGENTS_TABLE).where(_AGENTS_TABLE.c.id == agent_id)
+            )
+            return result.rowcount > 0
+
+class AgentRunsRepoDB:
+    def __init__(self, engine: Engine):
+        self.engine = engine
+        ensure_agent_runs_schema(engine)
+    
+    def create(self, entry: dict) -> dict:
+        with self.engine.begin() as conn:
+            if "id" not in entry:
+                entry["id"] = uuid.uuid4().hex[:8]
+            conn.execute(insert(_AGENT_RUNS_TABLE).values(**entry))
+        return entry
+    
+    def get(self, run_id: str) -> dict | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                select(_AGENT_RUNS_TABLE).where(_AGENT_RUNS_TABLE.c.id == run_id)
+            ).first()
+            if not row:
+                return None
+            return dict(row._mapping)
+    
+    def list(self, limit: int = 20, offset: int = 0, **filters) -> tuple[list[dict], int]:
+        agent_id = filters.get("agent_id")
+        project_id = filters.get("project_id")
+        plan_id = filters.get("plan_id")
+        status = filters.get("status")
+        
+        try:
+            with self.engine.connect() as conn:
+                where_clauses = [sql_true()]
+                
+                if agent_id:
+                    where_clauses.append(_AGENT_RUNS_TABLE.c.agent_id == agent_id)
+                
+                if project_id:
+                    where_clauses.append(_AGENT_RUNS_TABLE.c.project_id == project_id)
+                
+                if plan_id:
+                    where_clauses.append(_AGENT_RUNS_TABLE.c.plan_id == plan_id)
+                
+                if status:
+                    where_clauses.append(_AGENT_RUNS_TABLE.c.status == status)
+                
+                where_clause = and_(*where_clauses)
+                
+                # Get total count
+                count_stmt = select(func.count()).select_from(_AGENT_RUNS_TABLE).where(where_clause)
+                total = conn.execute(count_stmt).scalar_one()
+                
+                # Get paginated results
+                list_stmt = (
+                    select(_AGENT_RUNS_TABLE)
+                    .where(where_clause)
+                    .order_by(desc(_AGENT_RUNS_TABLE.c.created_at))
+                    .limit(limit)
+                    .offset(offset)
+                )
+                
+                rows = conn.execute(list_stmt).mappings().all()
+                return [dict(row) for row in rows], int(total)
+                
+        except Exception:
+            return [], 0
+    
+    def update(self, run_id: str, fields: dict) -> dict | None:
+        if not fields:
+            return self.get(run_id)
+        
+        allowed_fields = {"status", "input_data", "output_data", "started_at", "completed_at", "error_message"}
+        payload = {k: v for k, v in fields.items() if k in allowed_fields}
+        
+        if not payload:
+            return self.get(run_id)
+        
+        with self.engine.begin() as conn:
+            conn.execute(
+                update(_AGENT_RUNS_TABLE)
+                .where(_AGENT_RUNS_TABLE.c.id == run_id)
+                .values(**payload)
+            )
+        return self.get(run_id)
 
 class ProjectsRepoDB:
     def __init__(self, engine: Engine):

@@ -26,7 +26,11 @@ from services.api.core.shared import (
     _new_id,
     AUTH_MODE
 )
-from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema
+from services.api.core.repos import (
+    PlansRepoDB, NotesRepoDB, 
+    ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema,
+    ensure_repositories_schema, ensure_agents_schema, ensure_agent_runs_schema
+)
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
@@ -40,6 +44,8 @@ from services.api.ui.settings import router as ui_settings_router
 from services.api.routes.dashboard import router as dashboard_router
 from services.api.routes.profile import router as profile_router
 from services.api.routes.admin import router as admin_router
+from services.api.routes.repositories import router as repositories_router
+from services.api.routes.agents import router as agents_router
 
 
 _BASE_DIR = Path(__file__).resolve().parent
@@ -91,6 +97,8 @@ def get_allowed_origins_from_env() -> list[str]:
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
     ]
 
 # Do NOT put a '*' literal in the source. Use a boolean env marker instead.
@@ -135,6 +143,8 @@ app.include_router(ui_settings_router)
 app.include_router(history_router)
 app.include_router(profile_router)
 app.include_router(admin_router)
+app.include_router(repositories_router)
+app.include_router(agents_router)
 
 # --- UI wiring (templates + static) ---
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")
@@ -251,18 +261,24 @@ def _engine():
 
 def _init_schemas():
     eng = _engine()
-    try:
-        ensure_projects_schema(eng)
-    except Exception:
-        pass
-    try:
-        ensure_plans_schema(eng)
-    except Exception:
-        pass
-    try:
-        ensure_runs_schema(eng)
-    except Exception:
-        pass
+    # Initialize all database schemas
+    schemas_to_init = [
+        ("projects", ensure_projects_schema),
+        ("plans", ensure_plans_schema),
+        ("runs", ensure_runs_schema),
+        ("notes", ensure_notes_schema),
+        ("repositories", ensure_repositories_schema),
+        ("agents", ensure_agents_schema),
+        ("agent_runs", ensure_agent_runs_schema),
+    ]
+    
+    for schema_name, schema_func in schemas_to_init:
+        try:
+            schema_func(eng)
+            print(f"[app] ✅ {schema_name} schema initialized")
+        except Exception as e:
+            print(f"[app] ⚠️  {schema_name} schema failed: {e}")
+            pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -444,4 +460,8 @@ async def favicon():
 def _hx_target_id(request: Request) -> str | None:
     # HTMX sends the id of the target element (if it has an id)
     return request.headers.get("HX-Target")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
     
