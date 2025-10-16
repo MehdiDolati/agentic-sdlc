@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/repositories", tags=["repositories"])
 class RepositoryCreate(BaseModel):
     name: str
     url: str
+    api_url: Optional[str] = None
     description: Optional[str] = ""
     type: Optional[str] = "git"
     branch: Optional[str] = "main"
@@ -25,6 +26,7 @@ class RepositoryCreate(BaseModel):
 class RepositoryUpdate(BaseModel):
     name: Optional[str] = None
     url: Optional[str] = None
+    api_url: Optional[str] = None
     description: Optional[str] = None
     type: Optional[str] = None
     branch: Optional[str] = None
@@ -37,6 +39,7 @@ class Repository(BaseModel):
     id: str
     name: str
     url: str
+    api_url: Optional[str] = None
     description: str
     type: str
     branch: Optional[str] = None
@@ -67,6 +70,7 @@ def create_repository(
             "id": uuid4().hex[:8],
             "name": repo_data.name,
             "url": repo_data.url,
+            "api_url": repo_data.api_url,
             "description": repo_data.description or "",
             "type": repo_data.type or "git",
             "branch": repo_data.branch,
@@ -79,10 +83,14 @@ def create_repository(
         created_repo = repos_repo.create(repo_dict)
         stored = repos_repo.get(created_repo["id"])
         
+        def _iso(v):
+            return v.isoformat() if hasattr(v, "isoformat") else (v or datetime.now().isoformat())
+        
         return Repository(
             id=stored["id"],
             name=stored["name"],
             url=stored["url"],
+            api_url=stored.get("api_url"),
             description=stored.get("description", ""),
             type=stored.get("type", "git"),
             branch=stored.get("branch"),
@@ -91,9 +99,9 @@ def create_repository(
             owner=stored.get("owner", "public"),
             is_active=stored.get("is_active", True),
             last_sync_status=stored.get("last_sync_status"),
-            last_sync_at=stored.get("last_sync_at"),
-            created_at=stored.get("created_at", datetime.now().isoformat()),
-            updated_at=stored.get("updated_at", datetime.now().isoformat())
+            last_sync_at=_iso(stored.get("last_sync_at")),
+            created_at=_iso(stored.get("created_at")),
+            updated_at=_iso(stored.get("updated_at"))
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create repository: {str(e)}")
@@ -144,6 +152,7 @@ def list_repositories(
                 id=repo["id"],
                 name=repo["name"],
                 url=repo["url"],
+                api_url=repo.get("api_url"),
                 description=repo.get("description", ""),
                 type=repo.get("type", "git"),
                 branch=repo.get("branch"),
@@ -185,6 +194,7 @@ def get_repository(
             id=repository["id"],
             name=repository["name"],
             url=repository["url"],
+            api_url=repository.get("api_url"),
             description=repository.get("description", ""),
             type=repository.get("type", "git"),
             branch=repository.get("branch"),
@@ -227,6 +237,8 @@ def update_repository(
             update_fields["name"] = repo_data.name
         if repo_data.url is not None:
             update_fields["url"] = repo_data.url
+        if repo_data.api_url is not None:
+            update_fields["api_url"] = repo_data.api_url
         if repo_data.description is not None:
             update_fields["description"] = repo_data.description
         if repo_data.type is not None:
@@ -250,6 +262,7 @@ def update_repository(
                 id=existing_repo["id"],
                 name=existing_repo["name"],
                 url=existing_repo["url"],
+                api_url=existing_repo.get("api_url"),
                 description=existing_repo.get("description", ""),
                 type=existing_repo.get("type", "git"),
                 branch=existing_repo.get("branch"),
@@ -274,6 +287,7 @@ def update_repository(
             id=updated_repo["id"],
             name=updated_repo["name"],
             url=updated_repo["url"],
+            api_url=updated_repo.get("api_url"),
             description=updated_repo.get("description", ""),
             type=updated_repo.get("type", "git"),
             branch=updated_repo.get("branch"),

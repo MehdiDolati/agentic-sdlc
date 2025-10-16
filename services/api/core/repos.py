@@ -96,6 +96,7 @@ _REPOSITORIES_TABLE = Table(
     Column("id", String, primary_key=True),
     Column("name", String, nullable=False),
     Column("url", String, nullable=False),
+    Column("api_url", String, nullable=True),  # Added API URL field
     Column("description", String, nullable=True),
     Column("type", String, nullable=False, server_default="git"),  # git, svn, etc.
     Column("branch", String, nullable=True),
@@ -273,7 +274,7 @@ class RepositoriesRepoDB:
         if not fields:
             return self.get(repo_id)
         
-        allowed_fields = {"name", "url", "description", "type", "branch", "auth_type", "auth_config", "is_active", "last_sync_status", "last_sync_at"}
+        allowed_fields = {"name", "url", "api_url", "description", "type", "branch", "auth_type", "auth_config", "is_active", "last_sync_status", "last_sync_at"}
         payload = {k: v for k, v in fields.items() if k in allowed_fields}
         
         if not payload:

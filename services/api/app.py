@@ -460,4 +460,8 @@ async def favicon():
 def _hx_target_id(request: Request) -> str | None:
     # HTMX sends the id of the target element (if it has an id)
     return request.headers.get("HX-Target")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
     
