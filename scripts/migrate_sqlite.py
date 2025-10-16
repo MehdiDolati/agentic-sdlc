@@ -2,11 +2,31 @@
 """
 Comprehensive SQLite migration script for all database tables.
 This script handles the local SQLite database migration for all required tables.
+
+Security Notes:
+- Uses parameterized queries where possible to prevent SQL injection
+- Validates table and column names before use in PRAGMA statements
+- PRAGMA statements cannot use parameterized queries but input validation prevents injection
 """
 
 import sqlite3
 import os
 from pathlib import Path
+
+def validate_identifier(identifier, identifier_type="identifier"):
+    """Validate SQL identifiers (table names, column names) to prevent injection."""
+    if not identifier:
+        raise ValueError(f"Empty {identifier_type} not allowed")
+    
+    # Allow alphanumeric characters, underscores, and hyphens
+    if not identifier.replace('_', '').replace('-', '').isalnum():
+        raise ValueError(f"Invalid {identifier_type}: {identifier}. Only alphanumeric, underscore, and hyphen characters allowed.")
+    
+    # Ensure it doesn't start with a number
+    if identifier[0].isdigit():
+        raise ValueError(f"Invalid {identifier_type}: {identifier}. Cannot start with a number.")
+    
+    return True
 
 def table_exists(cursor, table_name):
     """Check if a table exists in the database."""
@@ -15,6 +35,11 @@ def table_exists(cursor, table_name):
 
 def column_exists(cursor, table_name, column_name):
     """Check if a column exists in a table."""
+    # Validate table name to prevent SQL injection
+    validate_identifier(table_name, "table name")
+    
+    # PRAGMA statements don't support parameterized queries in SQLite,
+    # but we validate the input above to prevent injection
     cursor.execute(f"PRAGMA table_info({table_name})")
     columns = [column[1] for column in cursor.fetchall()]
     return column_name in columns
