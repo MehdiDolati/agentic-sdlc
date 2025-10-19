@@ -2024,7 +2024,7 @@ def ui_techspec_generate(request: Request, plan_id: str):
     rel = _ensure_artifact_rel(plan, "techspec")
     stub = (
         f"# Technology Stack\n\n"
-        f"- Language: Python 3.11+\n"
+        f"- Language: Python 3.12+\n"
         f"- API: FastAPI\n"
         f"- ORM: SQLAlchemy\n"
         f"- DB: Postgres 16 (prod), SQLite (dev)\n"

@@ -73,5 +73,5 @@ def test_emitter_async_emit_or_skip():
 
         assert "k" in got or True
 
-    # Use asyncio.run to exercise async path on Python 3.11/3.12
+    # Use asyncio.run to exercise async path on Python 3.12/3.13
     asyncio.run(_go())

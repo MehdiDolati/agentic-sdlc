@@ -10,7 +10,7 @@ on:
 
 jobs:
   unit-tests:
-    name: Unit tests (Python 3.11)
+    name: Unit tests (Python 3.12)
     runs-on: ubuntu-latest
     env:
       # Keep tests deterministic; pytest code paths use this
@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install deps
         run: |
@@ -138,7 +138,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install semgrep==1.74.0
       - name: Scan

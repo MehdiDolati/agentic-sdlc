@@ -87,11 +87,11 @@ function Get-PythonPath {
   # Then launcher on Windows
   $isWindows = $IsWindows -or ($env:OS -like "*Windows*")
   if ($isWindows) {
-    $py311 = Get-Command 'py' -ErrorAction SilentlyContinue
-    if ($py311) {
+    $py312 = Get-Command 'py' -ErrorAction SilentlyContinue
+    if ($py312) {
       try {
-        $v = & py -3.11 -V 2>$null
-        if ($LASTEXITCODE -eq 0) { return 'py -3.11' }
+        $v = & py -3.12 -V 2>$null
+        if ($LASTEXITCODE -eq 0) { return 'py -3.12' }
       } catch {}
     }
   }
@@ -102,7 +102,7 @@ function Get-PythonPath {
     if ($cmd) { return $cand }
   }
 
-  Fail "No Python found. Install Python 3.11+."
+  Fail "No Python found. Install Python 3.12+."
 }
 
 function Ensure-Venv {
@@ -112,10 +112,10 @@ function Ensure-Venv {
 
   Write-Host "[venv] creating"
   $py = Get-PythonPath
-  # Use launcher if available to target 3.11; otherwise fall back to current
-  $isLauncher = ($py -like 'py -3.11')
+  # Use launcher if available to target 3.12; otherwise fall back to current
+  $isLauncher = ($py -like 'py -3.12')
   if ($isLauncher) {
-    & py -3.11 -m venv $venvDir
+    & py -3.12 -m venv $venvDir
   } else {
     & $py -m venv $venvDir
   }
@@ -124,7 +124,7 @@ function Ensure-Venv {
 
 function Invoke-Python([string[]]$args) {
   $py = Get-PythonPath
-  # If the python path contains a space (like 'py -3.11'), invoke via cmd /c
+  # If the python path contains a space (like 'py -3.12'), invoke via cmd /c
   if ($py -like '* *') {
     & cmd /c "$py $($args -join ' ')"
   } else {
