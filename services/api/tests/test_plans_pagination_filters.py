@@ -1,5 +1,5 @@
 # services/api/tests/test_plans_pagination_filters.py
-from app import app
+from services.api.app import app
 from fastapi.testclient import TestClient
 
 client = TestClient(app)

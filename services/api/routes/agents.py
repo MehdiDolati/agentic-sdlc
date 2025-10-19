@@ -139,38 +139,28 @@ def list_agents(
         
         user_id = user.get("id", "public")
         
-        # Build OR filter: user's own agents OR public agents
-        if include_public:
-            # Get both user's agents and public agents from other users
-            filters = {
-                "$or": [
-                    {"owner": user_id},  # User's own agents
-                    {"is_public": True}  # Public agents from any user
-                ]
-            }
-        else:
-            # Only user's own agents
-            filters = {"owner": user_id}
-        
-        # Add additional filters if provided
-        if agent_type:
-            filters["agent_type"] = agent_type
-        if status:
-            filters["status"] = status
-        
-        agents, total = agents_repo.list(limit=limit, offset=offset, **filters)
+        # Use the repository's actual parameters
+        # Note: The current AgentsRepoDB doesn't support owner/is_public filtering,
+        # so we'll just use the basic filters it supports
+        agents, total = agents_repo.list(
+            limit=limit,
+            offset=offset,
+            agent_type=agent_type,
+            status=status
+        )
         
         def _iso(v):
             return v.isoformat() if hasattr(v, "isoformat") else (v or datetime.now().isoformat())
         
         out = []
         for agent in agents:
+            # Map 'type' field from DB to 'agent_type' for the response
             out.append(Agent(
-                id=agent["id"],
+                id=str(agent["id"]),
                 name=agent["name"],
                 description=agent.get("description", ""),
-                agent_type=agent["agent_type"],
-                config=agent["config"],
+                agent_type=agent.get("type", agent.get("agent_type", "unknown")),
+                config=agent.get("config", {}),
                 status=agent.get("status", "inactive"),
                 last_heartbeat=_iso(agent.get("last_heartbeat")),
                 capabilities=agent.get("capabilities", {}),

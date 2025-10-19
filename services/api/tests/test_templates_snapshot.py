@@ -30,7 +30,7 @@ def test_template_files_exist_and_have_markers():
     assert not missing, f"Missing template files: {missing}"
 
 def _setup_app(tmp_path: Path):
-    import app as app_module
+    import services.api.app as app_module
     importlib.reload(app_module)
     # force isolated repo-root
     app_module._repo_root = lambda: tmp_path  # type: ignore

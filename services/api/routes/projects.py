@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from uuid import uuid4
@@ -10,6 +10,7 @@ from uuid import uuid4
 from services.api.core.shared import _create_engine, _database_url, _repo_root
 from services.api.core.repos import ProjectsRepoDB
 from services.api.auth.routes import get_current_user
+from services.api.models.project import ProjectAgent, ProjectAgentCreate
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -239,3 +240,165 @@ def delete_project(
         raise HTTPException(status_code=500, detail=f"Failed to delete project: {str(e)}")
 
 
+# Project Agents endpoints
+@router.post("/{project_id}/agents", response_model=ProjectAgent, status_code=201)
+def add_project_agent(
+    project_id: str,
+    agent_data: ProjectAgentCreate,
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Add an agent to a project."""
+    try:
+        from services.api.core.db import project_agents, agent_templates
+        from sqlalchemy import select, insert
+        from sqlalchemy.orm import Session
+        import json
+        
+        engine = _get_engine()
+        
+        # Verify project exists
+        projects_repo = ProjectsRepoDB(engine)
+        if not projects_repo.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        with Session(engine) as session:
+            # Fetch agent template to get default name/type if not provided
+            stmt = select(agent_templates).where(agent_templates.c.id == agent_data.agent_template_id)
+            template = session.execute(stmt).first()
+            
+            if not template:
+                raise HTTPException(status_code=404, detail="Agent template not found")
+            
+            # Use template values as defaults
+            agent_name = agent_data.name or template.name
+            agent_type = agent_data.type or template.type
+            agent_config = agent_data.config or template.config or {}
+            
+            insert_data = {
+                "project_id": project_id,
+                "agent_template_id": agent_data.agent_template_id,
+                "name": agent_name,
+                "type": agent_type,
+                "description": agent_data.description or template.description or "",
+                "config": json.dumps(agent_config) if isinstance(agent_config, dict) else agent_config,
+                "created_at": datetime.now(UTC),
+                "updated_at": datetime.now(UTC)
+            }
+            
+            result = session.execute(
+                insert(project_agents).values(**insert_data)
+            )
+            session.commit()
+            
+            # Fetch created agent
+            agent_id = result.inserted_primary_key[0]
+            stmt = select(project_agents).where(project_agents.c.id == agent_id)
+            row = session.execute(stmt).first()
+            
+            config = row.config
+            if isinstance(config, str):
+                try:
+                    config = json.loads(config)
+                except:
+                    config = {}
+            
+            return ProjectAgent(
+                id=row.id,
+                project_id=row.project_id,
+                agent_template_id=row.agent_template_id,
+                name=row.name,
+                type=row.type,
+                description=row.description or "",
+                config=config,
+                created_at=row.created_at.isoformat() if hasattr(row.created_at, 'isoformat') else str(row.created_at),
+                updated_at=row.updated_at.isoformat() if hasattr(row.updated_at, 'isoformat') else str(row.updated_at)
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add project agent: {str(e)}")
+
+@router.get("/{project_id}/agents", response_model=List[ProjectAgent])
+def list_project_agents(
+    project_id: str,
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """List all agents assigned to a project."""
+    try:
+        from services.api.core.db import project_agents
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session
+        import json
+        
+        engine = _get_engine()
+        
+        # Verify project exists
+        projects_repo = ProjectsRepoDB(engine)
+        if not projects_repo.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        with Session(engine) as session:
+            stmt = select(project_agents).where(project_agents.c.project_id == project_id)
+            results = session.execute(stmt).fetchall()
+            
+            agents = []
+            for row in results:
+                config = row.config
+                if isinstance(config, str):
+                    try:
+                        config = json.loads(config)
+                    except:
+                        config = {}
+                
+                agents.append(ProjectAgent(
+                    id=row.id,
+                    project_id=row.project_id,
+                    agent_template_id=row.agent_template_id,
+                    name=row.name,
+                    type=row.type,
+                    description=row.description or "",
+                    config=config,
+                    created_at=row.created_at.isoformat() if hasattr(row.created_at, 'isoformat') else str(row.created_at),
+                    updated_at=row.updated_at.isoformat() if hasattr(row.updated_at, 'isoformat') else str(row.updated_at)
+                ))
+            return agents
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list project agents: {str(e)}")
+
+@router.delete("/{project_id}/agents/{agent_id}", status_code=204)
+def remove_project_agent(
+    project_id: str,
+    agent_id: int,
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Remove an agent from a project."""
+    try:
+        from services.api.core.db import project_agents
+        from sqlalchemy import select, delete
+        from sqlalchemy.orm import Session
+        
+        engine = _get_engine()
+        
+        with Session(engine) as session:
+            # Check if agent exists and belongs to this project
+            stmt = select(project_agents).where(
+                (project_agents.c.id == agent_id) & 
+                (project_agents.c.project_id == project_id)
+            )
+            existing = session.execute(stmt).first()
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail="Project agent not found")
+            
+            # Delete
+            stmt = delete(project_agents).where(project_agents.c.id == agent_id)
+            session.execute(stmt)
+            session.commit()
+            
+            return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to remove project agent: {str(e)}")

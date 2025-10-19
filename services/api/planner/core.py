@@ -1,6 +1,6 @@
 # services/api/planner/core.py
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, UTC
 import re
 import yaml
 from typing import Any, Dict
@@ -12,7 +12,7 @@ def _slugify(text: str) -> str:
     return text[:60] or "request"
 
 def _today() -> str:
-    return datetime.utcnow().strftime("%Y%m%d")
+    return datetime.now(UTC).strftime("%Y%m%d")
 
 def _load_yaml(p: Path):
     if not p.exists():
@@ -99,7 +99,6 @@ def _openapi_skeleton(resource: str, auth: bool, title: str = "Agentic Feature A
 # services/api/planner/core.py
 # add near the top of the file if not present:
 import json
-from datetime import datetime as _dt
 # (keep your existing imports)
 
 def plan_request(request_text: str, repo_root: Path, owner: str = "public") -> dict:
@@ -224,7 +223,7 @@ Use selected stack from runtime config (or defaults). Document deviations via fo
 
     # ---- NEW: persist the plan record (owner-aware) ----
     # plan_id format matches what tests expect elsewhere (timestamp + slug + suffix)
-    ts = _dt.utcnow().strftime("%Y%m%d%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     plan_id = f"{ts}-{slug}-{_rand_suffix(6)}" if '_rand_suffix' in globals() else f"{ts}-{slug}"
     created_at = ts
 

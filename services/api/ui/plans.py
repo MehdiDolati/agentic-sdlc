@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os, re, threading, subprocess
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path as _P
 from typing import Optional, Dict, Any, Tuple, List
 from pathlib import Path
@@ -1342,7 +1342,7 @@ def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_us
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
     repo_root = shared._repo_root()
-    ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     slug = _slugify(req.text)
 
     artifacts = plan_request(req.text, repo_root, owner=user["id"]) or {}

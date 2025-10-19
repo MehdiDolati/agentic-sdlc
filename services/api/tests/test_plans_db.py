@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from services.api.core.repos import PlansRepoDB
 
 def _setup_app(tmp_path: Path):
-    import app as app_module
+    import services.api.app as app_module
     importlib.reload(app_module)
     app_module._repo_root = lambda: tmp_path  # point everything to temp repo root
     return app_module.app, app_module

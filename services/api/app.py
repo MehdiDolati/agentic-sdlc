@@ -26,11 +26,7 @@ from services.api.core.shared import (
     _new_id,
     AUTH_MODE
 )
-from services.api.core.repos import (
-    PlansRepoDB, NotesRepoDB, 
-    ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema,
-    ensure_repositories_schema, ensure_agents_schema, ensure_agent_runs_schema
-)
+from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
@@ -41,12 +37,12 @@ from services.api.routes.dashboard import router as dashboard_router
 from services.api.routes.projects import router as projects_router
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.settings import router as ui_settings_router
-from services.api.routes.dashboard import router as dashboard_router
-from services.api.routes.profile import router as profile_router
-from services.api.routes.admin import router as admin_router
-from services.api.routes.repositories import router as repositories_router
+from services.api.routes.agent import router as agent_router
 from services.api.routes.agents import router as agents_router
-
+from services.api.routes.repositories import router as repositories_router
+from services.api.routes.admin import router as admin_router
+from services.api.routes.profile import router as profile_router
+from services.api.routes.history import router as history_router
 
 _BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
@@ -74,18 +70,8 @@ from fastapi.middleware.cors import CORSMiddleware
 _TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
-# Lifespan handler (used to init schemas)
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    _init_schemas()
-    try:
-        yield
-    finally:
-        pass
+log = logging.getLogger("uvicorn")
 
-log = logging.getLogger("uvicorn") 
-# Create app with lifespan wired (replaces deprecated on_event usage)
-app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json", lifespan=lifespan)
 # CORS: allow frontend dev server and common local origins
 def get_allowed_origins_from_env() -> list[str]:
     raw = os.getenv("ALLOWED_ORIGINS", "")
@@ -97,8 +83,6 @@ def get_allowed_origins_from_env() -> list[str]:
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
     ]
 
 # Do NOT put a '*' literal in the source. Use a boolean env marker instead.
@@ -109,6 +93,8 @@ allowed_origins = get_allowed_origins_from_env()
 # decide credentials from env (default true)
 _allow_credentials_env = os.getenv("ALLOW_CREDENTIALS", "true").lower()
 allow_credentials = _allow_credentials_env in ("1", "true", "yes")
+
+# Note: Routers will be included after app is created (see below)
 
 if allow_all_flag:
     # construct '*' at runtime without ever writing '*' literal in source
@@ -121,30 +107,9 @@ if allow_all_flag:
         )
         allow_credentials = False
 
-# final middleware — note: there is no '*' literal anywhere in this file
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=allow_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+# Note: Middleware will be added after app is created (see below)
 
 from services.api.routes.history import router as history_router
-app.include_router(ui_requests_router)
-app.include_router(dashboard_router)
-app.include_router(projects_router)
-app.include_router(ui_plans_router)
-app.include_router(ui_auth_router)
-app.include_router(auth_router)
-app.include_router(runs_router)
-app.include_router(ui_settings_router)
-app.include_router(history_router)
-app.include_router(profile_router)
-app.include_router(admin_router)
-app.include_router(repositories_router)
-app.include_router(agents_router)
 
 # --- UI wiring (templates + static) ---
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")
@@ -152,7 +117,8 @@ _THIS_DIR = Path(__file__).resolve().parent
 _STATIC_DIR = _THIS_DIR / "static"
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
-app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+# Note: Static files will be mounted after app is created (see below)
+
 
 # -------------------- Artifact view endpoints --------------------
     
@@ -261,24 +227,18 @@ def _engine():
 
 def _init_schemas():
     eng = _engine()
-    # Initialize all database schemas
-    schemas_to_init = [
-        ("projects", ensure_projects_schema),
-        ("plans", ensure_plans_schema),
-        ("runs", ensure_runs_schema),
-        ("notes", ensure_notes_schema),
-        ("repositories", ensure_repositories_schema),
-        ("agents", ensure_agents_schema),
-        ("agent_runs", ensure_agent_runs_schema),
-    ]
-    
-    for schema_name, schema_func in schemas_to_init:
-        try:
-            schema_func(eng)
-            print(f"[app] ✅ {schema_name} schema initialized")
-        except Exception as e:
-            print(f"[app] ⚠️  {schema_name} schema failed: {e}")
-            pass
+    try:
+        ensure_projects_schema(eng)
+    except Exception:
+        pass
+    try:
+        ensure_plans_schema(eng)
+    except Exception:
+        pass
+    try:
+        ensure_runs_schema(eng)
+    except Exception:
+        pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -291,6 +251,38 @@ async def lifespan(app: FastAPI):
         # nothing to do here right now
         # e.g., close DBs/threads if you add them later
         pass
+
+# Create app with lifespan wired (replaces deprecated on_event usage)
+app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json", lifespan=lifespan)
+
+# Include routers (only once per router)
+app.include_router(ui_requests_router)
+app.include_router(dashboard_router)
+app.include_router(projects_router)
+app.include_router(ui_plans_router)
+app.include_router(ui_auth_router)
+app.include_router(auth_router)
+app.include_router(runs_router)
+app.include_router(ui_settings_router)
+app.include_router(agent_router)
+app.include_router(agents_router)
+app.include_router(repositories_router)
+app.include_router(admin_router)
+app.include_router(profile_router)
+app.include_router(history_router)
+
+# Add CORS middleware — note: there is no '*' literal anywhere in this file
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=allow_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount static files
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
 # --------------------------------------------------------------------------------------
 # Health
 # --------------------------------------------------------------------------------------
@@ -460,8 +452,4 @@ async def favicon():
 def _hx_target_id(request: Request) -> str | None:
     # HTMX sends the id of the target element (if it has an id)
     return request.headers.get("HX-Target")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
     

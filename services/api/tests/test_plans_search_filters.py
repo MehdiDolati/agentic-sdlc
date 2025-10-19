@@ -4,7 +4,7 @@ import importlib
 
 def _setup_app(tmp_path: Path):
     # Re-import the app so it picks up our monkeypatched repo_root
-    import app as app_module
+    import services.api.app as app_module
     importlib.reload(app_module)
 
     def _fake_repo_root():

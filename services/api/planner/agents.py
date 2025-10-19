@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Dict
-from datetime import datetime
+from datetime import datetime, UTC
 
 from services.api.planner.prompt_templates import render_template
 
@@ -133,7 +133,7 @@ def openapi_agent(title: str = "Notes Service") -> str:
 
 def adr_agent(vision: str) -> str:
     """ADR-specialist agent; deterministic ADR."""
-    now = datetime.utcnow().strftime("%Y-%m-%d")
+    now = datetime.now(UTC).strftime("%Y-%m-%d")
     md = (
         f"# ADR: Initial Architecture — {now}\n\n"
         "## Context\n"

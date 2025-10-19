@@ -1,7 +1,7 @@
 from pathlib import Path
 import json, time
 from fastapi.testclient import TestClient
-from app import app
+from services.api.app import app
 from services.api.runs.routes import run_step
 import services.api.core.shared as shared   
 

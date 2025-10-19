@@ -4,7 +4,7 @@ import importlib
 import json
 
 def _setup_app(tmp_path: Path):
-    import app as app_module
+    import services.api.app as app_module
     importlib.reload(app_module)
     def _fake_repo_root():
         return tmp_path

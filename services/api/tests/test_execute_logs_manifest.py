@@ -1,6 +1,6 @@
 from pathlib import Path
 from fastapi.testclient import TestClient
-from app import app
+from services.api.app import app
 import services.api.core.shared as shared   
 
 client = TestClient(app)
