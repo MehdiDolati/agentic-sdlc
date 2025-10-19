@@ -48,7 +48,7 @@ DB_PASSWORD=app
   docker compose up -d --build
 
   # --- wait for API /health ---
-  $healthUrl = "http://127.0.0.1:8080/health"
+  $healthUrl = "http://127.0.0.1:8081/health"
   Write-Host "Waiting for API readiness at $healthUrl ..." -ForegroundColor DarkGray
   $max = 50; $ok = $false
   for ($i=1; $i -le $max; $i++) {
@@ -73,10 +73,10 @@ DB_PASSWORD=app
     if ($r.StatusCode -ne 200) { throw "Smoke check failed: $url -> $($r.StatusCode)" }
   }
 
-  & $check "http://127.0.0.1:8080/health" @{}
-  & $check "http://127.0.0.1:8080/openapi.json" @{}
-  & $check "http://127.0.0.1:8080/api/create" @{}
-  & $check "http://127.0.0.1:8080/api/notes" @{ Authorization = "Bearer smoke" }
+  & $check "http://127.0.0.1:8081/health" @{}
+  & $check "http://127.0.0.1:8081/openapi.json" @{}
+  & $check "http://127.0.0.1:8081/api/create" @{}
+  & $check "http://127.0.0.1:8081/api/notes" @{ Authorization = "Bearer smoke" }
 
   Write-Host "Smoke tests ✅" -ForegroundColor Green
 

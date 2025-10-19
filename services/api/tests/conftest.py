@@ -1,5 +1,5 @@
 # ...existing code...
-import pytest, os, sys
+import pytest
 import services.api.core.shared as shared
 
 @pytest.fixture(autouse=True)
@@ -51,12 +51,3 @@ def repo_root(tmp_path, monkeypatch):
     (tmp_path / "docs" / "plans").mkdir(parents=True, exist_ok=True)
     
     return tmp_path
-
-# Add the parent directory to Python path so we can import the app
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-@pytest.fixture
-def client():
-    from services.api.app import app
-    from fastapi.testclient import TestClient
-    return TestClient(app)    

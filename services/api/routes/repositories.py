@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from uuid import uuid4
+from sqlalchemy.orm import Session
 
 from services.api.core.shared import _create_engine, _database_url, _repo_root
 from services.api.core.repos import RepositoriesRepoDB
@@ -56,6 +57,56 @@ def _get_engine():
     """Get database engine."""
     return _create_engine(_database_url(_repo_root()))
 
+def _get_session():
+    engine = _get_engine()
+    return Session(engine)
+
+def _dict_to_repository(repo_dict: Dict[str, Any]) -> Repository:
+    """Convert a repository dictionary to a Repository model."""
+    # Convert datetime objects to strings
+    created_at = repo_dict.get("created_at")
+    updated_at = repo_dict.get("updated_at")
+    last_sync_at = repo_dict.get("last_sync_at")
+    
+    if isinstance(created_at, datetime):
+        created_at = created_at.isoformat()
+    elif created_at:
+        created_at = str(created_at)
+        
+    if isinstance(updated_at, datetime):
+        updated_at = updated_at.isoformat()
+    elif updated_at:
+        updated_at = str(updated_at)
+        
+    if last_sync_at:
+        if isinstance(last_sync_at, datetime):
+            last_sync_at = last_sync_at.isoformat()
+        else:
+            last_sync_at = str(last_sync_at)
+    
+    # Convert URL to string if needed
+    url = repo_dict.get("url", "")
+    if hasattr(url, "__str__") and not isinstance(url, str):
+        url = str(url)
+    
+    return Repository(
+        id=str(repo_dict.get("id", "")),
+        name=str(repo_dict.get("name", "")),
+        url=url,
+        api_url=repo_dict.get("api_url"),
+        description=str(repo_dict.get("description", "")),
+        type=str(repo_dict.get("type", "git")),
+        branch=repo_dict.get("branch"),
+        auth_type=repo_dict.get("auth_type"),
+        auth_config=repo_dict.get("auth_config"),
+        owner=str(repo_dict.get("owner", "")),
+        is_active=bool(repo_dict.get("is_active", True)),
+        last_sync_status=repo_dict.get("last_sync_status"),
+        last_sync_at=last_sync_at,
+        created_at=created_at,
+        updated_at=updated_at
+    )
+
 @router.post("", response_model=Repository, status_code=201)
 def create_repository(
     repo_data: RepositoryCreate,
@@ -63,48 +114,31 @@ def create_repository(
 ):
     """Create a new repository configuration."""
     try:
-        engine = _get_engine()
-        repos_repo = RepositoriesRepoDB(engine)
+        session = _get_session()
+        repos_repo = RepositoriesRepoDB(session)
         
+        # Generate ID and create repository data dict
         repo_dict = {
-            "id": uuid4().hex[:8],
+            "id": str(uuid4())[:8],
             "name": repo_data.name,
-            "url": repo_data.url,
+            "url": str(repo_data.url),
             "api_url": repo_data.api_url,
             "description": repo_data.description or "",
             "type": repo_data.type or "git",
-            "branch": repo_data.branch,
+            "branch": repo_data.branch or "main",
             "auth_type": repo_data.auth_type,
             "auth_config": repo_data.auth_config,
             "owner": user.get("id", "public"),
-            "is_active": True
+            "is_active": True,
+            "is_public": False
         }
         
-        created_repo = repos_repo.create(repo_dict)
-        stored = repos_repo.get(created_repo["id"])
-        
-        def _iso(v):
-            return v.isoformat() if hasattr(v, "isoformat") else (v or datetime.now().isoformat())
-        
-        return Repository(
-            id=stored["id"],
-            name=stored["name"],
-            url=stored["url"],
-            api_url=stored.get("api_url"),
-            description=stored.get("description", ""),
-            type=stored.get("type", "git"),
-            branch=stored.get("branch"),
-            auth_type=stored.get("auth_type"),
-            auth_config=stored.get("auth_config"),
-            owner=stored.get("owner", "public"),
-            is_active=stored.get("is_active", True),
-            last_sync_status=stored.get("last_sync_status"),
-            last_sync_at=_iso(stored.get("last_sync_at")),
-            created_at=_iso(stored.get("created_at")),
-            updated_at=_iso(stored.get("updated_at"))
-        )
+        created_repo_dict = repos_repo.create(repo_dict)
+        return _dict_to_repository(created_repo_dict)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create repository: {str(e)}")
+        import traceback
+        error_detail = f"Failed to create repository: {str(e)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @router.get("", response_model=List[Repository])
 def list_repositories(
@@ -117,57 +151,24 @@ def list_repositories(
 ):
     """List repositories with filtering and pagination."""
     try:
-        engine = _get_engine()
-        repos_repo = RepositoriesRepoDB(engine)
+        session = _get_session()
+        repos_repo = RepositoriesRepoDB(session)
         
-        user_id = user.get("id", "public")
-        
-        # Build OR filter: user's own agents OR public agents
-        if include_public:
-            # Get both user's agents and public agents from other users
-            filters = {
-                "$or": [
-                    {"owner": user_id},  # User's own agents
-                    {"is_public": True}  # Public agents from any user
-                ]
-            }
-        else:
-            # Only user's own agents
-            filters = {"owner": user_id}
-        
-
-        if type:
+        # Get repositories with filtering
+        filters = {}
+        if type is not None:
             filters["type"] = type
         if is_active is not None:
             filters["is_active"] = is_active
-        
+            
         repositories, total = repos_repo.list(limit=limit, offset=offset, **filters)
         
-        def _iso(v):
-            return v.isoformat() if hasattr(v, "isoformat") else (v or datetime.now().isoformat())
-        
-        out = []
-        for repo in repositories:
-            out.append(Repository(
-                id=repo["id"],
-                name=repo["name"],
-                url=repo["url"],
-                api_url=repo.get("api_url"),
-                description=repo.get("description", ""),
-                type=repo.get("type", "git"),
-                branch=repo.get("branch"),
-                auth_type=repo.get("auth_type"),
-                auth_config=repo.get("auth_config"),
-                owner=repo.get("owner", "public"),
-                is_active=repo.get("is_active", True),
-                last_sync_status=repo.get("last_sync_status"),
-                last_sync_at=_iso(repo.get("last_sync_at")),
-                created_at=_iso(repo.get("created_at")),
-                updated_at=_iso(repo.get("updated_at"))
-            ))
-        return out
+        # Convert dict results to Repository models
+        return [_dict_to_repository(repo_dict) for repo_dict in repositories]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list repositories: {str(e)}")
+        import traceback
+        error_detail = f"Failed to list repositories: {str(e)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @router.get("/{repo_id}", response_model=Repository)
 def get_repository(
@@ -176,37 +177,18 @@ def get_repository(
 ):
     """Get a specific repository by ID."""
     try:
-        engine = _get_engine()
-        repos_repo = RepositoriesRepoDB(engine)
+        session = _get_session()
+        repos_repo = RepositoriesRepoDB(session)
         
-        repository = repos_repo.get(repo_id)
-        if not repository:
+        repo_dict = repos_repo.get(repo_id)
+        if not repo_dict:
             raise HTTPException(status_code=404, detail="Repository not found")
         
         # Check ownership
-        if repository.get("owner") != user.get("id", "public"):
+        if repo_dict.get("owner") != user.get("id", "public"):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        def _iso(v):
-            return v.isoformat() if hasattr(v, "isoformat") else (v or datetime.now().isoformat())
-        
-        return Repository(
-            id=repository["id"],
-            name=repository["name"],
-            url=repository["url"],
-            api_url=repository.get("api_url"),
-            description=repository.get("description", ""),
-            type=repository.get("type", "git"),
-            branch=repository.get("branch"),
-            auth_type=repository.get("auth_type"),
-            auth_config=repository.get("auth_config"),
-            owner=repository.get("owner", "public"),
-            is_active=repository.get("is_active", True),
-            last_sync_status=repository.get("last_sync_status"),
-            last_sync_at=_iso(repository.get("last_sync_at")),
-            created_at=_iso(repository.get("created_at")),
-            updated_at=_iso(repository.get("updated_at"))
-        )
+        return _dict_to_repository(repo_dict)
     except HTTPException:
         raise
     except Exception as e:
@@ -220,14 +202,15 @@ def update_repository(
 ):
     """Update a repository."""
     try:
-        engine = _get_engine()
-        repos_repo = RepositoriesRepoDB(engine)
+        session = _get_session()
+        repos_repo = RepositoriesRepoDB(session)
         
         # Check if repository exists and user has access
         existing_repo = repos_repo.get(repo_id)
         if not existing_repo:
             raise HTTPException(status_code=404, detail="Repository not found")
         
+        # Check ownership - existing_repo is a dictionary
         if existing_repo.get("owner") != user.get("id", "public"):
             raise HTTPException(status_code=403, detail="Access denied")
         
@@ -236,7 +219,7 @@ def update_repository(
         if repo_data.name is not None:
             update_fields["name"] = repo_data.name
         if repo_data.url is not None:
-            update_fields["url"] = repo_data.url
+            update_fields["url"] = str(repo_data.url)
         if repo_data.api_url is not None:
             update_fields["api_url"] = repo_data.api_url
         if repo_data.description is not None:
@@ -256,54 +239,19 @@ def update_repository(
         
         if not update_fields:
             # No changes requested, return existing repository
-            def _iso(v):
-                return v.isoformat() if hasattr(v, "isoformat") else (v or datetime.now().isoformat())
-            return Repository(
-                id=existing_repo["id"],
-                name=existing_repo["name"],
-                url=existing_repo["url"],
-                api_url=existing_repo.get("api_url"),
-                description=existing_repo.get("description", ""),
-                type=existing_repo.get("type", "git"),
-                branch=existing_repo.get("branch"),
-                auth_type=existing_repo.get("auth_type"),
-                auth_config=existing_repo.get("auth_config"),
-                owner=existing_repo.get("owner", "public"),
-                is_active=existing_repo.get("is_active", True),
-                last_sync_status=existing_repo.get("last_sync_status"),
-                last_sync_at=_iso(existing_repo.get("last_sync_at")),
-                created_at=_iso(existing_repo.get("created_at")),
-                updated_at=_iso(existing_repo.get("updated_at"))
-            )
+            return _dict_to_repository(existing_repo)
         
-        updated_repo = repos_repo.update(repo_id, update_fields)
-        if not updated_repo:
+        updated_repo_dict = repos_repo.update(repo_id, update_fields)
+        if not updated_repo_dict:
             raise HTTPException(status_code=404, detail="Repository not found")
         
-        def _iso(v):
-            return v.isoformat() if hasattr(v, "isoformat") else (v or datetime.now().isoformat())
-        
-        return Repository(
-            id=updated_repo["id"],
-            name=updated_repo["name"],
-            url=updated_repo["url"],
-            api_url=updated_repo.get("api_url"),
-            description=updated_repo.get("description", ""),
-            type=updated_repo.get("type", "git"),
-            branch=updated_repo.get("branch"),
-            auth_type=updated_repo.get("auth_type"),
-            auth_config=updated_repo.get("auth_config"),
-            owner=updated_repo.get("owner", "public"),
-            is_active=updated_repo.get("is_active", True),
-            last_sync_status=updated_repo.get("last_sync_status"),
-            last_sync_at=_iso(updated_repo.get("last_sync_at")),
-            created_at=_iso(updated_repo.get("created_at")),
-            updated_at=_iso(updated_repo.get("updated_at"))
-        )
+        return _dict_to_repository(updated_repo_dict)
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update repository: {str(e)}")
+        import traceback
+        error_detail = f"Failed to update repository: {str(e)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @router.delete("/{repo_id}", status_code=204)
 def delete_repository(
@@ -312,14 +260,15 @@ def delete_repository(
 ):
     """Delete a repository."""
     try:
-        engine = _get_engine()
-        repos_repo = RepositoriesRepoDB(engine)
+        session = _get_session()
+        repos_repo = RepositoriesRepoDB(session)
         
         # Check if repository exists and user has access
         existing_repo = repos_repo.get(repo_id)
         if not existing_repo:
             raise HTTPException(status_code=404, detail="Repository not found")
         
+        # Check ownership - existing_repo is a dictionary
         if existing_repo.get("owner") != user.get("id", "public"):
             raise HTTPException(status_code=403, detail="Access denied")
         

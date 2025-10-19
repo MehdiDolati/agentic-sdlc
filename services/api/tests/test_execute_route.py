@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from app import app
+from services.api.app import app
 from pathlib import Path
 import time
 import json

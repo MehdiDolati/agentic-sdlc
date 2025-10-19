@@ -1,5 +1,5 @@
 # Small + secure base
-FROM python:3.11-slim AS base
+FROM python:3.12-alpine AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -8,9 +8,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # System deps only if/when needed (kept minimal)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl tini \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -ex; \
+    apk add --no-cache \
+        ca-certificates curl && \
+    # Install tini separately (more reliable) \
+    TINI_VERSION=v0.19.0 && \
+    curl -fsSL https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static-amd64 -o /usr/local/bin/tini && \
+    chmod +x /usr/local/bin/tini
 
 # Copy only requirements first for better layer caching
 COPY services/api/requirements.txt ./services/api/requirements.txt
@@ -38,7 +42,7 @@ RUN set -eux; \
     chmod 0755 services/api/docker/entrypoint.sh
 
 # Create non-root user
-RUN addgroup --system app && adduser --system --ingroup app app \
+RUN addgroup -S app && adduser -S app -G app \
     && chown -R app:app /app
 
 USER app
@@ -46,5 +50,5 @@ USER app
 EXPOSE 8080
 ENV PORT=8080
 
-ENTRYPOINT ["/usr/bin/tini","-g","--","/bin/sh","/app/services/api/docker/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/tini","-g","--","/bin/sh","/app/services/api/docker/entrypoint.sh"]
 CMD ["python","-m","uvicorn","services.api.app:app","--host","0.0.0.0","--port","8080"]

@@ -8,7 +8,10 @@ def test_repo_root_prefers_app_state_dir(monkeypatch, tmp_path: Path):
     assert _repo_root() == tmp_path
     
 def test_auth_env_overrides_settings(monkeypatch, tmp_path: Path):
+    # Remove REPO_ROOT for this test and clear cache so APP_STATE_DIR is preferred
+    monkeypatch.delenv("REPO_ROOT", raising=False)
     monkeypatch.setenv("APP_STATE_DIR", str(tmp_path))
+    shared._reset_repo_root_cache_for_tests()
     # Persist auth_enabled = False
     update_settings(tmp_path, {"auth_enabled": False})
     assert load_settings(tmp_path)["auth_enabled"] is False
@@ -17,3 +20,4 @@ def test_auth_env_overrides_settings(monkeypatch, tmp_path: Path):
     assert _auth_enabled() is True
     monkeypatch.setenv("AUTH_MODE", "off")
     assert _auth_enabled() is False
+    shared._reset_repo_root_cache_for_tests()

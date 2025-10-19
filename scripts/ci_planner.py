@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json, os, sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, UTC
 
 # Import your app helpers directly (no server needed)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services" / "api"))
@@ -26,7 +26,7 @@ def main() -> int:
     text = f"PR #{pr_num}: {pr_title}".strip()
 
     # Build deterministic artifact paths
-    ts = datetime.utcnow().strftime("%Y%m%d")
+    ts = datetime.now(UTC).strftime("%Y%m%d")
     slug = appmod._slugify(text)
     artifacts = {
         "openapi": f"docs/api/generated/openapi-{ts}-{slug}.yaml",
