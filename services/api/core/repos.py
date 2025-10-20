@@ -92,26 +92,42 @@ def ensure_history_schema(engine: Engine) -> None:
 
 class InteractionHistoryRepoDB:
     def __init__(self, engine: Engine):
-        ensure_history_schema(engine)
+        try:
+            ensure_history_schema(engine)
+        except Exception as e:
+            # Table might already exist, ignore
+            pass
         self.engine = engine
 
     def add(self, entry: dict) -> None:
-        with self.engine.begin() as conn:
-            if "id" not in entry:
-                entry["id"] = str(uuid.uuid4())
-            conn.execute(insert(_HISTORY_TABLE).values(**entry))
+        try:
+            with self.engine.begin() as conn:
+                if "id" not in entry:
+                    entry["id"] = str(uuid.uuid4())
+                conn.execute(insert(_HISTORY_TABLE).values(**entry))
+        except Exception as e:
+            print(f"Database error in add: {e}")
+            raise
 
     def list_by_project(self, project_id: str) -> list[dict]:
-        with self.engine.begin() as conn:
-            result = conn.execute(
-                select(_HISTORY_TABLE).where(_HISTORY_TABLE.c.project_id == project_id)
-            )
-            return [dict(row) for row in result.mappings()]
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(
+                    select(_HISTORY_TABLE).where(_HISTORY_TABLE.c.project_id == project_id)
+                )
+                return [dict(row) for row in result.mappings()]
+        except Exception as e:
+            print(f"Database error in list_by_project: {e}")
+            return []
 
     def list_all(self) -> list[dict]:
-        with self.engine.begin() as conn:
-            result = conn.execute(select(_HISTORY_TABLE))
-            return [dict(row) for row in result.mappings()]
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(select(_HISTORY_TABLE))
+                return [dict(row) for row in result.mappings()]
+        except Exception as e:
+            print(f"Database error in list_all: {e}")
+            return []
 
 # A single metadata object for our schema
 _NOTES_METADATA = MetaData()

@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "FastAPI (Uvicorn)",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
       "args": [
@@ -15,6 +15,22 @@
         "PYTHONPATH": "${workspaceFolder}"
       },
       "console": "integratedTerminal"
+    },
+    {
+      "name": "Frontend (Vite)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/agentic-sdlc-craft/node_modules/.bin/vite",
+      "args": ["--host", "::", "--port", "8080"],
+      "env": {
+        "BROWSER": "none"
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Backend + Frontend",
+      "configurations": ["FastAPI (Uvicorn)", "Frontend (Vite)"]
     }
   ]
 }
