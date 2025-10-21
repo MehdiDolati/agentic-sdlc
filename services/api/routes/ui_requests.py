@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, Request, Form, HTTPException, Depends
+from fastapi import APIRouter, Request, Form, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -39,11 +39,17 @@ class ChatResponse(BaseModel):
 class PRDSaveRequest(BaseModel):
     project_name: str
     prd_content: str
+    project_id: str
 
 class PRDSaveResponse(BaseModel):
     success: bool
     file_path: str
     message: str
+
+class PRDGetResponse(BaseModel):
+    prd_content: str
+    file_path: str
+    last_modified: int
 
 # Create a local templates instance to avoid importing app.py (prevents circular import).
 _THIS_FILE = Path(__file__).resolve()
@@ -110,24 +116,19 @@ def generate_prd_endpoint(
 
 # PRD save endpoint
 @router.post("/api/prd/save", response_model=PRDSaveResponse)
-def save_prd_endpoint(
-    prd_save_request: PRDSaveRequest,
-    user: Dict[str, Any] = Depends(get_current_user),
-):
+def save_prd_endpoint(prd_save_request: PRDSaveRequest):
     """Save PRD to backend file system for use in SDLC workflows."""
-    if _auth_enabled() and user.get("id") == "public":
-        raise HTTPException(status_code=401, detail="authentication required")
-
+    # Skip authentication for PRD saves to enable SDLC workflows
     try:
         from datetime import datetime
         import re
         
-        # Get current date for filename
-        date = datetime.now().strftime("%Y%m%d")
-        
         # Create slug from project name
         slug = re.sub(r'[^a-zA-Z0-9\s-]', '', prd_save_request.project_name.lower())
         slug = re.sub(r'[\s-]+', '-', slug).strip('-')
+        
+        # Use project_id from request (now required)
+        project_id = prd_save_request.project_id
         
         # Create PRD directory if it doesn't exist
         from services.api.core.shared import _repo_root
@@ -135,8 +136,8 @@ def save_prd_endpoint(
         prd_dir = repo_root / "docs" / "prd"
         prd_dir.mkdir(parents=True, exist_ok=True)
         
-        # Generate filename
-        prd_filename = f"PRD-{date}-{slug}.md"
+        # Generate filename with new format: PRD-{project_id}-{slug}
+        prd_filename = f"PRD-{project_id}-{slug}.md"
         prd_path = prd_dir / prd_filename
         
         # Write PRD content to file
@@ -155,32 +156,57 @@ def save_prd_endpoint(
 @router.get("/api/prd/{project_name}")
 def get_prd_endpoint(
     project_name: str,
+    project_id: Optional[str] = Query(None),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """Get the most recent PRD for a project."""
+    """Get the PRD for a project."""
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
 
     try:
         import re
-        
-        # Create slug from project name
-        slug = re.sub(r'[^a-zA-Z0-9\s-]', '', project_name.lower())
-        slug = re.sub(r'[\s-]+', '-', slug).strip('-')
-        
         from services.api.core.shared import _repo_root
+        
         repo_root = _repo_root()
         prd_dir = repo_root / "docs" / "prd"
         
-        # Find the most recent PRD file for this project
-        prd_files = list(prd_dir.glob(f"PRD-*-{slug}.md"))
+        if project_id:
+            # If project_id is provided, find the specific PRD file
+            slug = re.sub(r'[^a-zA-Z0-9\s-]', '', project_name.lower())
+            slug = re.sub(r'[\s-]+', '-', slug).strip('-')
+            prd_filename = f"PRD-{project_id}-{slug}.md"
+            prd_path = prd_dir / prd_filename
+            
+            if not prd_path.exists():
+                raise HTTPException(status_code=404, detail="No PRD found for this project")
+        else:
+            # Fallback: Create slug from project name and find matching files
+            slug = re.sub(r'[^a-zA-Z0-9\s-]', '', project_name.lower())
+            slug = re.sub(r'[\s-]+', '-', slug).strip('-')
+            
+            # Find PRD files matching the slug pattern
+            prd_files = list(prd_dir.glob(f"PRD-*-{slug}.md"))
+            
+            if not prd_files:
+                raise HTTPException(status_code=404, detail="No PRD found for this project")
+            
+            # Sort by filename and get the most recent
+            prd_files.sort(reverse=True)
+            prd_path = prd_files[0]
         
-        if not prd_files:
-            raise HTTPException(status_code=404, detail="No PRD found for this project")
+        # Read and return PRD content
+        prd_content = prd_path.read_text(encoding="utf-8")
         
-        # Sort by filename (date is in filename) and get the most recent
-        prd_files.sort(reverse=True)
-        latest_prd = prd_files[0]
+        return PRDGetResponse(
+            prd_content=prd_content,
+            file_path=str(prd_path),
+            last_modified=int(prd_path.stat().st_mtime)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get PRD: {str(e)}")
         
         prd_content = latest_prd.read_text(encoding="utf-8")
         

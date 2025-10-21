@@ -14,10 +14,11 @@ if __name__ == "__main__":
         import uvicorn
         
         # Start the server with proper configuration
+        port = int(os.getenv("PORT", "8000"))
         config = uvicorn.Config(
             app, 
             host="0.0.0.0", 
-            port=8000,
+            port=port,
             log_level="debug",
             access_log=True,
             reload=False,

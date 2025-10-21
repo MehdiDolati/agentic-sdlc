@@ -1,0 +1,9 @@
+[
+    {
+        "key": "ctrl+shift+d",
+        "command": "workbench.action.debug.start",
+        "args": {
+            "config": "Backend + Frontend"
+        }
+    }
+]

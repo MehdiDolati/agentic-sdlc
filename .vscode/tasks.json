@@ -2,53 +2,24 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Start Backend",
-      "type": "shell",
-      "command": "python",
-      "args": ["start_backend.py"],
-      "group": "build",
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "isBackground": true,
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}/agentic-sdlc"
-      }
-    },
-    {
-      "label": "Start Frontend",
-      "type": "shell",
-      "command": "npm",
-      "args": ["run", "dev"],
-      "group": "build",
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "isBackground": true,
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}/agentic-sdlc-craft"
-      }
-    },
-    {
       "label": "Start Both Services",
-      "dependsOn": ["Start Backend", "Start Frontend"],
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/../start-services.ps1"
+      ],
       "group": {
         "kind": "build",
         "isDefault": true
       },
-      "dependsOrder": "parallel"
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "isBackground": true
     }
   ]
 }
