@@ -2,19 +2,35 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "FastAPI (Uvicorn)",
-      "type": "python",
+      "name": "Backend Only",
+      "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
       "args": [
         "services.api.app:app",
-        "--reload"
+        "--port",
+        "8000"
       ],
-      "jinja": true,
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       },
       "console": "integratedTerminal"
+    },
+    {
+      "name": "Frontend Only",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/../agentic-sdlc-craft/node_modules/.bin/vite",
+      "args": ["--host", "::", "--port", "8080"],
+      "env": {
+        "BROWSER": "none"
+      },
+      "cwd": "${workspaceFolder}/../agentic-sdlc-craft",
+      "sourceMaps": true
+    },
+    {
+      "name": "Backend + Frontend",
+      "configurations": ["Backend Only", "Frontend Only"]
     }
   ]
 }

@@ -30,6 +30,7 @@ ensure_plans_schema = repos_module.ensure_plans_schema
 ensure_runs_schema = repos_module.ensure_runs_schema
 ensure_notes_schema = repos_module.ensure_notes_schema
 ensure_projects_schema = repos_module.ensure_projects_schema
+ensure_history_schema = repos_module.ensure_history_schema
 
 from .agent_template import AgentTemplateRepository
 from .repository import RepositoryRepository as RepositoriesRepoDB
@@ -46,6 +47,7 @@ __all__ = [
     'ensure_runs_schema',
     'ensure_notes_schema',
     'ensure_projects_schema',
+    'ensure_history_schema',
     'RepositoriesRepoDB',
     'AgentsRepoDB',
     'AgentRunsRepoDB'

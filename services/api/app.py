@@ -26,7 +26,7 @@ from services.api.core.shared import (
     _new_id,
     AUTH_MODE
 )
-from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema
+from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema, ensure_history_schema
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
@@ -83,6 +83,10 @@ def get_allowed_origins_from_env() -> list[str]:
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
     ]
 
 # Do NOT put a '*' literal in the source. Use a boolean env marker instead.
@@ -108,8 +112,6 @@ if allow_all_flag:
         allow_credentials = False
 
 # Note: Middleware will be added after app is created (see below)
-
-from services.api.routes.history import router as history_router
 
 # --- UI wiring (templates + static) ---
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret")
@@ -239,15 +241,25 @@ def _init_schemas():
         ensure_runs_schema(eng)
     except Exception:
         pass
+    try:
+        ensure_history_schema(eng)
+    except Exception:
+        pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ---- startup (was @app.on_event("startup")) ----
-    _init_schemas()
+    print("Starting lifespan...")
     try:
+        # _init_schemas()
+        print("Lifespan startup complete")
         yield
+    except Exception as e:
+        print(f"Error in lifespan: {e}")
+        raise
     finally:
         # ---- shutdown (was @app.on_event("shutdown")) ----
+        print("Lifespan shutdown")
         # nothing to do here right now
         # e.g., close DBs/threads if you add them later
         pass
@@ -288,12 +300,13 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 # --------------------------------------------------------------------------------------
 @app.get("/health")
 def health():
-    if os.getenv("STARTUP_DEBUG"):
-        try:
-            dsn = psycopg_conninfo_from_env()
-            print(f"[app] normalized DSN: {dsn_summary(str(dsn))}")
-        except Exception as e:
-            print(f"[app] DSN normalization failed: {e!r}")
+    # Temporarily disable debug output to see if that's causing the server to crash
+    # if os.getenv("STARTUP_DEBUG"):
+    #     try:
+    #         dsn = psycopg_conninfo_from_env()
+    #         print(f"[app] normalized DSN: {dsn_summary(str(dsn))}")
+    #     except Exception as e:
+    #         print(f"[app] DSN normalization failed: {e!r}")
     return {"status": "ok"}
 
 
