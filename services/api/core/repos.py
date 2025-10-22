@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
-    create_engine, MetaData, Table, Column, String, JSON, DateTime,
+    create_engine, MetaData, Table, Column, String, JSON, DateTime, Integer,
     select, insert, update, delete as sa_delete, func, ForeignKey, 
     text, inspect, cast, asc, desc, and_, or_, true as sql_true
     
@@ -27,6 +27,10 @@ _PROJECTS_TABLE = Table(
     Column("status", String, nullable=False, server_default="new"),
     Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
     Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
+    Column("repository_id", String, nullable=True),
+    Column("repository_url", String, nullable=True),
+    Column("repository_owner", String, nullable=True),
+    Column("repository_name", String, nullable=True),
 )
 
 _PLANS_METADATA = MetaData()
@@ -165,30 +169,44 @@ class ProjectsRepoDB:
         return entry
     
     def get(self, project_id: str) -> dict | None:
-        with self.engine.connect() as conn:
-            row = conn.execute(
-                select(
-                    _PROJECTS_TABLE.c.id,
-                    _PROJECTS_TABLE.c.title,
-                    _PROJECTS_TABLE.c.description,
-                    _PROJECTS_TABLE.c.owner,
-                    _PROJECTS_TABLE.c.status,
-                    _PROJECTS_TABLE.c.created_at,
-                    _PROJECTS_TABLE.c.updated_at,
-                ).where(_PROJECTS_TABLE.c.id == project_id)
-            ).first()
-        if not row:
-            return None
-        pid, title, description,  owner, status, created_at, updated_at = row
-        return {
-            "id": pid,
-            "title": title,
-            "description": description,
-            "owner": owner,
-            "status": status or "new",
-            "created_at": created_at.isoformat() if created_at else None,
-            "updated_at": updated_at.isoformat() if updated_at else None,
-        }
+        try:
+            with self.engine.connect() as conn:
+                row = conn.execute(
+                    select(
+                        _PROJECTS_TABLE.c.id,
+                        _PROJECTS_TABLE.c.title,
+                        _PROJECTS_TABLE.c.description,
+                        _PROJECTS_TABLE.c.owner,
+                        _PROJECTS_TABLE.c.status,
+                        _PROJECTS_TABLE.c.created_at,
+                        _PROJECTS_TABLE.c.updated_at,
+                        _PROJECTS_TABLE.c.repository_id,
+                        _PROJECTS_TABLE.c.repository_url,
+                        _PROJECTS_TABLE.c.repository_owner,
+                        _PROJECTS_TABLE.c.repository_name,
+                    ).where(_PROJECTS_TABLE.c.id == project_id)
+                ).first()
+            if not row:
+                return None
+            pid, title, description, owner, status, created_at, updated_at, repo_id, repo_url, repo_owner, repo_name = row
+            return {
+                "id": pid,
+                "title": title,
+                "description": description,
+                "owner": owner,
+                "status": status or "new",
+                "created_at": created_at.isoformat() if created_at else None,
+                "updated_at": updated_at.isoformat() if updated_at else None,
+                "repository_id": repo_id,
+                "repository_url": repo_url,
+                "repository_owner": repo_owner,
+                "repository_name": repo_name,
+            }
+        except Exception as e:
+            print(f"[ERROR in ProjectsRepoDB.get()] {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     def list(self, limit: int = 20, offset: int = 0, **filters):
         q      = (filters.get("q") or "").strip()
@@ -264,10 +282,32 @@ class ProjectsRepoDB:
             return [], 0
         
     def update(self, project_id: str, fields: dict) -> dict | None:
+        print(f"[ProjectsRepoDB.update] project_id={project_id}, fields={fields}")
         if not fields:
             return self.get(project_id)
-        allowed = {"title", "description", "owner", "artifacts", "status"}
+        
+        # Get current project to check status
+        current_project = self.get(project_id)
+        if not current_project:
+            return None
+        
+        # Only allow title/description/repository_id edits if status is 'new' or 'planning'
+        current_status = current_project.get("status", "")
+        print(f"[ProjectsRepoDB.update] current_status={current_status}")
+        editable_statuses = {"new", "planning"}
+        
+        # Filter out title/description/repository_id if status doesn't allow editing
+        if current_status not in editable_statuses:
+            # Remove title, description and repository fields from fields if present
+            fields = {k: v for k, v in fields.items() if k not in {"title", "description", "repository_id", "repository_url", "repository_owner", "repository_name"}}
+            print(f"[ProjectsRepoDB.update] Status not editable, filtered fields={fields}")
+            if not fields:
+                # No valid fields to update
+                return current_project
+        
+        allowed = {"title", "description", "owner", "artifacts", "status", "repository_id", "repository_url", "repository_owner", "repository_name"}
         payload = {k: v for k, v in fields.items() if k in allowed}
+        print(f"[ProjectsRepoDB.update] payload={payload}")
         if not payload:
             return self.get(project_id)
         with self.engine.begin() as conn:
@@ -276,6 +316,7 @@ class ProjectsRepoDB:
                 .where(_PROJECTS_TABLE.c.id == project_id)
                 .values(**payload)
             )
+            print(f"[ProjectsRepoDB.update] Updated {res.rowcount} rows")
             # res.rowcount might be 0 if not found
         return self.get(project_id)
     

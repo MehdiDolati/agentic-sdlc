@@ -129,7 +129,9 @@ def auth_login(payload: Dict[str, str] = Body(...)):
     uf = _users_file()
     try:
         users_raw = json.loads(uf.read_text(encoding="utf-8"))
-    except Exception:
+        print(f"[DEBUG] Loaded users_raw type: {type(users_raw)}, keys: {list(users_raw.keys()) if isinstance(users_raw, dict) else 'N/A'}")
+    except Exception as e:
+        print(f"[DEBUG] Failed to load users.json: {e}")
         users_raw = {}
 
     def _iter_user_records(obj):
@@ -147,12 +149,16 @@ def auth_login(payload: Dict[str, str] = Body(...)):
          if str(u.get("email", "")).strip().lower() == email),
         None
     )
+    print(f"[DEBUG] Found user: {user is not None}")
+    if user:
+        print(f"[DEBUG] User email: {user.get('email')}, has password_hash: {bool(user.get('password_hash'))}")
     if not user:
         raise HTTPException(status_code=400, detail="invalid credentials")
 
     # Verify password
     stored = user.get("password_hash") or user.get("password") or ""
     if not verify_password(password, stored):
+        print(f"[DEBUG] verify_password returned False")
         raise HTTPException(status_code=400, detail="invalid credentials")
 
     # Normalize user id for tokens

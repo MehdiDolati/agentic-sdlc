@@ -76,6 +76,7 @@ project_agents = Table(
     Column('type', String, nullable=False),
     Column('description', String),
     Column('config', String, default='{}'),
+    Column('step_key', String),  # SDLC step this agent is assigned to
     Column('created_at', DateTime, default=datetime.utcnow),
     Column('updated_at', DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 )
