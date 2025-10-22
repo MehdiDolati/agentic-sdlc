@@ -8,7 +8,8 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from datetime import datetime
 from services.api.auth.routes import get_current_user
-from services.api.core.shared import _auth_enabled
+from services.api.core.shared import _auth_enabled, _create_engine, _database_url, _repo_root
+from services.api.core.repos import InteractionHistoryRepoDB
 
 import services.api.core.shared as shared
 from services.api.planner.core import plan_request, _generate_prd_with_llm, _get_chat_history_context  # deterministic planner fallback
@@ -29,6 +30,7 @@ class PRDResponse(BaseModel):
     plan_id: Optional[str] = None
 
 class ChatRequest(BaseModel):
+    project_id: str
     project_name: str
     message: str
 
@@ -120,7 +122,6 @@ def save_prd_endpoint(prd_save_request: PRDSaveRequest):
     """Save PRD to backend file system for use in SDLC workflows."""
     # Skip authentication for PRD saves to enable SDLC workflows
     try:
-        from datetime import datetime
         import re
         
         # Create slug from project name
@@ -131,7 +132,6 @@ def save_prd_endpoint(prd_save_request: PRDSaveRequest):
         project_id = prd_save_request.project_id
         
         # Create PRD directory if it doesn't exist
-        from services.api.core.shared import _repo_root
         repo_root = _repo_root()
         prd_dir = repo_root / "docs" / "prd"
         prd_dir.mkdir(parents=True, exist_ok=True)
@@ -249,33 +249,13 @@ def chat_message_endpoint(
         response_content = f"Thanks for your message: '{chat_request.message}'. I'm here to help gather requirements for {chat_request.project_name}. What specific features or functionality are you looking to implement?"
 
     # Save the conversation to history
-    from sqlalchemy import create_engine
-    from pathlib import Path
-    import os
-    
-    def _database_url(repo_root: Path) -> str:
-        env = os.getenv("DATABASE_URL")
-        if env:
-            return env
-        db_path = (repo_root / "notes.db").resolve()
-        return f"sqlite+pysqlite:///{db_path}"
-
-    def _create_engine(url: str):
-        return create_engine(url, future=True, echo=False)
-
-    def _repo_root() -> Path:
-        return Path.cwd()
-    
     try:
-        repo_root = _repo_root()
-        url = _database_url(repo_root)
-        engine = _create_engine(url)
-        from services.api.core.repos import InteractionHistoryRepoDB
+        engine = _create_engine(_database_url(_repo_root()))
         repo = InteractionHistoryRepoDB(engine)
         
         # Save user message
         repo.add({
-            "project_id": chat_request.project_name,
+            "project_id": chat_request.project_id,
             "role": "user", 
             "prompt": chat_request.message,
             "response": "",
@@ -284,7 +264,7 @@ def chat_message_endpoint(
         
         # Save AI response
         repo.add({
-            "project_id": chat_request.project_name,
+            "project_id": chat_request.project_id,
             "role": "assistant",
             "prompt": "",
             "response": response_content,

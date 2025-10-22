@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 class ProjectCreate(BaseModel):
     title: str
     description: Optional[str] = ""
-    status: Optional[str] = "planning"
+    status: Optional[str] = "new"
 
 class ProjectUpdate(BaseModel):
     title: Optional[str] = None
@@ -66,7 +66,7 @@ def create_project(
             "title": project_data.title,
             "description": project_data.description or "",
             "owner": user.get("id", "public"),
-            "status": project_data.status or "planning"
+            "status": "new"  # Always start new projects with "new" status
         }
         
         projects_repo.create(project_dict)

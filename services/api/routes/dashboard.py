@@ -65,7 +65,9 @@ def _calculate_project_progress(project_id: str, plans_repo: PlansRepoDB, runs_r
 
 def _get_project_stage(status: str, artifacts: Dict[str, Any]) -> str:
     """Determine project stage based on status and artifacts."""
-    if status == "planning":
+    if status == "new":
+        return "requirements"
+    elif status == "planning":
         return "requirements"
     elif status == "development":
         if artifacts.get("prd") and artifacts.get("architecture"):
