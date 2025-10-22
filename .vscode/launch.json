@@ -8,6 +8,7 @@
       "module": "uvicorn",
       "args": [
         "services.api.app:app",
+        "--reload",
         "--port",
         "8000"
       ],
@@ -25,8 +26,7 @@
       "env": {
         "BROWSER": "none"
       },
-      "cwd": "${workspaceFolder}/../agentic-sdlc-craft",
-      "sourceMaps": true
+      "cwd": "${workspaceFolder}/../agentic-sdlc-craft"
     },
     {
       "name": "Backend + Frontend",

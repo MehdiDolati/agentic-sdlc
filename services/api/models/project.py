@@ -22,6 +22,7 @@ class ProjectAgentBase(BaseModel):
     type: str
     description: Optional[str] = None
     config: Optional[Dict] = {}
+    step_key: Optional[str] = None  # SDLC step this agent is assigned to
 
 class ProjectAgentCreate(BaseModel):
     agent_template_id: int
@@ -29,6 +30,7 @@ class ProjectAgentCreate(BaseModel):
     type: Optional[str] = None
     description: Optional[str] = ""
     config: Optional[Dict] = {}
+    step_key: Optional[str] = None  # SDLC step this agent is assigned to
 
 class ProjectAgent(ProjectAgentBase):
     id: int
