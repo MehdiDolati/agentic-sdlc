@@ -53,6 +53,31 @@ class PRDGetResponse(BaseModel):
     file_path: str
     last_modified: int
 
+class ADRRequest(BaseModel):
+    project_name: str
+    project_description: Optional[str] = None
+    prd_content: Optional[str] = None
+    include_chat_history: bool = True
+
+class ADRResponse(BaseModel):
+    adr_content: str
+    plan_id: Optional[str] = None
+
+class ADRSaveRequest(BaseModel):
+    project_name: str
+    adr_content: str
+    project_id: str
+
+class ADRSaveResponse(BaseModel):
+    success: bool
+    file_path: str
+    message: str
+
+class ADRGetResponse(BaseModel):
+    adr_content: str
+    file_path: str
+    last_modified: int
+
 # Create a local templates instance to avoid importing app.py (prevents circular import).
 _THIS_FILE = Path(__file__).resolve()
 _TEMPLATES_DIR = _THIS_FILE.parents[2] / "templates"  # <repo>/services/templates
@@ -207,19 +232,192 @@ def get_prd_endpoint(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get PRD: {str(e)}")
+
+# ADR generation endpoint
+@router.post("/api/adr/generate", response_model=ADRResponse)
+def generate_adr_endpoint(
+    adr_request: ADRRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Generate ADR using PRD content and chat history."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+
+    # Get LLM client
+    from services.api.llm import get_llm_from_env
+    llm_client = get_llm_from_env()
+    
+    if not llm_client:
+        # Fallback ADR content
+        adr_content = f"""# Architecture Design Records (ADR)
+## {adr_request.project_name}
+
+## ADR 001: Technology Stack Selection
+
+### Context
+{adr_request.project_description or "Project requires technology stack selection for optimal architecture."}
+
+### Decision
+We will use a modern web stack with React frontend and FastAPI backend.
+
+### Consequences
+- **Positive**: Fast development, good ecosystem support
+- **Negative**: Learning curve for new technologies
+- **Risks**: Technology changes, maintenance overhead
+
+### Status
+Accepted
+"""
+    else:
+        # Generate ADR using LLM
+        system_prompt = """You are an expert software architect. Generate comprehensive Architecture Design Records (ADR) and Technology Stack Specification based on the provided PRD and project information. Follow ADR best practices with clear context, decisions, and consequences."""
         
-        prd_content = latest_prd.read_text(encoding="utf-8")
+        user_prompt = f"""Generate Architecture Design Records and Technology Stack Specification for this project:
+
+Project: {adr_request.project_name}
+Description: {adr_request.project_description or 'No description provided'}
+
+PRD Content:
+{adr_request.prd_content or 'No PRD content available'}
+
+Please create TWO separate documents:
+
+1. ARCHITECTURE DESIGN RECORDS (ADR) - covering system design decisions
+2. TECHNOLOGY STACK SPECIFICATION - detailed technology choices and implementation guidelines
+
+SEPARATE the two documents with this exact keyword: ---TECH-STACK---
+
+Format the ADR section as proper ADR documents with Context, Decision, Consequences, and Status sections.
+Format the Tech Stack section as detailed implementation specifications.
+
+Example structure:
+# Architecture Design Records (ADR)
+## [Project Name]
+
+[ADR content here]
+
+---TECH-STACK---
+
+# Technology Stack Specification
+## [Project Name]
+
+[Tech stack content here]"""
+
+        try:
+            adr_content = llm_client.generate_plan(user_prompt, system_prompt=system_prompt)
+        except Exception as e:
+            print(f"LLM ADR generation failed: {e}")
+            # Fallback content
+            adr_content = f"""# Architecture Design Records (ADR)
+## {adr_request.project_name}
+
+## ADR 001: Technology Stack Selection
+
+### Context
+{adr_request.project_description or "Project requires technology stack selection."}
+
+### Decision
+Selected technology stack based on project requirements.
+
+### Status
+Draft - Requires refinement with LLM
+"""
+
+    return ADRResponse(
+        adr_content=adr_content,
+        plan_id=None
+    )
+
+# ADR save endpoint
+@router.post("/api/adr/save", response_model=ADRSaveResponse)
+def save_adr_endpoint(adr_save_request: ADRSaveRequest):
+    """Save ADR to backend file system."""
+    try:
+        import re
         
-        return JSONResponse({
-            "prd_content": prd_content,
-            "file_path": str(latest_prd),
-            "last_modified": latest_prd.stat().st_mtime
-        })
+        # Create slug from project name
+        slug = re.sub(r'[^a-zA-Z0-9\s-]', '', adr_save_request.project_name.lower())
+        slug = re.sub(r'[\s-]+', '-', slug).strip('-')
+        
+        # Use project_id from request
+        project_id = adr_save_request.project_id
+        
+        # Create ADR directory if it doesn't exist
+        repo_root = _repo_root()
+        adr_dir = repo_root / "docs" / "adr"
+        adr_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename with format: ADR-{project_id}-{slug}
+        adr_filename = f"ADR-{project_id}-{slug}.md"
+        adr_path = adr_dir / adr_filename
+        
+        # Write ADR content to file
+        adr_path.write_text(adr_save_request.adr_content.strip() + "\n", encoding="utf-8")
+        
+        return ADRSaveResponse(
+            success=True,
+            file_path=str(adr_path),
+            message=f"ADR saved successfully as {adr_filename}"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save ADR: {str(e)}")
+
+# ADR get endpoint
+@router.get("/api/adr/{project_name}")
+def get_adr_endpoint(
+    project_name: str,
+    project_id: Optional[str] = Query(None),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Get the ADR for a project."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+
+    try:
+        import re
+        from services.api.core.shared import _repo_root
+        
+        repo_root = _repo_root()
+        adr_dir = repo_root / "docs" / "adr"
+        
+        if project_id:
+            # If project_id is provided, find the specific ADR file
+            slug = re.sub(r'[^a-zA-Z0-9\s-]', '', project_name.lower())
+            slug = re.sub(r'[\s-]+', '-', slug).strip('-')
+            adr_filename = f"ADR-{project_id}-{slug}.md"
+            adr_path = adr_dir / adr_filename
+            
+            if not adr_path.exists():
+                raise HTTPException(status_code=404, detail="No ADR found for this project")
+        else:
+            # Fallback: Create slug from project name and find matching files
+            slug = re.sub(r'[^a-zA-Z0-9\s-]', '', project_name.lower())
+            slug = re.sub(r'[\s-]+', '-', slug).strip('-')
+            
+            # Find ADR files matching the slug pattern
+            adr_files = list(adr_dir.glob(f"ADR-*-{slug}.md"))
+            
+            if not adr_files:
+                raise HTTPException(status_code=404, detail="No ADR found for this project")
+            
+            # Sort by filename and get the most recent
+            adr_files.sort(reverse=True)
+            adr_path = adr_files[0]
+        
+        # Read and return ADR content
+        adr_content = adr_path.read_text(encoding="utf-8")
+        
+        return ADRGetResponse(
+            adr_content=adr_content,
+            file_path=str(adr_path),
+            last_modified=int(adr_path.stat().st_mtime)
+        )
         
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get PRD: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get ADR: {str(e)}")
 
 # Chat endpoint
 @router.post("/api/chat/message", response_model=ChatResponse)
