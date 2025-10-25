@@ -67,3 +67,38 @@ class Project(ProjectBase):
     repository: Optional[Repository] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class PlanBase(BaseModel):
+    name: str
+    description: str
+    size_estimate: int  # Story points or similar size metric
+    priority: str = "medium"  # high, medium, low
+
+class PlanCreate(PlanBase):
+    project_id: str
+
+class Plan(PlanBase):
+    id: str
+    project_id: str
+    created_at: str
+    updated_at: str
+    features: List['Feature'] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+class FeatureBase(BaseModel):
+    name: str
+    description: str
+    size_estimate: int  # Story points or similar size metric
+    priority: str = "medium"  # high, medium, low
+
+class FeatureCreate(FeatureBase):
+    plan_id: str
+
+class Feature(FeatureBase):
+    id: str
+    plan_id: str
+    created_at: str
+    updated_at: str
+
+    model_config = ConfigDict(from_attributes=True)

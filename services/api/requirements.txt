@@ -16,3 +16,4 @@ pydantic[email]
 python-multipart
 requests>=2.31.0
 pytest-cov
+python-dotenv==1.0.0

@@ -10,6 +10,12 @@
     "id": "u_af75c8",
     "email": "persianmd@yahoo.com",
     "password_hash": "92e07b2e82bd5be8d7a93c3e1e83573fb470b866c488f25ac847534d64377a9d",
-	"role": "admin"
+    "role": "admin"
+  },
+  "u_540890": {
+    "id": "u_540890",
+    "email": "me@test.com",
+    "password_hash": "30c952fab122c3f9759f02a6d95c3758b246b4fee239957b2d4fee46e26170c4",
+    "role": "user"
   }
 }
