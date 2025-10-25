@@ -5,6 +5,11 @@ __pycache__/
 *.py[cod]
 .venv/
 
+# Environment variables
+.env
+.env.local
+.env.*.local
+
 # Generated docs & artifacts
 docs/plans/
 services/docs/adr/

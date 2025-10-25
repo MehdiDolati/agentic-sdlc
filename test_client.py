@@ -24,6 +24,7 @@ output_thread.start()
 
 try:
     # Make a request with urllib
+    # nosemgrep: python.lang.security.audit.insecure-transport.urllib.insecure-urlopen.insecure-urlopen
     with urllib.request.urlopen('http://127.0.0.1:8006/') as response:
         print(f'Status: {response.status}')
         print(f'Content: {response.read().decode()}')
