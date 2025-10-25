@@ -151,12 +151,24 @@ def migrate_sqlite_database():
                     owner TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'new',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    repository_id TEXT,
+                    repository_url TEXT,
+                    repository_owner TEXT,
+                    repository_name TEXT
                 )
             """)
             print("[migration] ✅ Projects table created")
         else:
             print("[migration] Projects table already exists")
+            # Check if repository columns exist and add them if missing
+            if not column_exists(cursor, 'projects', 'repository_id'):
+                print("[migration] Adding repository columns to projects table...")
+                cursor.execute("ALTER TABLE projects ADD COLUMN repository_id TEXT")
+                cursor.execute("ALTER TABLE projects ADD COLUMN repository_url TEXT")
+                cursor.execute("ALTER TABLE projects ADD COLUMN repository_owner TEXT")
+                cursor.execute("ALTER TABLE projects ADD COLUMN repository_name TEXT")
+                print("[migration] ✅ Repository columns added to projects table")
         
         # 2. Create notes table if it doesn't exist
         if not table_exists(cursor, 'notes'):
@@ -243,6 +255,17 @@ def migrate_sqlite_database():
             print("[migration] ✅ Agents table created")
         else:
             print("[migration] Agents table already exists")
+        
+        # 5.5. Handle project_agents table and step_key column
+        if table_exists(cursor, 'project_agents'):
+            if not column_exists(cursor, 'project_agents', 'step_key'):
+                print("[migration] Adding step_key column to project_agents table...")
+                cursor.execute("ALTER TABLE project_agents ADD COLUMN step_key TEXT")
+                print("[migration] ✅ step_key column added to project_agents table")
+            else:
+                print("[migration] step_key column already exists in project_agents table")
+        else:
+            print("[migration] project_agents table doesn't exist - will be created by application")
         
         # 6. Create agent_runs table if it doesn't exist
         if not table_exists(cursor, 'agent_runs'):

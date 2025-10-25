@@ -1,0 +1,20 @@
+openapi: 3.1.0
+info:
+  title: First API
+  version: 1.0.0
+paths:
+  /hello:
+    get:
+      summary: Returns a simple greeting message
+      operationId: getHelloMessage
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Hello from the API!

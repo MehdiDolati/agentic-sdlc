@@ -8,6 +8,13 @@ import services.api.core.shared as shared
 from contextlib import asynccontextmanager
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, continue without it
 from fastapi.exceptions import RequestValidationError
 import logging
  
@@ -35,7 +42,6 @@ from services.api.runs.routes import router as runs_router
 from services.api.routes.ui_requests import router as ui_requests_router
 from services.api.routes.dashboard import router as dashboard_router
 from services.api.routes.projects import router as projects_router
-from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.settings import router as ui_settings_router
 from services.api.routes.agent import router as agent_router
 from services.api.routes.agents import router as agents_router
@@ -251,11 +257,14 @@ async def lifespan(app: FastAPI):
     # ---- startup (was @app.on_event("startup")) ----
     print("Starting lifespan...")
     try:
-        # _init_schemas()
+        # _init_schemas()  # Commented out for testing
         print("Lifespan startup complete")
         yield
+        print("Lifespan yielding back")
     except Exception as e:
         print(f"Error in lifespan: {e}")
+        import traceback
+        traceback.print_exc()
         raise
     finally:
         # ---- shutdown (was @app.on_event("shutdown")) ----
@@ -402,13 +411,24 @@ def orchestrator_run(payload: Dict[str, Any]):
 @app.middleware("http")
 async def _attach_user_to_request(request: Request, call_next):
     # Expose current user to templates, derived from raw HTTP headers/cookies
-    request.state.user = _user_from_http(request)
+    try:
+        request.state.user = _user_from_http(request)
+    except Exception as e:
+        print(f"Error in user attachment middleware: {e}")
+        request.state.user = {"id": "public", "email": "public@example.com"}
     return await call_next(request)
 
 # Minimal root page — snapshot tests look for 'hello endpoint'
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def index(request: Request):
-    return HTMLResponse("<h1>hello endpoint</h1>")
+    try:
+        print("Root endpoint called")
+        return JSONResponse(content={"message": "hello endpoint"})
+    except Exception as e:
+        print(f"Error in index: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(content={"error": str(e)}, status_code=500)
     
 # -------------------- Flash-friendly exception handlers --------------------
 def _wants_html_fragment(req: Request) -> bool:
@@ -454,15 +474,27 @@ async def validation_exc_handler(request: Request, exc: RequestValidationError):
         )
     return JSONResponse({"detail": exc.errors()}, status_code=422)
 
-FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
-@app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    if FAVICON_PATH.exists():
-        return FileResponse(FAVICON_PATH)
-    # Optional: avoid 404 noise if it’s missing
-    return FileResponse(FAVICON_PATH, status_code=200)  # or return a 204       
+# FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
+# @app.get("/favicon.ico", include_in_schema=False)
+# async def favicon():
+#     if FAVICON_PATH.exists():
+#         return FileResponse(FAVICON_PATH)
+#     # Optional: avoid 404 noise if it’s missing
+#     return FileResponse(FAVICON_PATH, status_code=200)  # or return a 204       
     
 def _hx_target_id(request: Request) -> str | None:
     # HTMX sends the id of the target element (if it has an id)
     return request.headers.get("HX-Target")
+
+# FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
+# @app.get("/favicon.ico", include_in_schema=False)
+# async def favicon():
+#     if FAVICON_PATH.exists():
+#         return FileResponse(FAVICON_PATH)
+#     # Optional: avoid 404 noise if it’s missing
+#     return FileResponse(FAVICON_PATH, status_code=200)  # or return a 204       
+    
+# def _hx_target_id(request: Request) -> str | None:
+#     # HTMX sends the id of the target element (if it has an id)
+#     return request.headers.get("HX-Target")
     
