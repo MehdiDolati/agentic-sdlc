@@ -91,7 +91,7 @@ class MockLLM:
         )
         return PlanArtifacts(prd_markdown=prd_md, openapi_yaml=openapi_yaml)
 
-def get_llm_from_env():
+def get_llm_from_env() -> Optional[LLMClient]:
     """
     Return an LLM client instance based on env vars.
     Honors LLM_PROVIDER=mock (used by the test).
@@ -101,8 +101,31 @@ def get_llm_from_env():
         return None
     if provider in {"mock", "test"}:
         return MockLLM()
-
-    # You can wire real providers later; return None for now.
+    if provider == "supabase":
+        return SupabaseLLM(
+            supabase_url=os.environ.get("SUPABASE_URL", ""),
+            supabase_key=os.environ.get("SUPABASE_ANON_KEY", ""),
+            timeout=float(os.environ.get("LLM_TIMEOUT_SECONDS", "20")),
+        )
+    if provider == "openai":
+        return OpenAIChatLLM(
+            api_key=os.environ.get("OPENAI_API_KEY", ""),
+            model=os.environ.get("LLM_MODEL", "gpt-4o-mini"),
+            timeout=float(os.environ.get("LLM_TIMEOUT_SECONDS", "20")),
+        )
+    if provider == "anthropic":
+        return AnthropicMessagesLLM(
+            api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            model=os.environ.get("LLM_MODEL", "claude-3-5-sonnet-latest"),
+            timeout=float(os.environ.get("LLM_TIMEOUT_SECONDS", "20")),
+        )
+    if provider == "ollama":
+        return OllamaLLM(
+            base_url=os.environ.get("LLM_ENDPOINT", "http://localhost:11434"),
+            model=os.environ.get("LLM_MODEL", "llama3.1:8b"),
+            timeout=float(os.environ.get("LLM_TIMEOUT_SECONDS", "20")),
+        )
+    # Unknown -> disable
     return None
 
 class OpenAIChatLLM:
@@ -183,6 +206,72 @@ class OllamaLLM:
             resp.raise_for_status()
             text = resp.json()["response"]
         obj = json.loads(text)
+        return PlanArtifacts(
+            prd_markdown=obj["prd_markdown"],
+            openapi_yaml=obj["openapi_yaml"],
+        )
+
+class SupabaseLLM:
+    def __init__(self, supabase_url: str, supabase_key: str, timeout: float = 20.0):
+        self.supabase_url = supabase_url.rstrip("/")
+        self.supabase_key = supabase_key
+        self.timeout = timeout
+
+    def generate_plan(self, user_request: str) -> PlanArtifacts:
+        if not self.supabase_url or not self.supabase_key:
+            raise RuntimeError("SUPABASE_URL and SUPABASE_ANON_KEY must be set")
+
+        url = f"{self.supabase_url}/functions/v1/chat"
+        headers = {
+            "Authorization": f"Bearer {self.supabase_key}",
+            "Content-Type": "application/json",
+        }
+
+        system_prompt = """You are a software planner. From this request, return a STRICT JSON object with keys:
+- "prd_markdown": markdown product requirements (H1 title, problem, goals, non-goals, success criteria)
+- "openapi_yaml": a minimal valid OpenAPI 3.1 YAML describing the API touched by this feature.
+Do NOT include any extra commentary. JSON only."""
+
+        data = {
+            "messages": [
+                {"role": "user", "content": user_request}
+            ],
+            "systemPrompt": system_prompt
+        }
+
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.post(url, headers=headers, json=data)
+            resp.raise_for_status()
+
+            # Supabase returns streaming response, need to parse it
+            content = ""
+            for line in resp.iter_lines():
+                line = line.decode('utf-8') if isinstance(line, bytes) else line
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str and data_str != "[DONE]":
+                        try:
+                            parsed = json.loads(data_str)
+                            chunk = parsed.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                            content += chunk
+                        except json.JSONDecodeError:
+                            continue
+
+        # Parse the accumulated content as JSON
+        if not content.strip():
+            raise RuntimeError("Empty response from Supabase AI")
+
+        # Strip markdown code blocks if present
+        content = content.strip()
+        if content.startswith("```json"):
+            content = content[7:]  # Remove ```json
+        if content.startswith("```"):
+            content = content[3:]  # Remove ```
+        if content.endswith("```"):
+            content = content[:-3]  # Remove trailing ```
+        content = content.strip()
+
+        obj = json.loads(content)
         return PlanArtifacts(
             prd_markdown=obj["prd_markdown"],
             openapi_yaml=obj["openapi_yaml"],

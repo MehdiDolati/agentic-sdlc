@@ -1,0 +1,19 @@
+openapi: 3.1.0
+info:
+  title: Initial API Endpoints
+  version: 1.0.0
+paths:
+  /:
+    get:
+      summary: Welcomes users to the API
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Welcome to the API!

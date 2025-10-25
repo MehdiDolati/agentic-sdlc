@@ -8,6 +8,8 @@ def isolate_env_and_cache(monkeypatch):
     monkeypatch.delenv("APP_STATE_DIR", raising=False)
     monkeypatch.delenv("REPO_ROOT", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("AUTH_MODE", raising=False)
     # Clear the shared module repo-root cache before each test
     if hasattr(shared, "_reset_repo_root_cache_for_tests"):
         shared._reset_repo_root_cache_for_tests()
@@ -16,23 +18,8 @@ def isolate_env_and_cache(monkeypatch):
     monkeypatch.delenv("APP_STATE_DIR", raising=False)
     monkeypatch.delenv("REPO_ROOT", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    if hasattr(shared, "_reset_repo_root_cache_for_tests"):
-        shared._reset_repo_root_cache_for_tests()
-
-@pytest.fixture(autouse=True)
-def isolate_env_and_cache(monkeypatch):
-    # Ensure env vars do not leak into tests
-    monkeypatch.delenv("APP_STATE_DIR", raising=False)
-    monkeypatch.delenv("REPO_ROOT", raising=False)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    # Clear the shared module repo-root cache before each test
-    if hasattr(shared, "_reset_repo_root_cache_for_tests"):
-        shared._reset_repo_root_cache_for_tests()
-    yield
-    # cleanup after test
-    monkeypatch.delenv("APP_STATE_DIR", raising=False)
-    monkeypatch.delenv("REPO_ROOT", raising=False)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("AUTH_MODE", raising=False)
     if hasattr(shared, "_reset_repo_root_cache_for_tests"):
         shared._reset_repo_root_cache_for_tests()
 
