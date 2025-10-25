@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
-  title: Initial API Endpoints
+  title: First API
   version: 1.0.0
 paths:
-  /:
+  /hello:
     get:
-      summary: Welcomes users to the API
+      summary: Returns a simple greeting message
+      operationId: getHelloMessage
       responses:
         '200':
           description: Successful response
@@ -16,4 +17,4 @@ paths:
                 properties:
                   message:
                     type: string
-                    example: Welcome to the API!
+                    example: Hello from the API!
