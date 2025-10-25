@@ -4,6 +4,12 @@ from pathlib import Path
 import sys
 import re
 import hmac, hashlib, base64
+
+# Add the project root to Python path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+print(f"Python path: {sys.path[:3]}")  # Debug print
+
 import services.api.core.shared as shared
 from contextlib import asynccontextmanager
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
@@ -48,6 +54,7 @@ from services.api.routes.agents import router as agents_router
 from services.api.routes.repositories import router as repositories_router
 from services.api.routes.admin import router as admin_router
 from services.api.routes.profile import router as profile_router
+from services.api.routes.plans import router as plans_router
 from services.api.routes.history import router as history_router
 
 _BASE_DIR = Path(__file__).resolve().parent
@@ -280,6 +287,7 @@ app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", opena
 app.include_router(ui_requests_router)
 app.include_router(dashboard_router)
 app.include_router(projects_router)
+app.include_router(plans_router)
 app.include_router(ui_plans_router)
 app.include_router(ui_auth_router)
 app.include_router(auth_router)
