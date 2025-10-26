@@ -78,7 +78,7 @@ def get_plan(plan_id: str, db: Session = Depends(get_db), user: dict = Depends(g
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    return Plan(**plan)
+    return Plan(**plan._asdict())
 
 @router.put("/{plan_id}", response_model=Plan)
 def update_plan(plan_id: str, plan_update: PlanBase, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
@@ -105,7 +105,7 @@ def update_plan(plan_id: str, plan_update: PlanBase, db: Session = Depends(get_d
 
     # Return updated plan
     plan = db.execute(text("SELECT * FROM plans WHERE id = :id"), {"id": plan_id}).fetchone()
-    return Plan(**plan)
+    return Plan(**plan._asdict())
 
 @router.put("/{plan_id}/priority", response_model=Plan)
 def update_plan_priority(
@@ -129,7 +129,13 @@ def update_plan_priority(
     if not current_plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    # Update priority (triggers will handle change tracking)
+    current_plan_dict = current_plan._asdict()
+
+    # Check if priority actually changed
+    priority_changed = (current_plan_dict['priority'] != priority or 
+                       current_plan_dict.get('priority_order') != priority_order)
+
+    # Update priority
     db.execute(text("""
         UPDATE plans
         SET priority = :priority, priority_order = :priority_order
@@ -139,11 +145,28 @@ def update_plan_priority(
         "priority": priority,
         "priority_order": priority_order
     })
+
+    # Record priority change if it actually changed
+    if priority_changed:
+        db.execute(text("""
+            INSERT INTO priority_changes (entity_type, entity_id, old_priority, new_priority, old_priority_order, new_priority_order, change_reason, changed_by)
+            VALUES (:entity_type, :entity_id, :old_priority, :new_priority, :old_priority_order, :new_priority_order, :change_reason, :changed_by)
+        """), {
+            "entity_type": "plan",
+            "entity_id": plan_id,
+            "old_priority": current_plan_dict['priority'],
+            "new_priority": priority,
+            "old_priority_order": current_plan_dict.get('priority_order'),
+            "new_priority_order": priority_order,
+            "change_reason": reason,
+            "changed_by": user.get("id")
+        })
+
     db.commit()
 
     # Return updated plan
     plan = db.execute(text("SELECT * FROM plans WHERE id = :id"), {"id": plan_id}).fetchone()
-    return Plan(**plan)
+    return Plan(**plan._asdict())
 
 # Feature CRUD endpoints
 @router.post("/{plan_id}/features", response_model=Feature)
@@ -194,7 +217,7 @@ def get_features_by_plan(plan_id: str, db: Session = Depends(get_db), user: dict
             created_at ASC
     """), {"plan_id": plan_id}).fetchall()
 
-    return [Feature(**feature) for feature in features]
+    return [Feature(**feature._asdict()) for feature in features]
 
 @router.put("/features/{feature_id}/priority", response_model=Feature)
 def update_feature_priority(
@@ -213,7 +236,18 @@ def update_feature_priority(
         raise HTTPException(status_code=400, detail="Invalid priority value")
 
     from sqlalchemy import text
-    # Update priority (triggers will handle change tracking)
+    # Get current feature data
+    current_feature = db.execute(text("SELECT * FROM features WHERE id = :id"), {"id": feature_id}).fetchone()
+    if not current_feature:
+        raise HTTPException(status_code=404, detail="Feature not found")
+
+    current_feature_dict = current_feature._asdict()
+
+    # Check if priority actually changed
+    priority_changed = (current_feature_dict['priority'] != priority or 
+                       current_feature_dict.get('priority_order') != priority_order)
+
+    # Update priority
     db.execute(text("""
         UPDATE features
         SET priority = :priority, priority_order = :priority_order
@@ -223,11 +257,28 @@ def update_feature_priority(
         "priority": priority,
         "priority_order": priority_order
     })
+
+    # Record priority change if it actually changed
+    if priority_changed:
+        db.execute(text("""
+            INSERT INTO priority_changes (entity_type, entity_id, old_priority, new_priority, old_priority_order, new_priority_order, change_reason, changed_by)
+            VALUES (:entity_type, :entity_id, :old_priority, :new_priority, :old_priority_order, :new_priority_order, :change_reason, :changed_by)
+        """), {
+            "entity_type": "feature",
+            "entity_id": feature_id,
+            "old_priority": current_feature_dict['priority'],
+            "new_priority": priority,
+            "old_priority_order": current_feature_dict.get('priority_order'),
+            "new_priority_order": priority_order,
+            "change_reason": reason,
+            "changed_by": user.get("id")
+        })
+
     db.commit()
 
     # Return updated feature
     feature = db.execute(text("SELECT * FROM features WHERE id = :id"), {"id": feature_id}).fetchone()
-    return Feature(**feature)
+    return Feature(**feature._asdict())
 
 # Priority change history endpoints
 @router.get("/{entity_type}/{entity_id}/priority-history", response_model=List[PriorityChange])
@@ -251,7 +302,7 @@ def get_priority_history(
         ORDER BY created_at DESC
     """), {"entity_type": entity_type, "entity_id": entity_id}).fetchall()
 
-    return [PriorityChange(**change) for change in changes]
+    return [PriorityChange(**change._asdict()) for change in changes]
 
 # Priority-based selection endpoint
 @router.get("/next-task/{project_id}")
@@ -280,14 +331,15 @@ def get_next_task(project_id: str, db: Session = Depends(get_db), user: dict = D
     """), {"project_id": project_id}).fetchone()
 
     if feature:
+        feature_dict = feature._asdict()
         return {
             "type": "feature",
-            "id": feature['id'],
-            "request": feature['name'],  # features table uses 'name'
-            "artifacts": feature['description'],  # features table uses 'description'
-            "plan_request": feature['plan_request'],  # Use request from joined plans table
-            "priority": feature['priority'],
-            "size_estimate": feature['size_estimate']
+            "id": feature_dict['id'],
+            "request": feature_dict['name'],  # features table uses 'name'
+            "artifacts": feature_dict['description'],  # features table uses 'description'
+            "plan_request": feature_dict['plan_request'],  # Use request from joined plans table
+            "priority": feature_dict['priority'],
+            "size_estimate": feature_dict['size_estimate']
         }
 
     # If no features, find the highest priority pending plan
@@ -307,13 +359,14 @@ def get_next_task(project_id: str, db: Session = Depends(get_db), user: dict = D
     """), {"project_id": project_id}).fetchone()
 
     if plan:
+        plan_dict = plan._asdict()
         return {
             "type": "plan",
-            "id": plan['id'],
-            "request": plan['request'],
-            "artifacts": plan['artifacts'],
-            "priority": plan['priority'],
-            "size_estimate": plan['size_estimate']
+            "id": plan_dict['id'],
+            "request": plan_dict['request'],
+            "artifacts": plan_dict['artifacts'],
+            "priority": plan_dict['priority'],
+            "size_estimate": plan_dict['size_estimate']
         }
 
     return {"message": "No pending tasks found"}

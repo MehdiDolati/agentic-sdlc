@@ -28,6 +28,8 @@ ProjectsRepoDB = repos_module.ProjectsRepoDB
 InteractionHistoryRepoDB = repos_module.InteractionHistoryRepoDB
 ensure_plans_schema = repos_module.ensure_plans_schema
 ensure_runs_schema = repos_module.ensure_runs_schema
+ensure_features_schema = repos_module.ensure_features_schema
+ensure_priority_changes_schema = repos_module.ensure_priority_changes_schema
 ensure_notes_schema = repos_module.ensure_notes_schema
 ensure_projects_schema = repos_module.ensure_projects_schema
 ensure_history_schema = repos_module.ensure_history_schema
@@ -45,6 +47,8 @@ __all__ = [
     'InteractionHistoryRepoDB',
     'ensure_plans_schema',
     'ensure_runs_schema',
+    'ensure_features_schema',
+    'ensure_priority_changes_schema',
     'ensure_notes_schema',
     'ensure_projects_schema',
     'ensure_history_schema',
