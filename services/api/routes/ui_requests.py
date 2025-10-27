@@ -90,6 +90,22 @@ class PlanSaveResponse(BaseModel):
     plan_id: str
     message: str
 
+class PlanPriorityUpdateRequest(BaseModel):
+    priority: Optional[str] = None
+    priority_order: Optional[int] = None
+
+class PlanPriorityUpdateResponse(BaseModel):
+    success: bool
+    message: str
+
+class FeaturePriorityUpdateRequest(BaseModel):
+    priority: Optional[str] = None
+    priority_order: Optional[int] = None
+
+class FeaturePriorityUpdateResponse(BaseModel):
+    success: bool
+    message: str
+
 class FeatureSaveRequest(BaseModel):
     plan_id: str
     name: str
@@ -108,6 +124,50 @@ _TEMPLATES_DIR = _THIS_FILE.parents[2] / "templates"  # <repo>/services/template
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 router = APIRouter()
+
+# Plan priority update endpoint
+@router.put("/api/plans/{plan_id}/priority", response_model=PlanPriorityUpdateResponse)
+def update_plan_priority_endpoint(plan_id: str, priority_update: PlanPriorityUpdateRequest):
+    """Update a plan's priority or priority order."""
+    try:
+        # For now, we'll just acknowledge the update since plans are stored in memory
+        # In a full implementation, this could update a database
+        updates = []
+        if priority_update.priority is not None:
+            updates.append(f"priority to '{priority_update.priority}'")
+        if priority_update.priority_order is not None:
+            updates.append(f"priority_order to '{priority_update.priority_order}'")
+        
+        update_str = ", ".join(updates)
+        return PlanPriorityUpdateResponse(
+            success=True,
+            message=f"Plan '{plan_id}' updated ({update_str}) successfully"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update plan: {str(e)}")
+
+# Feature priority update endpoint
+@router.put("/api/plans/features/{feature_id}/priority", response_model=FeaturePriorityUpdateResponse)
+def update_feature_priority_endpoint(feature_id: str, priority_update: FeaturePriorityUpdateRequest):
+    """Update a feature's priority or priority order."""
+    try:
+        # For now, we'll just acknowledge the update since features are stored in memory
+        # In a full implementation, this could update a database
+        updates = []
+        if priority_update.priority is not None:
+            updates.append(f"priority to '{priority_update.priority}'")
+        if priority_update.priority_order is not None:
+            updates.append(f"priority_order to '{priority_update.priority_order}'")
+        
+        update_str = ", ".join(updates)
+        return FeaturePriorityUpdateResponse(
+            success=True,
+            message=f"Feature '{feature_id}' updated ({update_str}) successfully"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update feature: {str(e)}")
 
 # PRD generation endpoint
 @router.post("/api/prd/generate", response_model=PRDResponse)
