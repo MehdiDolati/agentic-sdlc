@@ -10,18 +10,23 @@ for table in tables:
     print(f'  {table[0]}')
 
 # Check priority system tables
-priority_tables = ['plans', 'features', 'priority_changes']
-for table in priority_tables:
-    if (table,) in tables:
-        print(f'\n{table.upper()} table details:')
+allowed_tables = {
+    'plans': 'plans',
+    'features': 'features',
+    'priority_changes': 'priority_changes'
+}
 
-        # Get table schema
-        cursor.execute(f'PRAGMA table_info({table})')
+for table_key, table_name in allowed_tables.items():
+    if (table_key,) in tables:
+        print(f'\n{table_key.upper()} table details:')
+
+        # Get table schema - use direct table name from whitelist
+        cursor.execute('PRAGMA table_info({})'.format(table_name))
         columns = cursor.fetchall()
         print(f'  Columns: {[col[1] for col in columns]}')
 
-        # Check row count
-        cursor.execute(f'SELECT COUNT(*) FROM {table}')
+        # Check row count - use direct table name from whitelist
+        cursor.execute('SELECT COUNT(*) FROM {}'.format(table_name))
         count = cursor.fetchone()[0]
         print(f'  Row count: {count}')
 
