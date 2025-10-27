@@ -21,12 +21,12 @@ for table_key, table_name in allowed_tables.items():
         print(f'\n{table_key.upper()} table details:')
 
         # Get table schema - use direct table name from whitelist
-        cursor.execute('PRAGMA table_info({})'.format(table_name))
+        cursor.execute(f'PRAGMA table_info({table_name})')
         columns = cursor.fetchall()
         print(f'  Columns: {[col[1] for col in columns]}')
 
         # Check row count - use direct table name from whitelist
-        cursor.execute('SELECT COUNT(*) FROM {}'.format(table_name))
+        cursor.execute(f'SELECT COUNT(*) FROM {table_name}')
         count = cursor.fetchone()[0]
         print(f'  Row count: {count}')
 
