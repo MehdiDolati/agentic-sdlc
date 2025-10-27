@@ -42,7 +42,10 @@ _PLANS_TABLE = Table(
     Column("request", String, nullable=False),
     Column("owner", String, nullable=False),
     Column("artifacts", JSON, nullable=False),
-    Column("status", String, nullable=False, server_default="new"),
+    Column("size_estimate", Integer, nullable=False, server_default="1"),
+    Column("priority", String, nullable=False, server_default="medium"),
+    Column("priority_order", Integer, nullable=True),
+    Column("status", String, nullable=False, server_default="pending"),
     Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
     Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
 )
@@ -60,6 +63,38 @@ _RUNS_TABLE = Table(
     Column("started_at", DateTime(timezone=True), nullable=True),
     Column("completed_at", DateTime(timezone=True), nullable=True),
     Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
+)
+
+_FEATURES_METADATA = MetaData()
+_FEATURES_TABLE = Table(
+    "features",
+    _FEATURES_METADATA,
+    Column("id", String, primary_key=True),
+    Column("plan_id", String, nullable=False),
+    Column("name", String, nullable=False),
+    Column("description", String, nullable=False),
+    Column("size_estimate", Integer, nullable=False, server_default="1"),
+    Column("priority", String, nullable=False, server_default="medium"),
+    Column("priority_order", Integer, nullable=True),
+    Column("status", String, nullable=False, server_default="pending"),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
+)
+
+_PRIORITY_CHANGES_METADATA = MetaData()
+_PRIORITY_CHANGES_TABLE = Table(
+    "priority_changes",
+    _PRIORITY_CHANGES_METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("entity_type", String, nullable=False),  # "plan" or "feature"
+    Column("entity_id", String, nullable=False),
+    Column("old_priority", String, nullable=True),
+    Column("new_priority", String, nullable=False),
+    Column("old_priority_order", Integer, nullable=True),
+    Column("new_priority_order", Integer, nullable=True),
+    Column("change_reason", String, nullable=True),
+    Column("changed_by", String, nullable=True),
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
 )
 
 _NOTES_METADATA = MetaData()
@@ -154,6 +189,12 @@ def ensure_plans_schema(engine: Engine) -> None:
 
 def ensure_runs_schema(engine: Engine) -> None:
     _RUNS_METADATA.create_all(engine)
+
+def ensure_features_schema(engine: Engine) -> None:
+    _FEATURES_METADATA.create_all(engine)
+
+def ensure_priority_changes_schema(engine: Engine) -> None:
+    _PRIORITY_CHANGES_METADATA.create_all(engine)
 
 def ensure_projects_schema(engine: Engine) -> None:
     _PROJECTS_METADATA.create_all(engine)

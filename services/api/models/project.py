@@ -69,10 +69,12 @@ class Project(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
 class PlanBase(BaseModel):
-    name: str
-    description: str
-    size_estimate: int  # Story points or similar size metric
-    priority: str = "medium"  # high, medium, low
+    request: str  # Changed from 'name' to match database schema
+    artifacts: Optional[str] = None  # Changed from 'description' to match database schema
+    size_estimate: int = 1  # Story points or similar size metric
+    priority: str = "medium"  # low, medium, high, critical
+    priority_order: Optional[int] = None  # For custom ordering within same priority level
+    status: str = "pending"  # pending, in_progress, completed, cancelled
 
 class PlanCreate(PlanBase):
     project_id: str
@@ -89,8 +91,10 @@ class Plan(PlanBase):
 class FeatureBase(BaseModel):
     name: str
     description: str
-    size_estimate: int  # Story points or similar size metric
-    priority: str = "medium"  # high, medium, low
+    size_estimate: int = 1  # Story points or similar size metric
+    priority: str = "medium"  # low, medium, high, critical
+    priority_order: Optional[int] = None  # For custom ordering within same priority level
+    status: str = "pending"  # pending, in_progress, completed, cancelled
 
 class FeatureCreate(FeatureBase):
     plan_id: str
@@ -100,5 +104,24 @@ class Feature(FeatureBase):
     plan_id: str
     created_at: str
     updated_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+class PriorityChangeBase(BaseModel):
+    entity_type: str  # "plan" or "feature"
+    entity_id: str
+    old_priority: Optional[str] = None
+    new_priority: str
+    old_priority_order: Optional[int] = None
+    new_priority_order: Optional[int] = None
+    change_reason: Optional[str] = None
+
+class PriorityChangeCreate(PriorityChangeBase):
+    changed_by: Optional[str] = None
+
+class PriorityChange(PriorityChangeBase):
+    id: int
+    changed_by: Optional[str] = None
+    created_at: str
 
     model_config = ConfigDict(from_attributes=True)

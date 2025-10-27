@@ -4,6 +4,12 @@ from pathlib import Path
 import sys
 import re
 import hmac, hashlib, base64
+
+# Add the project root to Python path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+print(f"Python path: {sys.path[:3]}")  # Debug print
+
 import services.api.core.shared as shared
 from contextlib import asynccontextmanager
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
@@ -33,7 +39,7 @@ from services.api.core.shared import (
     _new_id,
     AUTH_MODE
 )
-from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema, ensure_history_schema
+from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema, ensure_history_schema, ensure_features_schema, ensure_priority_changes_schema
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
@@ -48,6 +54,7 @@ from services.api.routes.agents import router as agents_router
 from services.api.routes.repositories import router as repositories_router
 from services.api.routes.admin import router as admin_router
 from services.api.routes.profile import router as profile_router
+from services.api.routes.plans import router as plans_router
 from services.api.routes.history import router as history_router
 
 _BASE_DIR = Path(__file__).resolve().parent
@@ -244,6 +251,14 @@ def _init_schemas():
     except Exception:
         pass
     try:
+        ensure_features_schema(eng)
+    except Exception:
+        pass
+    try:
+        ensure_priority_changes_schema(eng)
+    except Exception:
+        pass
+    try:
         ensure_runs_schema(eng)
     except Exception:
         pass
@@ -257,6 +272,32 @@ async def lifespan(app: FastAPI):
     # ---- startup (was @app.on_event("startup")) ----
     print("Starting lifespan...")
     try:
+        # Run database migrations automatically on startup
+        print("Running database migrations...")
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        # Get the path to the auto_migrate script
+        project_root = Path(__file__).resolve().parents[2]  # Go up to agentic-sdlc root
+        migrate_script = project_root / "scripts" / "auto_migrate.py"
+
+        if migrate_script.exists():
+            # Run the migration script
+            result = subprocess.run([sys.executable, str(migrate_script)],
+                                  capture_output=True, text=True, cwd=str(project_root))
+            if result.returncode == 0:
+                print("Database migrations completed successfully")
+                if result.stdout:
+                    print(result.stdout.strip())
+            else:
+                print(f"Migration failed with return code {result.returncode}")
+                if result.stderr:
+                    print(f"Migration error: {result.stderr.strip()}")
+                # Don't fail startup if migrations fail - just warn
+        else:
+            print(f"Warning: Migration script not found at {migrate_script}")
+
         # _init_schemas()  # Commented out for testing
         print("Lifespan startup complete")
         yield
@@ -280,6 +321,7 @@ app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", opena
 app.include_router(ui_requests_router)
 app.include_router(dashboard_router)
 app.include_router(projects_router)
+app.include_router(plans_router)
 app.include_router(ui_plans_router)
 app.include_router(ui_auth_router)
 app.include_router(auth_router)

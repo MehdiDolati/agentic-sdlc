@@ -4,6 +4,9 @@ reports/
 dist/
 build/
 
+# Utility scripts with controlled inputs
+^check_db\.py$
+
 # .secretsignore
 # Ignore generated API schema snapshots:
 ^services/api/tests/fixtures/.*\.json$
