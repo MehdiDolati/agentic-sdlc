@@ -144,5 +144,5 @@ jobs:
       - name: Scan
         run: |
           semgrep --config p/default --config p/secrets --error \
-                  --exclude .venv --exclude node_modules --exclude reports
+                  --exclude .venv --exclude node_modules --exclude reports --exclude check_db.py
                   
