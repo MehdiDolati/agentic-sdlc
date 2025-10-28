@@ -1,6 +1,6 @@
 import sqlite3
 
-conn = sqlite3.connect('notes.db')
+conn = sqlite3.connect('docs/plans/plans.db')
 cursor = conn.cursor()
 
 cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -9,37 +9,33 @@ print('Tables in database:')
 for table in tables:
     print(f'  {table[0]}')
 
-# Check priority system tables
-allowed_tables = {
-    'plans': 'plans',
-    'features': 'features',
-    'priority_changes': 'priority_changes'
-}
+# Check interaction_history table
+if ('interaction_history',) in tables:
+    print('\nINTERACTION_HISTORY table details:')
 
-for table_key, table_name in allowed_tables.items():
-    if (table_key,) in tables:
-        print(f'\n{table_key.upper()} table details:')
+    cursor.execute('PRAGMA table_info(interaction_history)')
+    columns = cursor.fetchall()
+    print(f'  Columns: {[col[1] for col in columns]}')
 
-        # Get table schema - use direct table name from whitelist
-        cursor.execute(f'PRAGMA table_info({table_name})')
-        columns = cursor.fetchall()
-        print(f'  Columns: {[col[1] for col in columns]}')
+    cursor.execute('SELECT COUNT(*) FROM interaction_history')
+    count = cursor.fetchone()[0]
+    print(f'  Row count: {count}')
 
-        # Check row count - use direct table name from whitelist
-        cursor.execute(f'SELECT COUNT(*) FROM {table_name}')
-        count = cursor.fetchone()[0]
-        print(f'  Row count: {count}')
+# Check agents table
+if ('agents',) in tables:
+    print('\nAGENTS table details:')
 
-        # Show sample data if any
-        if count > 0:
-            if table == 'plans':
-                cursor.execute("SELECT id, name, priority, priority_order, status FROM plans LIMIT 3")
-            elif table == 'features':
-                cursor.execute("SELECT id, name, priority, priority_order, status FROM features LIMIT 3")
-            elif table == 'priority_changes':
-                cursor.execute("SELECT entity_type, entity_id, old_priority, new_priority, change_reason FROM priority_changes LIMIT 3")
+    cursor.execute('PRAGMA table_info(agents)')
+    columns = cursor.fetchall()
+    print(f'  Columns: {[col[1] for col in columns]}')
 
-            rows = cursor.fetchall()
-            print(f'  Sample data: {rows}')
+    cursor.execute('SELECT COUNT(*) FROM agents')
+    count = cursor.fetchone()[0]
+    print(f'  Row count: {count}')
+
+    if count > 0:
+        cursor.execute('SELECT * FROM agents')
+        rows = cursor.fetchall()
+        print(f'  Sample data: {rows}')
 
 conn.close()
