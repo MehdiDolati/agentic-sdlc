@@ -115,6 +115,9 @@ _HISTORY_TABLE = Table(
     _HISTORY_METADATA,
     Column("id", String, primary_key=True),
     Column("project_id", String, nullable=True),
+    Column("agent_id", Integer, nullable=True),  # Links to agents table
+    Column("step", String, nullable=True),  # e.g., 'requirements', 'architecture', 'planning', 'development', 'testing'
+    Column("agent_type", String, nullable=True),  # Denormalized for quick access: 'supabase', 'architect', 'qa', etc.
     Column("prompt", String, nullable=False),
     Column("response", String, nullable=False),
     Column("role", String, nullable=True),  # e.g., 'user', 'assistant'

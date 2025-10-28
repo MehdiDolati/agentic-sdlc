@@ -125,3 +125,40 @@ class PriorityChange(PriorityChangeBase):
     created_at: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AgentBase(BaseModel):
+    agent_type: str  # Unique identifier: 'supabase', 'architect', 'qa', etc.
+    agent_name: str
+    description: Optional[str] = None
+    is_builtin: bool = False
+
+
+class Agent(AgentBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class InteractionHistoryBase(BaseModel):
+    project_id: Optional[str] = None
+    agent_id: Optional[int] = None  # References agents table
+    step: Optional[str] = None  # SDLC step: 'requirements', 'architecture', 'planning', 'development', 'testing'
+    agent_type: Optional[str] = None  # Denormalized: 'supabase', 'architect', 'qa', etc.
+    prompt: str
+    response: str
+    role: Optional[str] = None  # 'user', 'assistant'
+    metadata: Optional[Dict] = None
+
+
+class InteractionHistoryCreate(InteractionHistoryBase):
+    id: Optional[str] = None
+
+
+class InteractionHistory(InteractionHistoryBase):
+    id: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
