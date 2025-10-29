@@ -15,7 +15,7 @@ def test_create_request_returns_plan_id_and_artifacts():
     assert r2.status_code == 200
     plan = r2.json()
     assert plan["id"] == pid
-    assert "request" in plan and "artifacts" in plan
+    assert "name" in plan and "description" in plan
 
 def test_list_plans():
     r = client.get("/plans")

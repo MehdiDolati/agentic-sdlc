@@ -87,14 +87,16 @@ def test_plans(client_with_db, tmp_path, test_project):
         for plan_data in plans_data:
             plan_id = str(uuid.uuid4())
             conn.execute(text("""
-                INSERT INTO plans (id, project_id, request, owner, artifacts, size_estimate, priority, priority_order, status)
-                VALUES (:id, :project_id, :request, :owner, :artifacts, :size_estimate, :priority, :priority_order, :status)
+                INSERT INTO plans (id, project_id, request, owner, artifacts, name, description, size_estimate, priority, priority_order, status)
+                VALUES (:id, :project_id, :request, :owner, :artifacts, :name, :description, :size_estimate, :priority, :priority_order, :status)
             """), {
                 "id": plan_id,
                 "project_id": test_project,
                 "request": plan_data["request"],
                 "owner": "test@example.com",
                 "artifacts": "{}",
+                "name": plan_data["request"],  # Set name to request for now
+                "description": f"Description for {plan_data['request']}",  # Set a description
                 "size_estimate": plan_data["size_estimate"],
                 "priority": plan_data["priority"],
                 "priority_order": plan_data["priority_order"],

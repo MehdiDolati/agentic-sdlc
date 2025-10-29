@@ -42,6 +42,8 @@ _PLANS_TABLE = Table(
     Column("request", String, nullable=False),
     Column("owner", String, nullable=False),
     Column("artifacts", JSON, nullable=False),
+    Column("name", String, nullable=False, server_default=""),
+    Column("description", String, nullable=False, server_default=""),
     Column("size_estimate", Integer, nullable=False, server_default="1"),
     Column("priority", String, nullable=False, server_default="medium"),
     Column("priority_order", Integer, nullable=True),
