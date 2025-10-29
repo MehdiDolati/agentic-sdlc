@@ -78,7 +78,11 @@ def get_plan(plan_id: str, db: Session = Depends(get_db), user: dict = Depends(g
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    return Plan(**plan._asdict())
+    plan_dict = dict(plan._asdict())
+    plan_dict['name'] = plan_dict.get('request', '')
+    plan_dict['description'] = plan_dict.get('request', '')
+    plan_dict['features'] = []  # Add empty features list
+    return Plan(**plan_dict)
 
 @router.put("/{plan_id}", response_model=Plan)
 def update_plan(plan_id: str, plan_update: PlanBase, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
