@@ -42,6 +42,8 @@ _PLANS_TABLE = Table(
     Column("request", String, nullable=False),
     Column("owner", String, nullable=False),
     Column("artifacts", JSON, nullable=False),
+    Column("name", String, nullable=False, server_default=""),
+    Column("description", String, nullable=False, server_default=""),
     Column("size_estimate", Integer, nullable=False, server_default="1"),
     Column("priority", String, nullable=False, server_default="medium"),
     Column("priority_order", Integer, nullable=True),
@@ -108,6 +110,20 @@ _NOTES_TABLE = Table(
 )
 
 
+# --- Agent Types Table ---
+_AGENT_TYPES_METADATA = MetaData()
+_AGENT_TYPES_TABLE = Table(
+    "agent_types",
+    _AGENT_TYPES_METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("agent_type", String, nullable=False, unique=True),
+    Column("agent_name", String, nullable=False),
+    Column("description", String, nullable=True),
+    Column("is_builtin", Integer, nullable=False, default=0),  # 0 for false, 1 for true
+    Column("created_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP')),
+    Column("updated_at", DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP')),
+)
+
 # --- Interaction History Table ---
 _HISTORY_METADATA = MetaData()
 _HISTORY_TABLE = Table(
@@ -115,6 +131,9 @@ _HISTORY_TABLE = Table(
     _HISTORY_METADATA,
     Column("id", String, primary_key=True),
     Column("project_id", String, nullable=True),
+    Column("agent_id", Integer, nullable=True),  # Links to agent_types table
+    Column("step", String, nullable=True),  # e.g., 'requirements', 'architecture', 'planning', 'development', 'testing'
+    Column("agent_type", String, nullable=True),  # Denormalized for quick access: 'supabase', 'architect', 'qa', etc.
     Column("prompt", String, nullable=False),
     Column("response", String, nullable=False),
     Column("role", String, nullable=True),  # e.g., 'user', 'assistant'
@@ -124,6 +143,10 @@ _HISTORY_TABLE = Table(
 
 _DB: Dict[str, Any] = DBS.setdefault("notes", {})
 
+
+# ---------- Agent Types DB (Postgres/SQLite via SQLAlchemy) ----------
+def ensure_agent_types_schema(engine: Engine) -> None:
+    _AGENT_TYPES_METADATA.create_all(engine)
 
 # ---------- Interaction History DB (Postgres/SQLite via SQLAlchemy) ----------
 def ensure_history_schema(engine: Engine) -> None:
@@ -157,6 +180,22 @@ class InteractionHistoryRepoDB:
                 return [dict(row) for row in result.mappings()]
         except Exception as e:
             print(f"Database error in list_by_project: {e}")
+            return []
+
+    def list_by_project_and_step(self, project_id: str, step: str) -> list[dict]:
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(
+                    select(_HISTORY_TABLE).where(
+                        and_(
+                            _HISTORY_TABLE.c.project_id == project_id,
+                            _HISTORY_TABLE.c.step == step
+                        )
+                    ).order_by(_HISTORY_TABLE.c.created_at)
+                )
+                return [dict(row) for row in result.mappings()]
+        except Exception as e:
+            print(f"Database error in list_by_project_and_step: {e}")
             return []
 
     def list_all(self) -> list[dict]:

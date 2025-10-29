@@ -16,6 +16,9 @@ class HistoryIn(BaseModel):
     response: str
     role: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    agent_id: Optional[str] = None
+    step: Optional[str] = None
+    agent_type: Optional[str] = None
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def log_interaction(entry: HistoryIn, repo=Depends(get_repo)):
@@ -29,3 +32,7 @@ def list_all(repo=Depends(get_repo)):
 @router.get("/project/{project_id}", response_model=list)
 def list_by_project(project_id: str, repo=Depends(get_repo)):
     return repo.list_by_project(project_id)
+
+@router.get("/project/{project_id}/step/{step}", response_model=list)
+def list_by_project_and_step(project_id: str, step: str, repo=Depends(get_repo)):
+    return repo.list_by_project_and_step(project_id, step)

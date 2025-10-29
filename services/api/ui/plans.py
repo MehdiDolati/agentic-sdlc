@@ -1315,7 +1315,7 @@ def list_plans(
             "page_size": page_size,
         }
 
-@router.get("/plans/{plan_id}")
+@router.get("/plans/{plan_id}", operation_id="get_plan_ui")
 def get_plan(plan_id: str):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
