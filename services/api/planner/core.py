@@ -401,79 +401,44 @@ Use selected stack from runtime config (or defaults). Document deviations via fo
     stories_path.write_text(stories_yaml, encoding="utf-8")
 
     tasks_path = plans_dir / f"TASKS-{date}-{slug}.md"
-    
+
     # Try to generate tasks with LLM if available
     llm_client = get_llm_from_env()
     print(f"[DEBUG] Tasks LLM client: {llm_client}")
     if llm_client:
         try:
-            # Generate comprehensive plan using AI
             plan_artifacts = llm_client.generate_plan(request_text)
-            
-            # Use AI-generated content for tasks/features
-            tasks_md = f"""# Task Plan — {request_text[:80]}
 
-## AI-Generated Implementation Plan
-
-Based on the PRD and requirements analysis, here are the key implementation tasks:
-
-### Phase 1: Foundation & Setup
-- [ ] Set up development environment and project structure
-- [ ] Configure CI/CD pipeline with quality gates
-- [ ] Initialize version control and branching strategy
-
-### Phase 2: Core Implementation  
-- [ ] Implement core business logic and data models
-- [ ] Develop API endpoints according to OpenAPI specification
-- [ ] Create database schema and migrations
-- [ ] Build user interface components
-
-### Phase 3: Testing & Quality Assurance
-- [ ] Write comprehensive unit tests (meet coverage gate {gates.get('coverage_gate')})
-- [ ] Implement integration tests
-- [ ] Perform security testing and vulnerability assessment
-- [ ] Conduct user acceptance testing
-
-### Phase 4: Deployment & Documentation
-- [ ] Prepare production deployment configuration
-- [ ] Update API documentation and user manuals
-- [ ] Configure monitoring and logging
-- [ ] Execute deployment to staging and production environments
-
-### Success Criteria
-- All acceptance criteria from PRD are met
-- Code coverage meets or exceeds {gates.get('coverage_gate')} threshold
-- Security scans pass without critical vulnerabilities
-- Performance benchmarks are achieved
-- Documentation is complete and accurate
-"""
+            if plan_artifacts.implementation_plan:
+                lines = [f"# Task Plan — {request_text[:80]}", ""]
+                for plan in plan_artifacts.implementation_plan:
+                    lines.append(f"## {plan.get('name', plan.get('id', 'Plan'))}")
+                    if plan.get('description'):
+                        lines.append(plan['description'])
+                        lines.append("")
+                    lines.append(f"Priority: {plan.get('priority', 'medium').title()}  |  Estimate: {plan.get('size_estimate_days', 0)} days")
+                    lines.append("")
+                    lines.append("### Features")
+                    for feature in plan.get('features', []):
+                        lines.append(f"- [ ] {feature.get('name', feature.get('id', 'Feature'))}")
+                        if feature.get('description'):
+                            lines.append(f"      - {feature['description']}")
+                        lines.append(f"      - Priority: {feature.get('priority', 'medium').title()}, Estimate: {feature.get('size_estimate_hours', 0)} hours")
+                        if feature.get('acceptance_criteria'):
+                            lines.append("      - Acceptance Criteria:")
+                            for criterion in feature['acceptance_criteria']:
+                                lines.append(f"          * {criterion}")
+                        lines.append("")
+                    lines.append("")
+                tasks_md = "\n".join(lines).strip() + "\n"
+            else:
+                tasks_md = _default_tasks_md(request_text, gates)
         except Exception as e:
             print(f"[AI] Failed to generate tasks with LLM: {e}, falling back to template")
-            tasks_md = f"""# Task Plan — {request_text[:80]}
-
-- [ ] Clarify detailed acceptance criteria
-- [ ] Define API contract (OpenAPI)
-- [ ] Implement endpoint(s)
-- [ ] Write unit tests (meet coverage gate {gates.get('coverage_gate')})
-- [ ] Add integration tests (optional for MVP)
-- [ ] Update USER_MANUAL & CHANGELOG
-- [ ] Run CI; ensure gates pass (security, secrets scan)
-- [ ] Prepare deploy (staging)
-"""
+            tasks_md = _default_tasks_md(request_text, gates)
     else:
         print("[DEBUG] No LLM client for tasks, using template")
-        # Fallback to basic template
-        tasks_md = f"""# Task Plan — {request_text[:80]}
-
-- [ ] Clarify detailed acceptance criteria
-- [ ] Define API contract (OpenAPI)
-- [ ] Implement endpoint(s)
-- [ ] Write unit tests (meet coverage gate {gates.get('coverage_gate')})
-- [ ] Add integration tests (optional for MVP)
-- [ ] Update USER_MANUAL & CHANGELOG
-- [ ] Run CI; ensure gates pass (security, secrets scan)
-- [ ] Prepare deploy (staging)
-"""
+        tasks_md = _default_tasks_md(request_text, gates)
     
     tasks_path.write_text(tasks_md.strip() + "\n", encoding="utf-8")
 
@@ -521,3 +486,18 @@ Based on the PRD and requirements analysis, here are the key implementation task
         "tasks":   rel(tasks_path),
         "openapi": rel(openapi_path),
     }
+
+
+def _default_tasks_md(request_text: str, gates: dict) -> str:
+    """Fallback checklist when LLM is unavailable or fails."""
+    return f"""# Task Plan — {request_text[:80]}
+
+- [ ] Clarify detailed acceptance criteria
+- [ ] Define API contract (OpenAPI)
+- [ ] Implement endpoint(s)
+- [ ] Write unit tests (meet coverage gate {gates.get('coverage_gate')})
+- [ ] Add integration tests (optional for MVP)
+- [ ] Update USER_MANUAL & CHANGELOG
+- [ ] Run CI; ensure gates pass (security, secrets scan)
+- [ ] Prepare deploy (staging)
+"""

@@ -28,13 +28,13 @@ def create_plan(plan: PlanCreate, db: Session = Depends(get_db), user: dict = De
 
     # Create plan in database
     result = db.execute(text("""
-        INSERT INTO plans (id, project_id, request, artifacts, size_estimate, priority, priority_order, status)
-        VALUES (:id, :project_id, :request, :artifacts, :size_estimate, :priority, :priority_order, :status)
+        INSERT INTO plans (id, project_id, name, description, size_estimate, priority, priority_order, status)
+        VALUES (:id, :project_id, :name, :description, :size_estimate, :priority, :priority_order, :status)
     """), {
         "id": str(uuid.uuid4()),
         "project_id": plan.project_id,
-        "request": plan.request,
-        "artifacts": plan.artifacts,
+        "name": plan.name,
+        "description": plan.description,
         "size_estimate": plan.size_estimate,
         "priority": plan.priority,
         "priority_order": plan.priority_order,

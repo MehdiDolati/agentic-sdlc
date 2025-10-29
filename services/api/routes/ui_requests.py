@@ -426,22 +426,43 @@ def save_adr_endpoint(adr_save_request: ADRSaveRequest):
         # Use project_id from request
         project_id = adr_save_request.project_id
         
-        # Create ADR directory if it doesn't exist
+        # Create directories if they don't exist
         repo_root = _repo_root()
         adr_dir = repo_root / "docs" / "adr"
         adr_dir.mkdir(parents=True, exist_ok=True)
+        tech_dir = repo_root / "docs" / "tech"
+        tech_dir.mkdir(parents=True, exist_ok=True)
         
-        # Generate filename with format: ADR-{project_id}-{slug}
+        # Parse the combined content
+        content = adr_save_request.adr_content.strip()
+        separator = "---TECH-STACK---"
+        
+        if separator in content:
+            # Split into ADR and Tech parts
+            parts = content.split(separator, 1)
+            adr_content = parts[0].strip()
+            tech_content = parts[1].strip()
+        else:
+            # Fallback: assume all is ADR if no separator
+            adr_content = content
+            tech_content = ""
+        
+        # Save ADR file
         adr_filename = f"ADR-{project_id}-{slug}.md"
         adr_path = adr_dir / adr_filename
+        if adr_content:
+            adr_path.write_text(adr_content + "\n", encoding="utf-8")
         
-        # Write ADR content to file
-        adr_path.write_text(adr_save_request.adr_content.strip() + "\n", encoding="utf-8")
+        # Save Tech file
+        tech_filename = f"TECH-{project_id}-{slug}.md"
+        tech_path = tech_dir / tech_filename
+        if tech_content:
+            tech_path.write_text(tech_content + "\n", encoding="utf-8")
         
         return ADRSaveResponse(
             success=True,
-            file_path=str(adr_path),
-            message=f"ADR saved successfully as {adr_filename}"
+            file_path=str(adr_path) if adr_content else str(tech_path),
+            message=f"ADR and Tech stack saved successfully"
         )
         
     except Exception as e:
@@ -464,38 +485,82 @@ def get_adr_endpoint(
         
         repo_root = _repo_root()
         adr_dir = repo_root / "docs" / "adr"
+        tech_dir = repo_root / "docs" / "tech"
+        
+        # Create slug from project name
+        slug = re.sub(r'[^a-zA-Z0-9\s-]', '', project_name.lower())
+        slug = re.sub(r'[\s-]+', '-', slug).strip('-')
+        
+        architecture_content = ""
+        tech_stack_content = ""
+        last_modified = 0
+        combined_content = ""
         
         if project_id:
-            # If project_id is provided, find the specific ADR file
-            slug = re.sub(r'[^a-zA-Z0-9\s-]', '', project_name.lower())
-            slug = re.sub(r'[\s-]+', '-', slug).strip('-')
+            # Try to find separate files first (new format)
             adr_filename = f"ADR-{project_id}-{slug}.md"
             adr_path = adr_dir / adr_filename
             
-            if not adr_path.exists():
-                raise HTTPException(status_code=404, detail="No ADR found for this project")
+            tech_filename = f"TECH-{project_id}-{slug}.md"
+            tech_path = tech_dir / tech_filename
+            
+            if adr_path.exists():
+                architecture_content = adr_path.read_text(encoding="utf-8").strip()
+                last_modified = max(last_modified, int(adr_path.stat().st_mtime))
+            
+            if tech_path.exists():
+                tech_stack_content = tech_path.read_text(encoding="utf-8").strip()
+                last_modified = max(last_modified, int(tech_path.stat().st_mtime))
+            
+            # If we have separate files, combine them
+            if architecture_content or tech_stack_content:
+                if architecture_content and tech_stack_content:
+                    combined_content = f"{architecture_content}\n\n---TECH-STACK---\n\n{tech_stack_content}"
+                elif architecture_content:
+                    combined_content = architecture_content
+                elif tech_stack_content:
+                    combined_content = tech_stack_content
+            else:
+                # Fallback: Check for old combined ADR file
+                if adr_path.exists():
+                    combined_content = adr_path.read_text(encoding="utf-8").strip()
+                    last_modified = int(adr_path.stat().st_mtime)
+                else:
+                    raise HTTPException(status_code=404, detail="No ADR found for this project")
         else:
-            # Fallback: Create slug from project name and find matching files
-            slug = re.sub(r'[^a-zA-Z0-9\s-]', '', project_name.lower())
-            slug = re.sub(r'[\s-]+', '-', slug).strip('-')
-            
-            # Find ADR files matching the slug pattern
+            # Fallback: Find files by slug pattern
             adr_files = list(adr_dir.glob(f"ADR-*-{slug}.md"))
+            tech_files = list(tech_dir.glob(f"TECH-*-{slug}.md"))
             
-            if not adr_files:
-                raise HTTPException(status_code=404, detail="No ADR found for this project")
+            if adr_files:
+                adr_files.sort(reverse=True)
+                architecture_content = adr_files[0].read_text(encoding="utf-8").strip()
+                last_modified = max(last_modified, int(adr_files[0].stat().st_mtime))
             
-            # Sort by filename and get the most recent
-            adr_files.sort(reverse=True)
-            adr_path = adr_files[0]
-        
-        # Read and return ADR content
-        adr_content = adr_path.read_text(encoding="utf-8")
+            if tech_files:
+                tech_files.sort(reverse=True)
+                tech_stack_content = tech_files[0].read_text(encoding="utf-8").strip()
+                last_modified = max(last_modified, int(tech_files[0].stat().st_mtime))
+            
+            # Combine content
+            if architecture_content and tech_stack_content:
+                combined_content = f"{architecture_content}\n\n---TECH-STACK---\n\n{tech_stack_content}"
+            elif architecture_content:
+                combined_content = architecture_content
+            elif tech_stack_content:
+                combined_content = tech_stack_content
+            else:
+                # Check for old combined files
+                if adr_files:
+                    combined_content = adr_files[0].read_text(encoding="utf-8").strip()
+                    last_modified = int(adr_files[0].stat().st_mtime)
+                else:
+                    raise HTTPException(status_code=404, detail="No ADR found for this project")
         
         return ADRGetResponse(
-            adr_content=adr_content,
-            file_path=str(adr_path),
-            last_modified=int(adr_path.stat().st_mtime)
+            adr_content=combined_content,
+            file_path="",  # Not applicable for combined content
+            last_modified=last_modified
         )
         
     except HTTPException:
@@ -595,15 +660,11 @@ def submit_request(
         print(f"Error in plan_request: {e}")
         import traceback
         traceback.print_exc()
-        # Return a fallback draft
-        draft = {
-            "plan_id": f"error-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-            "prd": "docs/prd/error-prd.md",
-            "adr": "docs/adr/error-adr.md", 
-            "stories": "docs/stories/error-stories.md",
-            "tasks": "docs/plans/error-tasks.md",
-            "openapi": "docs/api/generated/error-openapi.yaml"
-        }
+        # Instead of fallback draft, raise an error to notify user that AI generation failed
+        raise HTTPException(
+            status_code=503,
+            detail="AI service is currently unavailable. Unable to generate implementation plan. Please try again later or contact support."
+        )
     # If user provided a Plan ID, persist later via POST /plans; for now, preview.
 
     # If JSON format is requested, return JSON response
@@ -656,144 +717,11 @@ def submit_request(
             print(f"Warning: Could not parse tasks file: {e}")
             import traceback
             traceback.print_exc()
-            # Fallback features if parsing fails
-            features = [
-                {
-                    "id": "feature-1",
-                    "name": "Requirements Analysis",
-                    "description": "Analyze and document detailed requirements based on PRD",
-                    "size_estimate": 5,
-                    "priority": "high",
-                    "saved": False
-                },
-                {
-                    "id": "feature-2", 
-                    "name": "API Design",
-                    "description": "Design REST API endpoints and data models",
-                    "size_estimate": 8,
-                    "priority": "high",
-                    "saved": False
-                },
-                {
-                    "id": "feature-3",
-                    "name": "Backend Implementation", 
-                    "description": "Implement backend services and business logic",
-                    "size_estimate": 13,
-                    "priority": "high",
-                    "saved": False
-                },
-                {
-                    "id": "feature-4",
-                    "name": "Frontend Development",
-                    "description": "Build user interface components",
-                    "size_estimate": 13,
-                    "priority": "high",
-                    "saved": False
-                },
-                {
-                    "id": "feature-5",
-                    "name": "Testing & QA",
-                    "description": "Write unit tests, integration tests, and perform QA",
-                    "size_estimate": 8,
-                    "priority": "medium",
-                    "saved": False
-                }
-            ]
-
-        return JSONResponse(content={
-            "plan": {
-                "id": draft.get("plan_id", f"plan-{datetime.now().strftime('%Y%m%d%H%M%S')}"),
-                "name": f"Implementation Plan for {project_vision[:50]}",
-                "description": f"Complete implementation plan based on project requirements: {project_vision}",
-                "features": features,
-                "artifacts": draft  # Include file paths for reference
-            },
-            "project_vision": project_vision,
-            "agent_mode": agent_mode,
-            "llm_provider": llm_provider,
-            "suggested_plan_id": draft.get("plan_id", ""),
-        })
-        
-        # Try to parse tasks file for features
-        try:
-            tasks_content = Path(repo_root) / draft.get("tasks", "").lstrip("/")
-            if tasks_content.exists():
-                content = tasks_content.read_text(encoding="utf-8")
-                # Extract checklist items as features
-                lines = content.split("\n")
-                feature_id = 1
-                for line in lines:
-                    if line.strip().startswith("- [ ]"):
-                        task_text = line.strip()[5:].strip()
-                        if task_text:
-                            # Estimate size based on task complexity
-                            size_estimate = 3  # default small
-                            if "implement" in task_text.lower() or "build" in task_text.lower():
-                                size_estimate = 8
-                            elif "test" in task_text.lower() or "qa" in task_text.lower():
-                                size_estimate = 5
-                            elif "deploy" in task_text.lower() or "document" in task_text.lower():
-                                size_estimate = 3
-                            
-                            # Determine priority
-                            priority = "medium"
-                            if "core" in task_text.lower() or "foundation" in task_text.lower():
-                                priority = "high"
-                            
-                            features.append({
-                                "id": f"feature-{feature_id}",
-                                "name": task_text[:50] + ("..." if len(task_text) > 50 else ""),
-                                "description": task_text,
-                                "size_estimate": size_estimate,
-                                "priority": priority,
-                                "saved": False
-                            })
-                            feature_id += 1
-        except Exception as e:
-            print(f"Warning: Could not parse tasks file: {e}")
-            # Fallback features if parsing fails
-            features = [
-                {
-                    "id": "feature-1",
-                    "name": "Requirements Analysis",
-                    "description": "Analyze and document detailed requirements based on PRD",
-                    "size_estimate": 5,
-                    "priority": "high",
-                    "saved": False
-                },
-                {
-                    "id": "feature-2", 
-                    "name": "API Design",
-                    "description": "Design REST API endpoints and data models",
-                    "size_estimate": 8,
-                    "priority": "high",
-                    "saved": False
-                },
-                {
-                    "id": "feature-3",
-                    "name": "Backend Implementation", 
-                    "description": "Implement backend services and business logic",
-                    "size_estimate": 13,
-                    "priority": "high",
-                    "saved": False
-                },
-                {
-                    "id": "feature-4",
-                    "name": "Frontend Development",
-                    "description": "Build user interface components",
-                    "size_estimate": 13,
-                    "priority": "high", 
-                    "saved": False
-                },
-                {
-                    "id": "feature-5",
-                    "name": "Testing & QA",
-                    "description": "Write unit tests, integration tests, and perform QA",
-                    "size_estimate": 8,
-                    "priority": "medium",
-                    "saved": False
-                }
-            ]
+            # Instead of fallback features, return an error indicating AI generation failed
+            raise HTTPException(
+                status_code=503,
+                detail="AI service is currently unavailable. Unable to generate implementation plan. Please try again later or contact support."
+            )
 
         return JSONResponse(content={
             "plan": {

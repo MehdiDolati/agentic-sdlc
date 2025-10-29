@@ -69,8 +69,8 @@ class Project(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
 class PlanBase(BaseModel):
-    request: str  # Changed from 'name' to match database schema
-    artifacts: Optional[str] = None  # Changed from 'description' to match database schema
+    name: str
+    description: str
     size_estimate: int = 1  # Story points or similar size metric
     priority: str = "medium"  # low, medium, high, critical
     priority_order: Optional[int] = None  # For custom ordering within same priority level
