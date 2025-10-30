@@ -13,8 +13,8 @@ from services.api.core.shared import _auth_enabled, _create_engine, _database_ur
 from services.api.core.repos import InteractionHistoryRepoDB
 
 import services.api.core.shared as shared
-# from services.api.planner.core import plan_request, _generate_prd_with_llm, _get_chat_history_context  # deterministic planner fallback
-# from services.api.planner.openapi_gen import generate_openapi  # blueprint→OpenAPI
+from services.api.planner.core import plan_request, _generate_prd_with_llm  # deterministic planner fallback
+from services.api.planner.openapi_gen import generate_openapi  # blueprint→OpenAPI
 
 # Create a local templates instance to avoid importing app.py (prevents circular import).
 _THIS_FILE = Path(__file__).resolve()
