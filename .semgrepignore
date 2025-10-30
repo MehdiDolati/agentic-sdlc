@@ -6,10 +6,15 @@ build/
 
 # Utility scripts with controlled inputs
 ^check_db\.py$
+^fix_projects_table\.py$
+^init_db_tables\.py$
 
 # .secretsignore
 # Ignore generated API schema snapshots:
 ^services/api/tests/fixtures/.*\.json$
+
+# Ignore test/fixture data with sample hashes
+^services/api/\.app_state/\.data/users\.json$
 
 # Ignore docs/text where sample keys appear:
 ^docs/.*\.md$
