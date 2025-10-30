@@ -1,33 +1,41 @@
 import sqlite3
-import os
 
-db_path = 'docs/plans/plans.db'
-print(f'Database path: {os.path.abspath(db_path)}')
-print(f'Database exists: {os.path.exists(db_path)}')
+conn = sqlite3.connect('docs/plans/plans.db')
+cursor = conn.cursor()
 
-if os.path.exists(db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    # Get all tables
-    cursor.execute('SELECT name FROM sqlite_master WHERE type="table"')
-    tables = [row[0] for row in cursor.fetchall()]
-    print(f'\nTables: {tables}')
-    
-    # Check repositories table
-    if 'repositories' in tables:
-        cursor.execute('PRAGMA table_info(repositories)')
-        columns = cursor.fetchall()
-        print(f'\nRepositories columns:')
-        for col in columns:
-            print(f'  - {col[1]} ({col[2]})')
-        
-        cursor.execute('SELECT * FROM repositories')
-        repos = cursor.fetchall()
-        print(f'\nRepositories data ({len(repos)} rows):')
-        for repo in repos:
-            print(f'  {repo}')
-    else:
-        print('\nRepositories table does NOT exist!')
-    
-    conn.close()
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+tables = cursor.fetchall()
+print('Tables in database:')
+for table in tables:
+    print(f'  {table[0]}')
+
+# Check interaction_history table
+if ('interaction_history',) in tables:
+    print('\nINTERACTION_HISTORY table details:')
+
+    cursor.execute('PRAGMA table_info(interaction_history)')
+    columns = cursor.fetchall()
+    print(f'  Columns: {[col[1] for col in columns]}')
+
+    cursor.execute('SELECT COUNT(*) FROM interaction_history')
+    count = cursor.fetchone()[0]
+    print(f'  Row count: {count}')
+
+# Check agents table
+if ('agents',) in tables:
+    print('\nAGENTS table details:')
+
+    cursor.execute('PRAGMA table_info(agents)')
+    columns = cursor.fetchall()
+    print(f'  Columns: {[col[1] for col in columns]}')
+
+    cursor.execute('SELECT COUNT(*) FROM agents')
+    count = cursor.fetchone()[0]
+    print(f'  Row count: {count}')
+
+    if count > 0:
+        cursor.execute('SELECT * FROM agents')
+        rows = cursor.fetchall()
+        print(f'  Sample data: {rows}')
+
+conn.close()

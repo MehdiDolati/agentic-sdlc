@@ -7,12 +7,13 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from datetime import datetime
+import uuid
 from services.api.auth.routes import get_current_user
 from services.api.core.shared import _auth_enabled, _create_engine, _database_url, _repo_root
 from services.api.core.repos import InteractionHistoryRepoDB
 
 import services.api.core.shared as shared
-from services.api.planner.core import plan_request, _generate_prd_with_llm, _get_chat_history_context  # deterministic planner fallback
+from services.api.planner.core import plan_request, _generate_prd_with_llm  # deterministic planner fallback
 from services.api.planner.openapi_gen import generate_openapi  # blueprint→OpenAPI
 
 # Create a local templates instance to avoid importing app.py (prevents circular import).
@@ -107,7 +108,7 @@ class FeaturePriorityUpdateResponse(BaseModel):
     message: str
 
 class FeatureSaveRequest(BaseModel):
-    plan_id: str
+    plan_id: Optional[str] = None
     name: str
     description: str
     size_estimate: int
@@ -653,6 +654,15 @@ def submit_request(
 ):
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
+    
+    # Validate project vision
+    project_vision = project_vision.strip()
+    if not project_vision or project_vision.lower() in ("untitled", "test", ""):
+        raise HTTPException(
+            status_code=400,
+            detail="Please provide a meaningful project description. Avoid generic terms like 'untitled' or 'test'."
+        )
+    
     repo_root = shared._repo_root()
     try:
         draft = plan_request(project_vision, repo_root, owner="ui")  # writes docs/* deterministically
@@ -772,14 +782,43 @@ def submit_request(
 def save_plan_endpoint(plan_save_request: PlanSaveRequest):
     """Save a plan to the backend."""
     try:
-        # For now, we'll just acknowledge the save since plans are already generated
-        # In a full implementation, this could save to a database
-        plan_id = f"plan-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # Generate unique plan ID
+        plan_id = str(uuid.uuid4())
+        
+        # Create plans directory if it doesn't exist
+        repo_root = _repo_root()
+        plans_dir = repo_root / "docs" / "plans"
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create features directory if it doesn't exist
+        features_dir = repo_root / "docs" / "features"
+        features_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename for plan
+        plan_filename = f"PLAN-{plan_id}.md"
+        plan_path = plans_dir / plan_filename
+        
+        # Create plan content (placeholder for now - in full implementation this would include plan details)
+        plan_content = f"""# Plan: {plan_save_request.name}
+
+**Description:** {plan_save_request.description}
+
+**Priority:** {plan_save_request.priority}
+
+**Size Estimate:** {plan_save_request.size_estimate} days
+
+**Status:** pending
+
+**Created:** {datetime.now().isoformat()}
+"""
+        
+        # Write plan content to file
+        plan_path.write_text(plan_content.strip() + "\n", encoding="utf-8")
         
         return PlanSaveResponse(
             success=True,
             plan_id=plan_id,
-            message=f"Plan '{plan_save_request.name}' saved successfully"
+            message=f"Plan '{plan_save_request.name}' saved successfully as {plan_filename}"
         )
         
     except Exception as e:
@@ -790,17 +829,50 @@ def save_plan_endpoint(plan_save_request: PlanSaveRequest):
 def save_feature_endpoint(feature_save_request: FeatureSaveRequest):
     """Save a feature to the backend."""
     try:
-        # For now, we'll just acknowledge the save since features are part of generated plans
-        # In a full implementation, this could save to a database
-        feature_id = f"feature-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # Generate unique feature ID
+        feature_id = str(uuid.uuid4())
+        
+        # Create features directory if it doesn't exist
+        repo_root = _repo_root()
+        features_dir = repo_root / "docs" / "features"
+        features_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename for feature
+        feature_filename = f"FEATURE-{feature_id}.md"
+        feature_path = features_dir / feature_filename
+        
+        print(f"DEBUG: repo_root = {repo_root}")
+        print(f"DEBUG: features_dir = {features_dir}")
+        print(f"DEBUG: feature_path = {feature_path}")
+        print(f"DEBUG: Saving feature to {feature_path}")
+        
+        # Create feature content
+        feature_content = f"""# Feature: {feature_save_request.name}
+
+**Description:** {feature_save_request.description}
+
+**Priority:** {feature_save_request.priority}
+
+**Size Estimate:** {feature_save_request.size_estimate} hours
+
+**Status:** pending
+
+**Created:** {datetime.now().isoformat()}
+"""
+        
+        # Write feature content to file
+        feature_path.write_text(feature_content.strip() + "\n", encoding="utf-8")
+        
+        print(f"DEBUG: Feature file written successfully")
         
         return FeatureSaveResponse(
             success=True,
             feature_id=feature_id,
-            message=f"Feature '{feature_save_request.name}' saved successfully"
+            message=f"Feature '{feature_save_request.name}' saved successfully as {feature_filename}"
         )
         
     except Exception as e:
+        print(f"DEBUG: Error saving feature: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to save feature: {str(e)}")
 
 # Export the router with the expected name

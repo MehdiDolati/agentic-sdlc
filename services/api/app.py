@@ -39,7 +39,7 @@ from services.api.core.shared import (
     _new_id,
     AUTH_MODE
 )
-from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema, ensure_history_schema, ensure_features_schema, ensure_priority_changes_schema, ensure_agent_types_schema
+from services.api.core.repos import PlansRepoDB, NotesRepoDB, ensure_plans_schema, ensure_runs_schema, ensure_notes_schema, ensure_projects_schema, ensure_history_schema, ensure_features_schema, ensure_priority_changes_schema
 from services.api.ui.plans import router as ui_plans_router
 from services.api.ui.auth import router as ui_auth_router
 from services.api.auth.tokens import read_token
@@ -263,10 +263,6 @@ def _init_schemas():
     except Exception:
         pass
     try:
-        ensure_agent_types_schema(eng)
-    except Exception:
-        pass
-    try:
         ensure_history_schema(eng)
     except Exception:
         pass
@@ -276,32 +272,8 @@ async def lifespan(app: FastAPI):
     # ---- startup (was @app.on_event("startup")) ----
     print("Starting lifespan...")
     try:
-        # Run database migrations automatically on startup
-        print("Running database migrations...")
-        import subprocess
-        import sys
-        from pathlib import Path
-
-        # Get the path to the auto_migrate script
-        project_root = Path(__file__).resolve().parents[2]  # Go up to agentic-sdlc root
-        migrate_script = project_root / "scripts" / "auto_migrate.py"
-
-        if migrate_script.exists():
-            # Run the migration script
-            result = subprocess.run([sys.executable, str(migrate_script)],
-                                  capture_output=True, text=True, cwd=str(project_root))
-            if result.returncode == 0:
-                print("Database migrations completed successfully")
-                if result.stdout:
-                    print(result.stdout.strip())
-            else:
-                print(f"Migration failed with return code {result.returncode}")
-                if result.stderr:
-                    print(f"Migration error: {result.stderr.strip()}")
-                # Don't fail startup if migrations fail - just warn
-        else:
-            print(f"Warning: Migration script not found at {migrate_script}")
-
+        # Skip database migrations for now to avoid shutdown issues
+        print("Skipping database migrations for debugging")
         # _init_schemas()  # Commented out for testing
         print("Lifespan startup complete")
         yield
@@ -319,7 +291,9 @@ async def lifespan(app: FastAPI):
         pass
 
 # Create app with lifespan wired (replaces deprecated on_event usage)
-app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json", lifespan=lifespan)
+print("Creating FastAPI app...")
+app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json")
+print("FastAPI app created")
 
 # Include routers (only once per router)
 app.include_router(ui_requests_router)
@@ -356,12 +330,12 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 @app.get("/health")
 def health():
     # Temporarily disable debug output to see if that's causing the server to crash
-    # if os.getenv("STARTUP_DEBUG"):
-    #     try:
-    #         dsn = psycopg_conninfo_from_env()
-    #         print(f"[app] normalized DSN: {dsn_summary(str(dsn))}")
-    #     except Exception as e:
-    #         print(f"[app] DSN normalization failed: {e!r}")
+    if os.getenv("STARTUP_DEBUG"):
+        try:
+            dsn = psycopg_conninfo_from_env()
+            print(f"[app] normalized DSN: {dsn_summary(str(dsn))}")
+        except Exception as e:
+            print(f"[app] DSN normalization failed: {e!r}")
     return {"status": "ok"}
 
 
@@ -532,15 +506,15 @@ def _hx_target_id(request: Request) -> str | None:
     # HTMX sends the id of the target element (if it has an id)
     return request.headers.get("HX-Target")
 
-# FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
-# @app.get("/favicon.ico", include_in_schema=False)
-# async def favicon():
-#     if FAVICON_PATH.exists():
-#         return FileResponse(FAVICON_PATH)
-#     # Optional: avoid 404 noise if it’s missing
-#     return FileResponse(FAVICON_PATH, status_code=200)  # or return a 204       
-    
-# def _hx_target_id(request: Request) -> str | None:
-#     # HTMX sends the id of the target element (if it has an id)
-#     return request.headers.get("HX-Target")
+FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    if FAVICON_PATH.exists():
+        return FileResponse(FAVICON_PATH)
+    # Optional: avoid 404 noise if it’s missing
+    return FileResponse(FAVICON_PATH, status_code=200)  # or return a 204       
+  
+def _hx_target_id(request: Request) -> str | None:
+    # HTMX sends the id of the target element (if it has an id)
+    return request.headers.get("HX-Target")
     

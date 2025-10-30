@@ -66,7 +66,26 @@ def get_plans_by_project(project_id: str, db: Session = Depends(get_db), user: d
             created_at ASC
     """), {"project_id": project_id}).fetchall()
 
-    return [Plan(**plan) for plan in plans]
+    print(f"[GET PLANS] Found {len(plans)} plans for project {project_id}")
+    
+    result = []
+    for plan in plans:
+        plan_dict = dict(plan._mapping)
+        print(f"[GET PLANS] Plan dict keys: {plan_dict.keys()}")
+        print(f"[GET PLANS] Plan: id={plan_dict.get('id')}, name={plan_dict.get('name')}, request={plan_dict.get('request')}")
+        
+        # Map 'request' field to 'name' if needed
+        if not plan_dict.get('name') and plan_dict.get('request'):
+            plan_dict['name'] = plan_dict['request']
+        
+        # Ensure features list exists
+        if 'features' not in plan_dict:
+            plan_dict['features'] = []
+            
+        result.append(Plan(**plan_dict))
+    
+    print(f"[GET PLANS] Returning {len(result)} plans")
+    return result
 
 @router.get("/{plan_id}", response_model=Plan)
 def get_plan(plan_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
@@ -78,7 +97,7 @@ def get_plan(plan_id: str, db: Session = Depends(get_db), user: dict = Depends(g
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    plan_dict = dict(plan._asdict())
+    plan_dict = dict(plan._mapping)
     plan_dict['name'] = plan_dict.get('request', '')
     plan_dict['description'] = plan_dict.get('request', '')
     plan_dict['features'] = []  # Add empty features list
@@ -109,7 +128,7 @@ def update_plan(plan_id: str, plan_update: PlanBase, db: Session = Depends(get_d
 
     # Return updated plan
     plan = db.execute(text("SELECT * FROM plans WHERE id = :id"), {"id": plan_id}).fetchone()
-    return Plan(**plan._asdict())
+    return Plan(**plan._mapping)
 
 @router.put("/{plan_id}/priority", response_model=Plan)
 def update_plan_priority(
@@ -133,7 +152,7 @@ def update_plan_priority(
     if not current_plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    current_plan_dict = current_plan._asdict()
+    current_plan_dict = current_plan._mapping
 
     # Check if priority actually changed
     priority_changed = (current_plan_dict['priority'] != priority or 
@@ -170,7 +189,7 @@ def update_plan_priority(
 
     # Return updated plan
     plan = db.execute(text("SELECT * FROM plans WHERE id = :id"), {"id": plan_id}).fetchone()
-    return Plan(**plan._asdict())
+    return Plan(**plan._mapping)
 
 # Feature CRUD endpoints
 @router.post("/{plan_id}/features", response_model=Feature)
@@ -221,7 +240,7 @@ def get_features_by_plan(plan_id: str, db: Session = Depends(get_db), user: dict
             created_at ASC
     """), {"plan_id": plan_id}).fetchall()
 
-    return [Feature(**feature._asdict()) for feature in features]
+    return [Feature(**feature._mapping) for feature in features]
 
 @router.put("/features/{feature_id}/priority", response_model=Feature)
 def update_feature_priority(
@@ -245,7 +264,7 @@ def update_feature_priority(
     if not current_feature:
         raise HTTPException(status_code=404, detail="Feature not found")
 
-    current_feature_dict = current_feature._asdict()
+    current_feature_dict = current_feature._mapping
 
     # Check if priority actually changed
     priority_changed = (current_feature_dict['priority'] != priority or 
@@ -282,7 +301,7 @@ def update_feature_priority(
 
     # Return updated feature
     feature = db.execute(text("SELECT * FROM features WHERE id = :id"), {"id": feature_id}).fetchone()
-    return Feature(**feature._asdict())
+    return Feature(**feature._mapping)
 
 # Priority change history endpoints
 @router.get("/{entity_type}/{entity_id}/priority-history", response_model=List[PriorityChange])
@@ -306,7 +325,7 @@ def get_priority_history(
         ORDER BY created_at DESC
     """), {"entity_type": entity_type, "entity_id": entity_id}).fetchall()
 
-    return [PriorityChange(**change._asdict()) for change in changes]
+    return [PriorityChange(**change._mapping) for change in changes]
 
 # Priority-based selection endpoint
 @router.get("/next-task/{project_id}")
@@ -335,7 +354,7 @@ def get_next_task(project_id: str, db: Session = Depends(get_db), user: dict = D
     """), {"project_id": project_id}).fetchone()
 
     if feature:
-        feature_dict = feature._asdict()
+        feature_dict = feature._mapping
         return {
             "type": "feature",
             "id": feature_dict['id'],
@@ -363,7 +382,7 @@ def get_next_task(project_id: str, db: Session = Depends(get_db), user: dict = D
     """), {"project_id": project_id}).fetchone()
 
     if plan:
-        plan_dict = plan._asdict()
+        plan_dict = plan._mapping
         return {
             "type": "plan",
             "id": plan_dict['id'],
@@ -374,3 +393,155 @@ def get_next_task(project_id: str, db: Session = Depends(get_db), user: dict = D
         }
 
     return {"message": "No pending tasks found"}
+
+# Bulk save plans and features to files
+@router.post("/save-all")
+def save_all_plans(payload: dict, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Save all plans and features to both database and markdown files."""
+    from pathlib import Path
+    import json
+    from datetime import datetime
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    project_id = payload.get("project_id")
+    project_name = payload.get("project_name", project_id)
+    plans = payload.get("plans", [])
+    
+    if not project_id or not plans:
+        raise HTTPException(status_code=400, detail="project_id and plans are required")
+    
+    # Get the docs root directory
+    docs_root = _repo_root() / "docs"
+    plans_dir = docs_root / "plans"
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    
+    saved_files = []
+    saved_plan_count = 0
+    saved_feature_count = 0
+    db_plan_ids = []
+    
+    try:
+        for plan_idx, plan_data in enumerate(plans, 1):
+            # Extract plan data
+            plan_id = plan_data.get("id") or str(uuid.uuid4())
+            plan_name = plan_data.get("name", f"Plan {plan_idx}")
+            plan_desc = plan_data.get("description", "")
+            plan_priority = plan_data.get("priority", "medium")
+            plan_order = plan_data.get("priority_order", plan_idx)
+            plan_size = plan_data.get("size_estimate", 0)
+            plan_features = plan_data.get("features", [])
+            
+            # Save plan to database
+            db.execute(text("""
+                INSERT OR REPLACE INTO plans 
+                (id, project_id, request, owner, artifacts, name, description, priority, priority_order, 
+                 size_estimate, status, created_at, updated_at)
+                VALUES (:id, :project_id, :request, :owner, :artifacts, :name, :description, :priority, 
+                        :priority_order, :size_estimate, :status,
+                        COALESCE((SELECT created_at FROM plans WHERE id = :id), datetime('now')),
+                        datetime('now'))
+            """), {
+                "id": plan_id,
+                "project_id": project_id,
+                "request": plan_name,  # Using plan name as the request
+                "owner": user.get("id", "system"),
+                "artifacts": "{}",  # Empty JSON object
+                "name": plan_name,
+                "description": plan_desc,
+                "priority": plan_priority,
+                "priority_order": plan_order,
+                "size_estimate": plan_size,
+                "status": "pending"
+            })
+            db.commit()
+            db_plan_ids.append(plan_id)
+            
+            # Sanitize filename
+            safe_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in plan_name)
+            safe_name = safe_name.replace(' ', '-').lower()
+            plan_filename = f"{plan_order:02d}-{safe_name}.md"
+            plan_file = plans_dir / plan_filename
+            
+            # Create plan markdown content
+            plan_content = f"""# {plan_name}
+
+**Priority:** {plan_priority.upper()}  
+**Order:** {plan_order}  
+**Estimated Size:** {plan_size} days  
+**Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+## Description
+
+{plan_desc}
+
+## Features
+
+"""
+            
+            # Add features to plan content and save to database
+            for feat_idx, feature in enumerate(plan_features, 1):
+                feat_id = feature.get("id") or str(uuid.uuid4())
+                feat_name = feature.get("name", f"Feature {feat_idx}")
+                feat_desc = feature.get("description", "")
+                feat_priority = feature.get("priority", "medium")
+                feat_order = feature.get("priority_order", feat_idx)
+                feat_size = feature.get("size_estimate", 0)
+                feat_criteria = feature.get("acceptance_criteria", [])
+                
+                # Save feature to database
+                db.execute(text("""
+                    INSERT OR REPLACE INTO features 
+                    (id, plan_id, name, description, priority, priority_order, size_estimate, status,
+                     created_at, updated_at)
+                    VALUES (:id, :plan_id, :name, :description, :priority, :priority_order, :size_estimate,
+                            :status,
+                            COALESCE((SELECT created_at FROM features WHERE id = :id), datetime('now')),
+                            datetime('now'))
+                """), {
+                    "id": feat_id,
+                    "plan_id": plan_id,
+                    "name": feat_name,
+                    "description": feat_desc,
+                    "priority": feat_priority,
+                    "priority_order": feat_order,
+                    "size_estimate": feat_size,
+                    "status": "pending"
+                })
+                db.commit()
+                saved_feature_count += 1
+                
+                plan_content += f"""### {feat_order}. {feat_name}
+
+**Priority:** {feat_priority.upper()}  
+**Estimated Size:** {feat_size} hours
+
+{feat_desc}
+
+"""
+                if feat_criteria:
+                    plan_content += "**Acceptance Criteria:**\n\n"
+                    for criterion in feat_criteria:
+                        plan_content += f"- {criterion}\n"
+                    plan_content += "\n"
+            
+            # Write plan file
+            plan_file.write_text(plan_content, encoding='utf-8')
+            saved_files.append(str(plan_file.relative_to(_repo_root())))
+            saved_plan_count += 1
+        
+        return {
+            "success": True,
+            "saved_plans": saved_plan_count,
+            "saved_features": saved_feature_count,
+            "file_paths": saved_files,
+            "plan_ids": db_plan_ids,
+            "message": f"Successfully saved {saved_plan_count} plans with {saved_feature_count} features to database and files"
+        }
+        
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to save plans: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in save_all_plans] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to save plans: {str(e)}")
