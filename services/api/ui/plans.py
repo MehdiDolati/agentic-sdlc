@@ -1341,6 +1341,15 @@ def create_request(req: RequestIn, user: Dict[str, Any] = Depends(get_current_us
     # Auth gate: only non-public users may create plans
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
+    
+    # Validate request text
+    req.text = req.text.strip()
+    if not req.text or req.text.lower() in ("untitled", "test"):
+        raise HTTPException(
+            status_code=400,
+            detail="Please provide a meaningful project description. Avoid generic terms like 'untitled' or 'test'."
+        )
+    
     repo_root = shared._repo_root()
     ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     slug = _slugify(req.text)
