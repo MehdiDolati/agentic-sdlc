@@ -5,22 +5,22 @@ dist/
 build/
 
 # Utility scripts with controlled inputs
-^check_db\.py$
-^fix_projects_table\.py$
-^init_db_tables\.py$
+check_db.py
+fix_projects_table.py
+init_db_tables.py
 
 # .secretsignore
 # Ignore generated API schema snapshots:
-^services/api/tests/fixtures/.*\.json$
+services/api/tests/fixtures/*.json
 
 # Ignore test/fixture data with sample hashes
-^services/api/\.app_state/\.data/users\.json$
+services/api/.app_state/.data/users.json
 
 # Ignore docs/text where sample keys appear:
-^docs/.*\.md$
+docs/**/*.md
 
 # If a specific file has a sample "password=" string used in docs:
-^README\.md$
+README.md
 
 # Ignore third-party/minified assets
 services/api/static/*.min.js
