@@ -295,47 +295,54 @@ print("FastAPI app created")
 
 # Include routers (only once per router)
 print("Including routers...")
-# app.include_router(ui_requests_router)
-# print("ui_requests_router included")
-# app.include_router(dashboard_router)
-# print("dashboard_router included")
-# app.include_router(projects_router)
-# print("projects_router included")
-# app.include_router(plans_router)
-# print("plans_router included")
-# app.include_router(ui_plans_router)
-# print("ui_plans_router included")
-# app.include_router(ui_auth_router)
-# print("ui_auth_router included")
+# API routes
+app.include_router(ui_requests_router)
+print("ui_requests_router included")
+app.include_router(dashboard_router)
+print("dashboard_router included")
+app.include_router(projects_router)
+print("projects_router included")
+app.include_router(plans_router)
+print("plans_router included")
+app.include_router(ui_plans_router)
+print("ui_plans_router included")
+app.include_router(ui_auth_router)
+print("ui_auth_router included")
 app.include_router(auth_router)
 print("auth_router included")
-# app.include_router(runs_router)
-# print("runs_router included")
-# app.include_router(ui_settings_router)
-# print("ui_settings_router included")
-# app.include_router(agent_router)
-# print("agent_router included")
-# app.include_router(agents_router)
-# print("agents_router included")
-# app.include_router(repositories_router)
-# print("repositories_router included")
-# app.include_router(admin_router)
-# print("admin_router included")
-# app.include_router(profile_router)
-# print("profile_router included")
-# app.include_router(history_router)
-# print("history_router included")
+app.include_router(runs_router)
+print("runs_router included")
+app.include_router(ui_settings_router)
+print("ui_settings_router included")
+app.include_router(agent_router)
+print("agent_router included")
+app.include_router(agents_router)
+print("agents_router included")
+app.include_router(repositories_router)
+print("repositories_router included")
+app.include_router(admin_router)
+print("admin_router included")
+app.include_router(profile_router)
+print("profile_router included")
+app.include_router(history_router)
+print("history_router included")
 
 # Add CORS middleware — note: there is no '*' literal anywhere in this file
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["http://localhost:8080", "http://127.0.0.1:8080"],
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=allow_credentials,
+)
 
-# Mount static files
-# app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+# Mount static files (for UI templates/assets)
+try:
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+    print(f"Mounted static files from {_STATIC_DIR}")
+except Exception as e:
+    # Don't let static mount errors prevent app startup in test environments
+    print(f"Warning: failed to mount static files: {e}")
 
 # --------------------------------------------------------------------------------------
 # Health

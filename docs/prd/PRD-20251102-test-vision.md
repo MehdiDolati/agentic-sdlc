@@ -1,18 +1,7 @@
-# Product Requirements Document — Project: Untitled Project
-Description: 
-
-Please provide a detailed implementa
+# Product Requirements Document — Test vision
 
 ## Problem
-Project: Untitled Project
-Description: 
-
-Please provide a detailed implementation plan with the following requirements:
-- Order plans and features by priority and logical sequence
-- Assign priority levels (critical, high, medium, low) to each plan and feature
-- Provide priority_order numbers for proper sequencing
-- Include detailed descriptions and size estimates
-- Structure the response as ordered lists
+Test vision
 
 ## Goals / Non-goals
 - **Goals**: Deliver the requested functionality with tests and docs.
@@ -20,15 +9,7 @@ Please provide a detailed implementation plan with the following requirements:
 
 ## Personas & Scenarios
 - Primary Persona: End-user
-- Scenario: A user interacts with the system to accomplish: "Project: Untitled Project
-Description: 
-
-Please provide a detailed implementation plan with the following requirements:
-- Order plans and features by priority and logical sequence
-- Assign priority levels (critical, high, medium, low) to each plan and feature
-- Provide priority_order numbers for proper sequencing
-- Include detailed descriptions and size estimates
-- Structure the response as ordered lists"
+- Scenario: A user interacts with the system to accomplish: "Test vision"
 
 ## Requirements (Must / Should / Could)
 **Must**
