@@ -46,7 +46,7 @@ services:
       UVICORN_HOST: "0.0.0.0"
       UVICORN_PORT: "8080"
     ports:
-      - "8001:8080"
+      - "8081:8080"
     # Run DB init/migrations, then start uvicorn
     command: >
       sh -c "python services/api/tools/db_init.py &&
