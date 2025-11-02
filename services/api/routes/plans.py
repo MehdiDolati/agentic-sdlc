@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from services.api.core.shared import _create_engine, _database_url, _repo_root, _auth_enabled
 from services.api.auth.routes import get_current_user
-from ..models.project import (
+from services.api.models.project import (
     Plan, PlanCreate, PlanBase,
     Feature, FeatureCreate, FeatureBase,
     PriorityChange, PriorityChangeCreate
@@ -46,46 +46,62 @@ def create_plan(plan: PlanCreate, db: Session = Depends(get_db), user: dict = De
     plan_data = db.execute(text("SELECT * FROM plans WHERE id = :id"), {"id": result.lastrowid}).fetchone()
     return Plan(**plan_data)
 
-@router.get("/project/{project_id}", response_model=List[Plan])
+@router.get("/project/{project_id}", response_model=List[dict])
 def get_plans_by_project(project_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     """Get all plans for a project."""
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
-
-    plans = db.execute(text("""
-        SELECT * FROM plans
-        WHERE project_id = :project_id
-        ORDER BY
-            CASE priority
-                WHEN 'critical' THEN 1
-                WHEN 'high' THEN 2
-                WHEN 'medium' THEN 3
-                WHEN 'low' THEN 4
-            END,
-            priority_order ASC,
-            created_at ASC
-    """), {"project_id": project_id}).fetchall()
-
-    print(f"[GET PLANS] Found {len(plans)} plans for project {project_id}")
     
+    plans = db.execute(text("""
+        SELECT * FROM plans 
+        WHERE project_id = :project_id 
+        ORDER BY priority_order ASC
+    """), {"project_id": project_id}).fetchall()
+    
+    # Convert to dict and return
     result = []
     for plan in plans:
         plan_dict = dict(plan._mapping)
-        print(f"[GET PLANS] Plan dict keys: {plan_dict.keys()}")
-        print(f"[GET PLANS] Plan: id={plan_dict.get('id')}, name={plan_dict.get('name')}, request={plan_dict.get('request')}")
-        
-        # Map 'request' field to 'name' if needed
-        if not plan_dict.get('name') and plan_dict.get('request'):
-            plan_dict['name'] = plan_dict['request']
-        
-        # Ensure features list exists
-        if 'features' not in plan_dict:
-            plan_dict['features'] = []
-            
-        result.append(Plan(**plan_dict))
+        plan_dict['features'] = []
+        result.append(plan_dict)
     
-    print(f"[GET PLANS] Returning {len(result)} plans")
     return result
+
+@router.delete("/{plan_id}")
+def delete_plan(plan_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Delete a plan and all its features."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    # Delete features first (due to foreign key constraints)
+    db.execute(text("DELETE FROM features WHERE plan_id = :plan_id"), {"plan_id": plan_id})
+    
+    # Delete the plan
+    result = db.execute(text("DELETE FROM plans WHERE id = :plan_id"), {"plan_id": plan_id})
+    db.commit()
+    
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    
+    return {"message": "Plan deleted successfully"}
+
+@router.delete("/{plan_id}/features/{feature_id}")
+def delete_feature(plan_id: str, feature_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Delete a specific feature."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    # Delete the feature
+    result = db.execute(text("DELETE FROM features WHERE id = :feature_id AND plan_id = :plan_id"), {
+        "feature_id": feature_id,
+        "plan_id": plan_id
+    })
+    db.commit()
+    
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Feature not found")
+    
+    return {"message": "Feature deleted successfully"}
 
 @router.get("/{plan_id}", response_model=Plan)
 def get_plan(plan_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
@@ -229,14 +245,13 @@ def get_features_by_plan(plan_id: str, db: Session = Depends(get_db), user: dict
     features = db.execute(text("""
         SELECT * FROM features
         WHERE plan_id = :plan_id
-        ORDER BY
+        ORDER BY priority_order ASC,
             CASE priority
                 WHEN 'critical' THEN 1
                 WHEN 'high' THEN 2
                 WHEN 'medium' THEN 3
                 WHEN 'low' THEN 4
             END,
-            priority_order ASC,
             created_at ASC
     """), {"plan_id": plan_id}).fetchall()
 
@@ -341,14 +356,13 @@ def get_next_task(project_id: str, db: Session = Depends(get_db), user: dict = D
         FROM features f
         JOIN plans p ON f.plan_id = p.id
         WHERE p.project_id = :project_id AND f.status = 'pending'
-        ORDER BY
+        ORDER BY f.priority_order ASC,
             CASE f.priority
                 WHEN 'critical' THEN 1
                 WHEN 'high' THEN 2
                 WHEN 'medium' THEN 3
                 WHEN 'low' THEN 4
             END,
-            f.priority_order ASC,
             f.created_at ASC
         LIMIT 1
     """), {"project_id": project_id}).fetchone()
@@ -369,14 +383,13 @@ def get_next_task(project_id: str, db: Session = Depends(get_db), user: dict = D
     plan = db.execute(text("""
         SELECT * FROM plans
         WHERE project_id = :project_id AND status = 'pending'
-        ORDER BY
+        ORDER BY priority_order ASC,
             CASE priority
                 WHEN 'critical' THEN 1
                 WHEN 'high' THEN 2
                 WHEN 'medium' THEN 3
                 WHEN 'low' THEN 4
             END,
-            priority_order ASC,
             created_at ASC
         LIMIT 1
     """), {"project_id": project_id}).fetchone()
@@ -415,7 +428,9 @@ def save_all_plans(payload: dict, db: Session = Depends(get_db), user: dict = De
     # Get the docs root directory
     docs_root = _repo_root() / "docs"
     plans_dir = docs_root / "plans"
+    features_dir = docs_root / "features"
     plans_dir.mkdir(parents=True, exist_ok=True)
+    features_dir.mkdir(parents=True, exist_ok=True)
     
     saved_files = []
     saved_plan_count = 0
@@ -432,6 +447,8 @@ def save_all_plans(payload: dict, db: Session = Depends(get_db), user: dict = De
             plan_order = plan_data.get("priority_order", plan_idx)
             plan_size = plan_data.get("size_estimate", 0)
             plan_features = plan_data.get("features", [])
+            
+            print(f"[SAVE PLANS] Saving plan: id={plan_id}, name={plan_name}, priority={plan_priority}, priority_order={plan_order}")
             
             # Save plan to database
             db.execute(text("""
@@ -480,7 +497,8 @@ def save_all_plans(payload: dict, db: Session = Depends(get_db), user: dict = De
 
 """
             
-            # Add features to plan content and save to database
+            # Save features as separate files and reference them in plan
+            feature_files = []
             for feat_idx, feature in enumerate(plan_features, 1):
                 feat_id = feature.get("id") or str(uuid.uuid4())
                 feat_name = feature.get("name", f"Feature {feat_idx}")
@@ -489,6 +507,8 @@ def save_all_plans(payload: dict, db: Session = Depends(get_db), user: dict = De
                 feat_order = feature.get("priority_order", feat_idx)
                 feat_size = feature.get("size_estimate", 0)
                 feat_criteria = feature.get("acceptance_criteria", [])
+                
+                print(f"[SAVE PLANS] Saving feature: id={feat_id}, name={feat_name}, priority={feat_priority}, priority_order={feat_order}")
                 
                 # Save feature to database
                 db.execute(text("""
@@ -512,23 +532,49 @@ def save_all_plans(payload: dict, db: Session = Depends(get_db), user: dict = De
                 db.commit()
                 saved_feature_count += 1
                 
-                plan_content += f"""### {feat_order}. {feat_name}
+                # Create separate feature file
+                safe_feat_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in feat_name)
+                safe_feat_name = safe_feat_name.replace(' ', '-').lower()
+                feature_filename = f"{plan_order:02d}-{feat_order:02d}-{safe_feat_name}.md"
+                feature_file = features_dir / feature_filename
+                
+                # Create feature markdown content
+                feature_content = f"""# {feat_name}
 
+**Plan:** {plan_name}  
 **Priority:** {feat_priority.upper()}  
-**Estimated Size:** {feat_size} hours
+**Order:** {feat_order}  
+**Estimated Size:** {feat_size} hours  
+**Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+## Description
 
 {feat_desc}
 
 """
                 if feat_criteria:
-                    plan_content += "**Acceptance Criteria:**\n\n"
+                    feature_content += "**Acceptance Criteria:**\n\n"
                     for criterion in feat_criteria:
-                        plan_content += f"- {criterion}\n"
-                    plan_content += "\n"
+                        feature_content += f"- {criterion}\n"
+                    feature_content += "\n"
+                
+                # Write feature file
+                feature_file.write_text(feature_content, encoding='utf-8')
+                feature_files.append(str(feature_file.relative_to(_repo_root())))
+                
+                # Add reference to plan file
+                plan_content += f"""### {feat_order}. {feat_name}
+
+**Priority:** {feat_priority.upper()}  
+**Estimated Size:** {feat_size} hours  
+**File:** [{feature_filename}](../features/{feature_filename})
+
+"""
             
             # Write plan file
             plan_file.write_text(plan_content, encoding='utf-8')
             saved_files.append(str(plan_file.relative_to(_repo_root())))
+            saved_files.extend(feature_files)  # Include feature files in saved files list
             saved_plan_count += 1
         
         return {
@@ -537,7 +583,7 @@ def save_all_plans(payload: dict, db: Session = Depends(get_db), user: dict = De
             "saved_features": saved_feature_count,
             "file_paths": saved_files,
             "plan_ids": db_plan_ids,
-            "message": f"Successfully saved {saved_plan_count} plans with {saved_feature_count} features to database and files"
+            "message": f"Successfully saved {saved_plan_count} plans and {saved_feature_count} features to database and separate files"
         }
         
     except Exception as e:

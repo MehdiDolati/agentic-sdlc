@@ -272,14 +272,12 @@ async def lifespan(app: FastAPI):
     # ---- startup (was @app.on_event("startup")) ----
     print("Starting lifespan...")
     try:
-        # Skip database migrations for now to avoid shutdown issues
-        print("Skipping database migrations for debugging")
-        # _init_schemas()  # Commented out for testing
+        _init_schemas()  # Temporarily commented out for debugging
         print("Lifespan startup complete")
         yield
         print("Lifespan yielding back")
-    except Exception as e:
-        print(f"Error in lifespan: {e}")
+    except BaseException as e:
+        print(f"Exception in lifespan: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
         raise
@@ -292,37 +290,52 @@ async def lifespan(app: FastAPI):
 
 # Create app with lifespan wired (replaces deprecated on_event usage)
 print("Creating FastAPI app...")
-app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json")
+app = FastAPI(title="Agentic SDLC API", version="0.1.0", docs_url="/docs", openapi_url="/openapi.json", lifespan=lifespan)
 print("FastAPI app created")
 
 # Include routers (only once per router)
-app.include_router(ui_requests_router)
-app.include_router(dashboard_router)
-app.include_router(projects_router)
-app.include_router(plans_router)
-app.include_router(ui_plans_router)
-app.include_router(ui_auth_router)
+print("Including routers...")
+# app.include_router(ui_requests_router)
+# print("ui_requests_router included")
+# app.include_router(dashboard_router)
+# print("dashboard_router included")
+# app.include_router(projects_router)
+# print("projects_router included")
+# app.include_router(plans_router)
+# print("plans_router included")
+# app.include_router(ui_plans_router)
+# print("ui_plans_router included")
+# app.include_router(ui_auth_router)
+# print("ui_auth_router included")
 app.include_router(auth_router)
-app.include_router(runs_router)
-app.include_router(ui_settings_router)
-app.include_router(agent_router)
-app.include_router(agents_router)
-app.include_router(repositories_router)
-app.include_router(admin_router)
-app.include_router(profile_router)
-app.include_router(history_router)
+print("auth_router included")
+# app.include_router(runs_router)
+# print("runs_router included")
+# app.include_router(ui_settings_router)
+# print("ui_settings_router included")
+# app.include_router(agent_router)
+# print("agent_router included")
+# app.include_router(agents_router)
+# print("agents_router included")
+# app.include_router(repositories_router)
+# print("repositories_router included")
+# app.include_router(admin_router)
+# print("admin_router included")
+# app.include_router(profile_router)
+# print("profile_router included")
+# app.include_router(history_router)
+# print("history_router included")
 
 # Add CORS middleware — note: there is no '*' literal anywhere in this file
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=allow_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["http://localhost:8080", "http://127.0.0.1:8080"],
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 # Mount static files
-app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+# app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # --------------------------------------------------------------------------------------
 # Health
@@ -494,17 +507,21 @@ async def validation_exc_handler(request: Request, exc: RequestValidationError):
         )
     return JSONResponse({"detail": exc.errors()}, status_code=422)
 
-# FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
-# @app.get("/favicon.ico", include_in_schema=False)
-# async def favicon():
-#     if FAVICON_PATH.exists():
-#         return FileResponse(FAVICON_PATH)
-#     # Optional: avoid 404 noise if it’s missing
-#     return FileResponse(FAVICON_PATH, status_code=200)  # or return a 204       
+FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    if FAVICON_PATH.exists():
+        return FileResponse(FAVICON_PATH)
+    # Optional: avoid 404 noise if it's missing
+    return FileResponse(FAVICON_PATH, status_code=200)  # or return a 204       
     
 def _hx_target_id(request: Request) -> str | None:
     # HTMX sends the id of the target element (if it has an id)
     return request.headers.get("HX-Target")
+    
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)
 
 FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
 @app.get("/favicon.ico", include_in_schema=False)
