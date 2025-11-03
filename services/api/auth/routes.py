@@ -39,7 +39,6 @@ def _get_user_by_id(uid: str) -> Optional[Dict[str, Any]]:
     return next((u for u in _iter_user_dicts(users_raw) if u.get("id") == uid), None)
 
 def get_current_user(
-    request: Request,
     authorization: str = Header(default=""),
     session: Optional[str] = Cookie(default=None),
 ) -> Dict[str, Any]:
@@ -50,19 +49,23 @@ def get_current_user(
     token = None
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(None, 1)[1].strip()
-    elif session:
-        token = session
+    elif session and session.strip():
+        token = session.strip()
 
     if token:
-        data = read_token(AUTH_SECRET, token)
-        if data and data.get("uid"):
-            user_data = _get_user_by_id(data["uid"])
-            if user_data:
-                return {
-                    "id": user_data["id"],
-                    "email": (user_data.get("email") or "").strip().lower(),
-                    "role": user_data.get("role", "user")
-                }
+        try:
+            data = read_token(AUTH_SECRET, token)
+            if data and data.get("uid"):
+                user_data = _get_user_by_id(data["uid"])
+                if user_data:
+                    return {
+                        "id": str(user_data.get("id", "unknown")),
+                        "email": str(user_data.get("email", "")).strip().lower(),
+                        "role": str(user_data.get("role", "user"))
+                    }
+        except Exception:
+            # If token parsing fails, fall back to public user
+            pass
 
     # default public user
     return {"id": "public", "email": "public@example.com", "role": "public"}

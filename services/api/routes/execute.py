@@ -1,5 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks
-from ..app import execute_plan as _execute_plan
+from services.api.app import execute_plan as _execute_plan
 
 router = APIRouter()
 

@@ -82,6 +82,9 @@ class PlanCreate(PlanBase):
 class Plan(PlanBase):
     id: str
     project_id: str
+    request: Optional[str] = None
+    owner: Optional[str] = None
+    artifacts: Optional[str] = None
     created_at: str
     updated_at: str
     features: List['Feature'] = []
@@ -102,8 +105,8 @@ class FeatureCreate(FeatureBase):
 class Feature(FeatureBase):
     id: str
     plan_id: str
+    status: str = "pending"
     created_at: str
-    updated_at: str
 
     model_config = ConfigDict(from_attributes=True)
 
