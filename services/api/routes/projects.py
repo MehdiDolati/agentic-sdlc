@@ -68,36 +68,50 @@ class ProjectWithDocuments(BaseModel):
     documents: DocumentStatus
 
 def _check_plan_exists(project_id: str) -> bool:
-    """Check if a plan exists for the project via API."""
+    """Check if a plan exists for the given project using secure file system access."""
     try:
-        import urllib.request
-        import urllib.error
+        import re
+        import os
+        import glob
         
-        # Extract plan ID from project ID (project ID format: proj-{plan_id})
-        if project_id.startswith("proj-"):
-            plan_id = project_id[5:]  # Remove "proj-" prefix
-        else:
-            plan_id = project_id
+        # Extract plan timestamp from project_id using strict regex validation
+        plan_pattern = r'^proj-(\d{14})-plan-[a-f0-9]{6}$'
+        match = re.match(plan_pattern, project_id)
         
-        # Debug logging
-        print(f"Checking plan existence for project_id: {project_id}, extracted plan_id: {plan_id}")
-        
-        # Check if plan exists by trying to access features endpoint
-        # This is a more reliable check than the plan endpoint itself
-        url = f"http://localhost:8000/plans/{plan_id}/features"
-        print(f"Checking plan at URL: {url}")
-        
-        req = urllib.request.Request(url)
-        try:
-            with urllib.request.urlopen(req, timeout=5) as response:
-                result = response.status == 200
-                print(f"Plan check result for {plan_id}: {result}")
-                return result
-        except urllib.error.HTTPError as e:
-            print(f"HTTP Error checking plan {plan_id}: {e.code}")
+        if not match:
+            print(f"Invalid project_id format: {project_id}")
             return False
+        
+        plan_timestamp = match.group(1)
+        print(f"Checking plan existence for project_id: {project_id}, extracted timestamp: {plan_timestamp}")
+        
+        # Construct secure path to plans directory 
+        # Navigate up from services/api/routes to project root
+        current_file = os.path.abspath(__file__)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file))))
+        plans_dir = os.path.join(project_root, "docs", "plans")
+        plans_dir = os.path.abspath(plans_dir)  # Normalize path for security
+        
+        print(f"Current file: {current_file}")
+        print(f"Project root: {project_root}")
+        print(f"Plans directory: {plans_dir}")
+        
+        # Use glob to safely search for files with the timestamp
+        # This prevents path traversal while allowing flexible matching
+        pattern = os.path.join(plans_dir, f"{plan_timestamp}*.json")
+        matching_files = glob.glob(pattern)
+        
+        print(f"Searching pattern: {pattern}")
+        print(f"Found {len(matching_files)} matching plan files")
+        
+        if matching_files:
+            print(f"Plan files found: {[os.path.basename(f) for f in matching_files]}")
+            return True
+        
+        return False
+            
     except Exception as e:
-        print(f"Error checking plan existence: {e}")
+        print(f"Error checking plan files: {e}")
         return False
 
 def _check_document_status(project_id: str, project_title: str) -> DocumentStatus:
