@@ -67,6 +67,39 @@ class ProjectWithDocuments(BaseModel):
     updatedAt: str
     documents: DocumentStatus
 
+def _check_plan_exists(project_id: str) -> bool:
+    """Check if a plan exists for the project via API."""
+    try:
+        import urllib.request
+        import urllib.error
+        
+        # Extract plan ID from project ID (project ID format: proj-{plan_id})
+        if project_id.startswith("proj-"):
+            plan_id = project_id[5:]  # Remove "proj-" prefix
+        else:
+            plan_id = project_id
+        
+        # Debug logging
+        print(f"Checking plan existence for project_id: {project_id}, extracted plan_id: {plan_id}")
+        
+        # Check if plan exists by trying to access features endpoint
+        # This is a more reliable check than the plan endpoint itself
+        url = f"http://localhost:8000/plans/{plan_id}/features"
+        print(f"Checking plan at URL: {url}")
+        
+        req = urllib.request.Request(url)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as response:
+                result = response.status == 200
+                print(f"Plan check result for {plan_id}: {result}")
+                return result
+        except urllib.error.HTTPError as e:
+            print(f"HTTP Error checking plan {plan_id}: {e.code}")
+            return False
+    except Exception as e:
+        print(f"Error checking plan existence: {e}")
+        return False
+
 def _check_document_status(project_id: str, project_title: str) -> DocumentStatus:
     """Check which documents exist for a specific project."""
     try:
@@ -94,36 +127,42 @@ def _check_document_status(project_id: str, project_title: str) -> DocumentStatu
         for doc_type, patterns in doc_patterns.items():
             found = False
             
-            for docs_dir in docs_dirs:
-                if found:
-                    break
-                
-                if not docs_dir.exists():
-                    continue
+            # Special handling for plans - check database first
+            if doc_type == "plans":
+                found = _check_plan_exists(project_id)
+            
+            # If not found and not plans, or if plans check failed, check filesystem
+            if not found:
+                for docs_dir in docs_dirs:
+                    if found:
+                        break
                     
-                # Check each pattern directory
-                for pattern in patterns:
-                    try:
-                        pattern_dir = docs_dir / pattern
-                        if pattern_dir.exists() and pattern_dir.is_dir():
-                            # Look for project-specific files - prioritize exact project ID match
-                            files = list(pattern_dir.glob("*"))
-                            for file_path in files:
-                                if file_path.is_file() and file_path.suffix in ['.md', '.txt', '.json', '.yaml', '.yml']:
-                                    file_name_lower = file_path.name.lower()
-                                    
-                                    # First priority: Exact project ID match
-                                    if project_id.lower() in file_name_lower:
-                                        found = True
-                                        break
-                            
-                            if found:
-                                break
-                    except Exception as e:
+                    if not docs_dir.exists():
                         continue
-                
-                if found:
-                    break
+                        
+                    # Check each pattern directory
+                    for pattern in patterns:
+                        try:
+                            pattern_dir = docs_dir / pattern
+                            if pattern_dir.exists() and pattern_dir.is_dir():
+                                # Look for project-specific files - prioritize exact project ID match
+                                files = list(pattern_dir.glob("*"))
+                                for file_path in files:
+                                    if file_path.is_file() and file_path.suffix in ['.md', '.txt', '.json', '.yaml', '.yml']:
+                                        file_name_lower = file_path.name.lower()
+                                        
+                                        # First priority: Exact project ID match
+                                        if project_id.lower() in file_name_lower:
+                                            found = True
+                                            break
+                                
+                                if found:
+                                    break
+                        except Exception as e:
+                            continue
+                    
+                    if found:
+                        break
             
             # Set the status for this document type
             setattr(status, doc_type, found)
