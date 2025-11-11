@@ -9,12 +9,13 @@ from pydantic import BaseModel
 from datetime import datetime
 import uuid
 from services.api.auth.routes import get_current_user
-from services.api.core.shared import _auth_enabled, _create_engine, _database_url, _repo_root
-from services.api.core.repos import InteractionHistoryRepoDB
+from sqlalchemy import text
 
 import services.api.core.shared as shared
 from services.api.planner.core import plan_request, _generate_prd_with_llm  # deterministic planner fallback
 from services.api.planner.openapi_gen import generate_openapi  # blueprint→OpenAPI
+from services.api.core.shared import _auth_enabled, _repo_root, _create_engine, _database_url
+from services.api.core.repos import InteractionHistoryRepoDB
 
 # Create a local templates instance to avoid importing app.py (prevents circular import).
 _THIS_FILE = Path(__file__).resolve()

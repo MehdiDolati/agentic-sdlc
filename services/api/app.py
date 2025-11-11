@@ -529,7 +529,7 @@ def _hx_target_id(request: Request) -> str | None:
     
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 FAVICON_PATH = Path(__file__).parent / "static" / "favicon.ico"
 @app.get("/favicon.ico", include_in_schema=False)
