@@ -1,0 +1,24 @@
+{
+  "project_id": "proj-20251029141049-plan-05cd1d",
+  "plan_id": "20251029141049-plan-05cd1d",
+  "plan_name": "",
+  "generated_at": "2025-11-12T13:38:53.179729",
+  "user_stories": [
+    {
+      "id": "story-20251029141049-plan-05cd1d-1",
+      "title": "As a user, I want to implement ",
+      "description": "",
+      "feature_id": null,
+      "feature_name": "",
+      "priority": "high",
+      "acceptance_criteria": [
+        "Given the user needs ",
+        "When they use the system",
+        "Then "
+      ],
+      "story_points": 5,
+      "status": "ready",
+      "tasks": []
+    }
+  ]
+}

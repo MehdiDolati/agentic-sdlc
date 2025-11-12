@@ -591,3 +591,322 @@ def save_all_plans(payload: dict, db: Session = Depends(get_db), user: dict = De
         error_detail = f"Failed to save plans: {str(e)}\n{traceback.format_exc()}"
         print(f"[ERROR in save_all_plans] {error_detail}")
         raise HTTPException(status_code=500, detail=f"Failed to save plans: {str(e)}")
+
+@router.post("/project/{project_id}/feature-planning")
+def start_feature_planning(project_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """
+    Start feature planning phase:
+    1. Find the highest priority plan
+    2. Generate user stories for the selected plan
+    3. Update project and plan status to 'planning'
+    4. Save user stories to docs/stories
+    """
+    from pathlib import Path
+    import json
+    import os
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        # 1. Try to find plans in database first
+        plan_result = db.execute(text("""
+            SELECT p.*, COUNT(f.id) as feature_count
+            FROM plans p 
+            LEFT JOIN features f ON p.id = f.plan_id
+            WHERE p.project_id = :project_id 
+            ORDER BY p.priority_order ASC, p.priority DESC
+            LIMIT 1
+        """), {"project_id": project_id}).fetchone()
+        
+        plan = None
+        features = []
+        
+        if plan_result:
+            # Plan found in database
+            plan = dict(plan_result._mapping)
+            
+            # If name/description are empty, try to get from request field in the database
+            if not plan.get("name") and not plan.get("description"):
+                db_plan_data = db.execute(text("""
+                    SELECT request, name, description FROM plans 
+                    WHERE id = :plan_id LIMIT 1
+                """), {"plan_id": plan["id"]}).fetchone()
+                
+                if db_plan_data:
+                    db_plan = dict(db_plan_data._mapping)
+                    request_text = db_plan.get("request", "")
+                    plan["name"] = db_plan.get("name") or request_text
+                    plan["description"] = db_plan.get("description") or request_text
+            
+            # Get features for this plan
+            features_result = db.execute(text("""
+                SELECT * FROM features 
+                WHERE plan_id = :plan_id 
+                ORDER BY priority_order ASC
+            """), {"plan_id": plan["id"]}).fetchall()
+            
+            features = [dict(f._mapping) for f in features_result]
+        else:
+            # No plans in database, try to find plan files
+            from pathlib import Path
+            import json
+            import glob
+            import re
+            
+            # Extract timestamp from project_id for file matching
+            project_pattern = r'proj-(\d{14})-plan-[a-f0-9]{6}'
+            match = re.match(project_pattern, project_id)
+            
+            if match:
+                timestamp = match.group(1)
+                repo_root = _repo_root()
+                
+                # Navigate up from services/api/routes to project root
+                current_file = os.path.abspath(__file__)
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file))))
+                plans_dir = os.path.join(project_root, "docs", "plans")
+                
+                # Look for plan files with this timestamp
+                pattern = os.path.join(plans_dir, f"{timestamp}*.json")
+                matching_files = glob.glob(pattern)
+                
+                if matching_files:
+                    # Use the first matching plan file
+                    plan_file = matching_files[0]
+                    with open(plan_file, 'r', encoding='utf-8') as f:
+                        plan_data = json.load(f)
+                    
+                    print(f"Loaded plan data: {plan_data}")
+                    
+                    # Create a mock plan structure
+                    request_text = plan_data.get("request", "")
+                    plan = {
+                        "id": plan_data.get("id", f"plan-{timestamp}"),
+                        "name": request_text or plan_data.get("name", "Generated Plan"),
+                        "description": request_text or plan_data.get("description", "Plan loaded from file"),
+                        "project_id": project_id,
+                        "priority": "high",
+                        "priority_order": 1,
+                        "status": "ready"
+                    }
+                    
+                    print(f"Created plan structure: {plan}")
+                    
+                    # Generate features from plan request (since this plan doesn't have explicit features)
+                    request = plan_data.get("request", "")
+                    if "notes service with auth" in request.lower():
+                        # Create logical features for a notes service
+                        features = [
+                            {
+                                "id": f"feature-{timestamp}-auth",
+                                "plan_id": plan["id"],
+                                "name": "User Authentication System",
+                                "description": "Implement user registration, login, logout, and session management",
+                                "priority": "high",
+                                "priority_order": 1,
+                                "size_estimate": 5
+                            },
+                            {
+                                "id": f"feature-{timestamp}-notes-crud",
+                                "plan_id": plan["id"],
+                                "name": "Notes CRUD Operations",
+                                "description": "Create, read, update, and delete notes functionality",
+                                "priority": "high",
+                                "priority_order": 2,
+                                "size_estimate": 8
+                            },
+                            {
+                                "id": f"feature-{timestamp}-notes-ui",
+                                "plan_id": plan["id"],
+                                "name": "Notes User Interface",
+                                "description": "Frontend interface for managing notes",
+                                "priority": "medium",
+                                "priority_order": 3,
+                                "size_estimate": 6
+                            },
+                            {
+                                "id": f"feature-{timestamp}-api",
+                                "plan_id": plan["id"],
+                                "name": "API Endpoints",
+                                "description": "RESTful API endpoints for notes and authentication",
+                                "priority": "high",
+                                "priority_order": 4,
+                                "size_estimate": 4
+                            }
+                        ]
+                    else:
+                        # Generic features for other types of projects
+                        features = [
+                            {
+                                "id": f"feature-{timestamp}-core",
+                                "plan_id": plan["id"],
+                                "name": "Core Functionality",
+                                "description": f"Implement the core functionality for {request}",
+                                "priority": "high",
+                                "priority_order": 1,
+                                "size_estimate": 5
+                            }
+                        ]
+        
+        if not plan:
+            raise HTTPException(status_code=404, detail="No plans found for this project")
+
+        
+        # 2. Generate user stories using AI (mock implementation for now)
+        user_stories = []
+        
+        if features:
+            # Generate stories from features
+            for feature in features:
+                stories_for_feature = [
+                    {
+                        "id": f"story-{feature['id']}-1",
+                        "title": f"As a user, I want to {feature['name'].lower()}",
+                        "description": feature['description'],
+                        "feature_id": feature['id'],
+                        "feature_name": feature['name'],
+                        "priority": feature.get('priority', 'medium'),
+                        "acceptance_criteria": [
+                            f"Given the user needs {feature['name']}",
+                            f"When they use the system",
+                            f"Then {feature['description']}"
+                        ],
+                        "story_points": feature.get('size_estimate', 3),
+                        "status": "ready",
+                        "tasks": []
+                    }
+                ]
+                user_stories.extend(stories_for_feature)
+        else:
+            # Generate default user stories from plan
+            user_stories = [
+                {
+                    "id": f"story-{plan['id']}-1",
+                    "title": f"As a user, I want to implement {plan['name'].lower()}",
+                    "description": plan['description'],
+                    "feature_id": None,
+                    "feature_name": plan['name'],
+                    "priority": "high",
+                    "acceptance_criteria": [
+                        f"Given the user needs {plan['name']}",
+                        f"When they use the system",
+                        f"Then {plan['description']}"
+                    ],
+                    "story_points": 5,
+                    "status": "ready",
+                    "tasks": []
+                }
+            ]
+        
+        # 4. Save user stories to docs/stories directory
+        repo_root = _repo_root()
+        stories_dir = Path(repo_root) / "docs" / "stories"
+        stories_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create a timestamp for the filename
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        stories_filename = f"{timestamp}-{project_id}-user-stories.json"
+        stories_path = stories_dir / stories_filename
+        
+        # Save user stories
+        with open(stories_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                "project_id": project_id,
+                "plan_id": plan["id"],
+                "plan_name": plan["name"],
+                "generated_at": datetime.now().isoformat(),
+                "user_stories": user_stories
+            }, f, indent=2)
+        
+        # 5. Update plan status to 'planning'
+        db.execute(text("""
+            UPDATE plans 
+            SET status = 'planning' 
+            WHERE id = :plan_id
+        """), {"plan_id": plan["id"]})
+        
+        # 6. Update project status to 'planning' (assuming projects table exists)
+        try:
+            db.execute(text("""
+                UPDATE projects 
+                SET status = 'planning' 
+                WHERE id = :project_id
+            """), {"project_id": project_id})
+        except Exception as e:
+            print(f"Warning: Could not update project status: {e}")
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "selected_plan": {
+                "id": plan["id"],
+                "name": plan["name"],
+                "description": plan["description"],
+                "feature_count": len(features)
+            },
+            "user_stories_count": len(user_stories),
+            "stories_file": str(stories_path),
+            "message": f"Successfully generated {len(user_stories)} user stories for plan '{plan['name']}'"
+        }
+        
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to start feature planning: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in start_feature_planning] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to start feature planning: {str(e)}")
+
+@router.get("/project/{project_id}/user-stories")
+def get_user_stories(project_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """
+    Get existing user stories for a project by reading the saved stories files.
+    """
+    from pathlib import Path
+    import json
+    import glob
+    import os
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        # Look for user stories files for this project
+        repo_root = _repo_root()
+        stories_dir = Path(repo_root) / "docs" / "stories"
+        
+        if not stories_dir.exists():
+            raise HTTPException(status_code=404, detail="No user stories found")
+        
+        # Find stories files for this project
+        pattern = str(stories_dir / f"*{project_id}-user-stories.json")
+        matching_files = glob.glob(pattern)
+        
+        if not matching_files:
+            raise HTTPException(status_code=404, detail="No user stories found for this project")
+        
+        # Use the most recent file (files are timestamped)
+        latest_file = max(matching_files, key=os.path.getmtime)
+        
+        with open(latest_file, 'r', encoding='utf-8') as f:
+            stories_data = json.load(f)
+        
+        return {
+            "project_id": project_id,
+            "plan_id": stories_data.get("plan_id"),
+            "plan_name": stories_data.get("plan_name"),
+            "generated_at": stories_data.get("generated_at"),
+            "user_stories": stories_data.get("user_stories", []),
+            "stories_file": latest_file
+        }
+        
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="User stories file not found")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Invalid user stories file format")
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get user stories: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_user_stories] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get user stories: {str(e)}")

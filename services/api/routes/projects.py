@@ -754,3 +754,50 @@ def remove_project_agent(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to remove project agent: {str(e)}")
+
+@router.get("/{project_id}/user-stories")
+def get_project_user_stories(project_id: str, user: dict = Depends(get_current_user)):
+    """
+    Get existing user stories for a project by reading the saved stories files.
+    """
+    from pathlib import Path
+    import json
+    import glob
+    import os
+    from services.api.core.shared import _auth_enabled
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        # Look for user stories files for this project
+        repo_root = _repo_root()
+        stories_dir = Path(repo_root) / "docs" / "stories"
+        
+        if not stories_dir.exists():
+            raise HTTPException(status_code=404, detail="No user stories found")
+        
+        # Find stories files for this project
+        pattern = str(stories_dir / f"*{project_id}-user-stories.json")
+        matching_files = glob.glob(pattern)
+        
+        if not matching_files:
+            raise HTTPException(status_code=404, detail="No user stories found for this project")
+        
+        # Use the most recent file (files are timestamped)
+        latest_file = max(matching_files, key=os.path.getmtime)
+        
+        with open(latest_file, 'r', encoding='utf-8') as f:
+            stories_data = json.load(f)
+        
+        return stories_data.get("user_stories", [])
+        
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="User stories file not found")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Invalid user stories file format")
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get user stories: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_project_user_stories] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get user stories: {str(e)}")

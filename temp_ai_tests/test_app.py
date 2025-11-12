@@ -1,21 +1,39 @@
-﻿import signal
 import sys
-from fastapi import FastAPI
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent / 'services'))
 
-def signal_handler(sig, frame):
-    print('Signal received, but ignoring')
-    return
+try:
+    from fastapi import FastAPI
+    from contextlib import asynccontextmanager
+    from fastapi.middleware.cors import CORSMiddleware
 
-signal.signal(signal.SIGINT, signal_handler)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        print('Starting lifespan...')
+        try:
+            yield
+            print('Lifespan yielding back')
+        except Exception as e:
+            print(f'Error in lifespan: {e}')
+            import traceback
+            traceback.print_exc()
+            raise
+        finally:
+            print('Lifespan shutdown')
 
-app = FastAPI()
+    app = FastAPI(lifespan=lifespan)
 
-@app.get('/')
-def hello():
-    try:
-        print('Endpoint called')
-        return {"message": "hello"}
-    except Exception as e:
-        print(f'Exception in endpoint: {e}')
-        raise
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=['http://localhost:8080', 'http://127.0.0.1:8080'],
+        allow_methods=['*'],
+        allow_headers=['*'],
+    )
 
+    print('FastAPI app created with CORS')
+except Exception as e:
+    print(f'Error: {e}')
+    import traceback
+    traceback.print_exc()
