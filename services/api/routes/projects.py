@@ -854,3 +854,251 @@ def get_plan_user_stories(project_id: str, plan_id: str, user: dict = Depends(ge
         error_detail = f"Failed to get plan user stories: {str(e)}\n{traceback.format_exc()}"
         print(f"[ERROR in get_plan_user_stories] {error_detail}")
         raise HTTPException(status_code=500, detail=f"Failed to get plan user stories: {str(e)}")
+
+@router.get("/{project_id}/active-plan")
+def get_active_plan(project_id: str, user: dict = Depends(get_current_user)):
+    """
+    Get the currently active plan for a project.
+    Returns the plan marked as active, or determines one based on business logic.
+    """
+    from services.api.core.shared import _auth_enabled
+    from sqlalchemy import text
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        engine = _create_engine(_database_url(_repo_root()))
+        with engine.begin() as db:
+            # Try to get explicitly set active plan first
+            result = db.execute(text("""
+                SELECT p.*, pr.active_plan_id
+                FROM projects pr 
+                LEFT JOIN plans p ON pr.active_plan_id = p.id
+                WHERE pr.id = :project_id
+            """), {"project_id": project_id}).fetchone()
+            
+            if result and result.active_plan_id:
+                # Return the explicitly set active plan
+                plan_data = dict(result._mapping)
+                return {
+                    "id": plan_data["id"],
+                    "name": plan_data["name"],
+                    "description": plan_data["description"],
+                    "status": plan_data["status"],
+                    "priority": plan_data["priority"],
+                    "is_explicit": True
+                }
+            
+            # Fall back to business logic: find the plan currently in progress or highest priority
+            fallback_result = db.execute(text("""
+                SELECT * FROM plans 
+                WHERE project_id = :project_id 
+                AND status IN ('in_progress', 'planning')
+                ORDER BY 
+                    CASE 
+                        WHEN status = 'in_progress' THEN 1 
+                        WHEN status = 'planning' THEN 2 
+                        ELSE 3 
+                    END,
+                    priority_order ASC, 
+                    CASE priority 
+                        WHEN 'critical' THEN 1 
+                        WHEN 'high' THEN 2 
+                        WHEN 'medium' THEN 3 
+                        WHEN 'low' THEN 4 
+                    END
+                LIMIT 1
+            """), {"project_id": project_id}).fetchone()
+            
+            if fallback_result:
+                plan_data = dict(fallback_result._mapping)
+                return {
+                    "id": plan_data["id"],
+                    "name": plan_data["name"],
+                    "description": plan_data["description"],
+                    "status": plan_data["status"],
+                    "priority": plan_data["priority"],
+                    "is_explicit": False,
+                    "reason": "Determined by status and priority"
+                }
+            
+            # If no plans in progress, return highest priority plan
+            highest_priority = db.execute(text("""
+                SELECT * FROM plans 
+                WHERE project_id = :project_id 
+                ORDER BY 
+                    priority_order ASC,
+                    CASE priority 
+                        WHEN 'critical' THEN 1 
+                        WHEN 'high' THEN 2 
+                        WHEN 'medium' THEN 3 
+                        WHEN 'low' THEN 4 
+                    END
+                LIMIT 1
+            """), {"project_id": project_id}).fetchone()
+            
+            if highest_priority:
+                plan_data = dict(highest_priority._mapping)
+                return {
+                    "id": plan_data["id"],
+                    "name": plan_data["name"],
+                    "description": plan_data["description"],
+                    "status": plan_data["status"],
+                    "priority": plan_data["priority"],
+                    "is_explicit": False,
+                    "reason": "Highest priority plan (no active plans found)"
+                }
+            
+            raise HTTPException(status_code=404, detail="No plans found for this project")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get active plan: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_active_plan] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get active plan: {str(e)}")
+
+@router.post("/{project_id}/active-plan/{plan_id}")
+def set_active_plan(project_id: str, plan_id: str, user: dict = Depends(get_current_user)):
+    """
+    Explicitly set the active plan for a project.
+    """
+    from services.api.core.shared import _auth_enabled
+    from sqlalchemy import text
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        engine = _create_engine(_database_url(_repo_root()))
+        with engine.begin() as db:
+            # Verify the plan exists and belongs to the project
+            plan_check = db.execute(text("""
+                SELECT id FROM plans 
+                WHERE id = :plan_id AND project_id = :project_id
+            """), {"plan_id": plan_id, "project_id": project_id}).fetchone()
+            
+            if not plan_check:
+                raise HTTPException(status_code=404, detail="Plan not found or does not belong to this project")
+            
+            # Update the project's active plan
+            db.execute(text("""
+                UPDATE projects 
+                SET active_plan_id = :plan_id 
+                WHERE id = :project_id
+            """), {"plan_id": plan_id, "project_id": project_id})
+            
+            return {
+                "success": True,
+                "message": f"Active plan set to {plan_id} for project {project_id}",
+                "active_plan_id": plan_id
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to set active plan: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in set_active_plan] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to set active plan: {str(e)}")
+
+@router.get("/{project_id}/plan-progress")
+def get_project_plan_progress(project_id: str, plan_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """
+    Get progress information for a specific plan or the active plan.
+    """
+    from services.api.core.shared import _auth_enabled
+    from sqlalchemy import text
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        engine = _create_engine(_database_url(_repo_root()))
+        with engine.begin() as db:
+            # If no plan_id provided, get the active plan
+            if not plan_id:
+                active_plan_result = db.execute(text("""
+                    SELECT pr.active_plan_id
+                    FROM projects pr 
+                    WHERE pr.id = :project_id
+                """), {"project_id": project_id}).fetchone()
+                
+                if active_plan_result and active_plan_result.active_plan_id:
+                    plan_id = active_plan_result.active_plan_id
+                else:
+                    # Fallback to highest priority plan
+                    fallback_result = db.execute(text("""
+                        SELECT id FROM plans 
+                        WHERE project_id = :project_id 
+                        ORDER BY 
+                            CASE 
+                                WHEN status = 'in_progress' THEN 1 
+                                WHEN status = 'planning' THEN 2 
+                                ELSE 3 
+                            END,
+                            priority_order ASC, 
+                            CASE priority 
+                                WHEN 'critical' THEN 1 
+                                WHEN 'high' THEN 2 
+                                WHEN 'medium' THEN 3 
+                                WHEN 'low' THEN 4 
+                            END
+                        LIMIT 1
+                    """), {"project_id": project_id}).fetchone()
+                    
+                    if not fallback_result:
+                        raise HTTPException(status_code=404, detail="No plans found for project")
+                    
+                    plan_id = fallback_result.id
+            
+            # Get plan details
+            plan_result = db.execute(text("""
+                SELECT * FROM plans WHERE id = :plan_id AND project_id = :project_id
+            """), {"plan_id": plan_id, "project_id": project_id}).fetchone()
+            
+            if not plan_result:
+                raise HTTPException(status_code=404, detail="Plan not found")
+            
+            plan_data = dict(plan_result._mapping)
+            
+            # Get features for this plan
+            features_result = db.execute(text("""
+                SELECT * FROM features 
+                WHERE plan_id = :plan_id 
+                ORDER BY priority_order ASC
+            """), {"plan_id": plan_id}).fetchall()
+            
+            features = [dict(f._mapping) for f in features_result]
+            
+            # Calculate progress
+            total_features = len(features)
+            completed_features = len([f for f in features if f['status'] == 'completed'])
+            in_progress_features = len([f for f in features if f['status'] == 'in_progress'])
+            
+            progress = 0
+            if total_features > 0:
+                # Give partial credit for in_progress features
+                progress = round(((completed_features + in_progress_features * 0.5) / total_features) * 100)
+            
+            return {
+                "plan": plan_data,
+                "features": features,
+                "progress": {
+                    "percentage": progress,
+                    "total_features": total_features,
+                    "completed_features": completed_features,
+                    "in_progress_features": in_progress_features,
+                    "pending_features": total_features - completed_features - in_progress_features
+                }
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get plan progress: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_project_plan_progress] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get plan progress: {str(e)}")

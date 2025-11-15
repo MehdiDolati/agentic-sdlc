@@ -827,13 +827,13 @@ def start_feature_planning(project_id: str, db: Session = Depends(get_db), user:
             WHERE id = :plan_id
         """), {"plan_id": plan["id"]})
         
-        # 6. Update project status to 'planning' (assuming projects table exists)
+        # 6. Update project status to 'planning' and set active plan
         try:
             db.execute(text("""
                 UPDATE projects 
-                SET status = 'planning' 
+                SET status = 'planning', active_plan_id = :plan_id 
                 WHERE id = :project_id
-            """), {"project_id": project_id})
+            """), {"project_id": project_id, "plan_id": plan["id"]})
         except Exception as e:
             print(f"Warning: Could not update project status: {e}")
         
