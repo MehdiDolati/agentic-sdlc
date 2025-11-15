@@ -801,3 +801,56 @@ def get_project_user_stories(project_id: str, user: dict = Depends(get_current_u
         error_detail = f"Failed to get user stories: {str(e)}\n{traceback.format_exc()}"
         print(f"[ERROR in get_project_user_stories] {error_detail}")
         raise HTTPException(status_code=500, detail=f"Failed to get user stories: {str(e)}")
+
+@router.get("/{project_id}/plans/{plan_id}/user-stories")
+def get_plan_user_stories(project_id: str, plan_id: str, user: dict = Depends(get_current_user)):
+    """
+    Get user stories for a specific plan within a project.
+    """
+    from pathlib import Path
+    import json
+    import glob
+    import os
+    from services.api.core.shared import _auth_enabled
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        # Look for user stories files for this project
+        repo_root = _repo_root()
+        stories_dir = Path(repo_root) / "docs" / "stories"
+        
+        if not stories_dir.exists():
+            raise HTTPException(status_code=404, detail="No user stories found")
+        
+        # Find stories files for this project
+        pattern = str(stories_dir / f"*{project_id}-user-stories.json")
+        matching_files = glob.glob(pattern)
+        
+        if not matching_files:
+            raise HTTPException(status_code=404, detail="No user stories found for this project")
+        
+        # Find the file with the specific plan_id
+        for stories_file in matching_files:
+            try:
+                with open(stories_file, 'r', encoding='utf-8') as f:
+                    stories_data = json.load(f)
+                
+                # Check if this file contains stories for the requested plan
+                if stories_data.get("plan_id") == plan_id:
+                    return stories_data
+            
+            except (json.JSONDecodeError, IOError):
+                continue
+        
+        # If we reach here, no file with the specified plan_id was found
+        raise HTTPException(status_code=404, detail=f"No user stories found for plan {plan_id} in project {project_id}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get plan user stories: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_plan_user_stories] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get plan user stories: {str(e)}")
