@@ -68,45 +68,65 @@ class ProjectWithDocuments(BaseModel):
     documents: DocumentStatus
 
 def _check_plan_exists(project_id: str) -> bool:
-    """Check if a plan exists for the given project using secure file system access."""
+    """Check if a plan exists for the given project using database and file system."""
     try:
+        # First, check the database for plans with this project_id
+        try:
+            engine = _get_engine()
+            from sqlalchemy import select, func, text
+            
+            # Query directly for plans with matching project_id
+            with engine.connect() as conn:
+                count_stmt = text("SELECT COUNT(*) FROM plans WHERE project_id = :project_id")
+                total = conn.execute(count_stmt, {"project_id": project_id}).scalar_one()
+                
+                if total > 0:
+                    print(f"Found {total} plans in database for project_id: {project_id}")
+                    return True
+        except Exception as db_error:
+            print(f"Database check failed: {db_error}")
+        
+        # If not in database, check file system
         import re
         import os
         import glob
         
-        # Extract plan timestamp from project_id using strict regex validation
-        plan_pattern = r'^proj-(\d{14})-plan-[a-f0-9]{6}$'
-        match = re.match(plan_pattern, project_id)
-        
-        if not match:
-            print(f"Invalid project_id format: {project_id}")
-            return False
-        
-        plan_timestamp = match.group(1)
-        print(f"Checking plan existence for project_id: {project_id}, extracted timestamp: {plan_timestamp}")
-        
         # Construct secure path to plans directory 
-        # Navigate up from services/api/routes to project root
         current_file = os.path.abspath(__file__)
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file))))
-        plans_dir = os.path.join(project_root, "docs", "plans")
-        plans_dir = os.path.abspath(plans_dir)  # Normalize path for security
         
-        print(f"Current file: {current_file}")
-        print(f"Project root: {project_root}")
-        print(f"Plans directory: {plans_dir}")
+        # Check both docs/plans and data/docs/plans directories
+        plans_dirs = [
+            os.path.join(project_root, "docs", "plans"),
+            os.path.join(project_root, "data", "docs", "plans")
+        ]
         
-        # Use glob to safely search for files with the timestamp
-        # This prevents path traversal while allowing flexible matching
-        pattern = os.path.join(plans_dir, f"{plan_timestamp}*.json")
-        matching_files = glob.glob(pattern)
-        
-        print(f"Searching pattern: {pattern}")
-        print(f"Found {len(matching_files)} matching plan files")
-        
-        if matching_files:
-            print(f"Plan files found: {[os.path.basename(f) for f in matching_files]}")
-            return True
+        for plans_dir in plans_dirs:
+            if not os.path.exists(plans_dir):
+                continue
+                
+            plans_dir = os.path.abspath(plans_dir)
+            
+            # Search for files containing the project_id
+            pattern = os.path.join(plans_dir, f"*{project_id}*.json")
+            matching_files = glob.glob(pattern)
+            
+            if matching_files:
+                print(f"Found {len(matching_files)} matching plan files in {plans_dir}")
+                return True
+            
+            # Also try searching for old format if project_id matches that pattern
+            plan_pattern = r'^proj-(\d{14})-plan-[a-f0-9]{6}$'
+            match = re.match(plan_pattern, project_id)
+            
+            if match:
+                plan_timestamp = match.group(1)
+                pattern = os.path.join(plans_dir, f"{plan_timestamp}*.json")
+                matching_files = glob.glob(pattern)
+                
+                if matching_files:
+                    print(f"Found {len(matching_files)} matching plan files with timestamp")
+                    return True
         
         return False
             
@@ -233,17 +253,31 @@ def list_projects(
     q: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     sort: Optional[str] = Query(default="created_at"),
-    order: Optional[str] = Query(default="desc")
+    order: Optional[str] = Query(default="desc"),
+    user: Dict[str, Any] = Depends(get_current_user)
 ):
     """List projects with filtering and pagination."""
     try:
+        from services.api.core.shared import _auth_enabled
+        
         engine = _get_engine()
         projects_repo = ProjectsRepoDB(engine)
         
-        # Build filters (bypassing auth for now)
-        filters = {
-            "owner": "public"
-        }
+        # Build filters - filter by authenticated user's projects
+        filters = {}
+        
+        # Get the user ID from the authenticated user
+        user_id = user.get("id", "public")
+        
+        # Always filter by the user ID (whether from session or public)
+        # This ensures logged-in users see their projects
+        if user_id and user_id != "public":
+            print(f"[DEBUG] Filtering projects for user: {user_id}")
+            filters["owner"] = user_id
+        else:
+            # For unauthenticated/public users, show public projects
+            print(f"[DEBUG] Showing public projects for unauthenticated user")
+            filters["owner"] = "public"
         if q:
             filters["q"] = q
         if status:
@@ -314,7 +348,17 @@ def get_project(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
-        # Check ownership (for now, allow access to all projects - can be enhanced with proper permissions)
+        # Check ownership - users can only access their own projects (unless they're public user)
+        user_id = user.get("id", "public")
+        project_owner = project.get("owner", "public")
+        print(f"[GET PROJECT] Checking ownership: project_owner={project_owner}, user_id={user_id}")
+        
+        # If user is authenticated (not public), verify they own this project
+        if user_id != "public" and project_owner != user_id:
+            print(f"[GET PROJECT] Access denied: project owner {project_owner} != user {user_id}")
+            raise HTTPException(status_code=403, detail="Access denied: You can only access your own projects")
+        
+        print(f"[GET PROJECT] Access granted for project {project_id}")
         
         def _iso(v):
             return v.isoformat() if hasattr(v, "isoformat") else (v or datetime.now().isoformat())

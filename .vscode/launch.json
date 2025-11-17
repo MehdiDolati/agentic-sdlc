@@ -9,28 +9,56 @@
       "args": [
         "services.api.app:app",
         "--reload",
+        "--host",
+        "0.0.0.0",
         "--port",
         "8000"
       ],
       "env": {
-        "PYTHONPATH": "${workspaceFolder}"
+        "PYTHONPATH": "${workspaceFolder}/agentic-sdlc"
       },
-      "console": "integratedTerminal"
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/agentic-sdlc"
     },
     {
       "name": "Frontend Only",
-      "type": "node",
+      "type": "chrome",
       "request": "launch",
-      "program": "${workspaceFolder}/../agentic-sdlc-craft/node_modules/.bin/vite",
-      "args": ["--host", "::", "--port", "8080"],
-      "env": {
-        "BROWSER": "none"
-      },
-      "cwd": "${workspaceFolder}/../agentic-sdlc-craft"
+      "url": "http://localhost:8080",
+      "webRoot": "${workspaceFolder}/agentic-sdlc-craft/src",
+      "preLaunchTask": "Run Frontend",
+      "sourceMaps": true,
+      "sourceMapPathOverrides": {
+        "webpack:///src/*": "${webRoot}/*"
+      }
     },
     {
+      "name": "Backend + Frontend (Debug Both)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "services.api.app:app",
+        "--reload",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/agentic-sdlc"
+      },
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/agentic-sdlc",
+      "preLaunchTask": "Run Frontend",
+      "postDebugTask": "Stop Frontend"
+    }
+  ],
+  "compounds": [
+    {
       "name": "Backend + Frontend",
-      "configurations": ["Backend Only", "Frontend Only"]
+      "configurations": ["Backend Only", "Frontend Only"],
+      "stopAll": true
     }
   ]
 }

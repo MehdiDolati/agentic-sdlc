@@ -5,5 +5,11 @@
     "email": "persianmd@yahoo.com",
     "password_hash": "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LeWbOJDOk4KSkXdDO",
     "role": "admin"
+  },
+  "u_b7318d": {
+    "id": "u_b7318d",
+    "email": "test@test.com",
+    "password_hash": "ecd71870d1963316a97e3ac3408c9835ad8cf0f3c1bc703527c30265534f75ae",
+    "role": "user"
   }
 }
