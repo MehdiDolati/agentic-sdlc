@@ -440,7 +440,11 @@ def save_all_plans(payload: dict, db: Session = Depends(get_db), user: dict = De
     try:
         for plan_idx, plan_data in enumerate(plans, 1):
             # Extract plan data
-            plan_id = plan_data.get("id") or str(uuid.uuid4())
+            # Generate unique ID if not provided or if it's a temporary frontend ID (e.g., "plan-1", "plan-2")
+            plan_id = plan_data.get("id", "")
+            if not plan_id or plan_id.startswith("plan-"):
+                plan_id = str(uuid.uuid4())
+            
             plan_name = plan_data.get("name", f"Plan {plan_idx}")
             plan_desc = plan_data.get("description", "")
             plan_priority = plan_data.get("priority", "medium")
@@ -500,7 +504,11 @@ def save_all_plans(payload: dict, db: Session = Depends(get_db), user: dict = De
             # Save features as separate files and reference them in plan
             feature_files = []
             for feat_idx, feature in enumerate(plan_features, 1):
-                feat_id = feature.get("id") or str(uuid.uuid4())
+                # Generate unique ID if not provided or if it's a temporary frontend ID (e.g., "feature-1-1")
+                feat_id = feature.get("id", "")
+                if not feat_id or feat_id.startswith("feature-"):
+                    feat_id = str(uuid.uuid4())
+                    
                 feat_name = feature.get("name", f"Feature {feat_idx}")
                 feat_desc = feature.get("description", "")
                 feat_priority = feature.get("priority", "medium")
