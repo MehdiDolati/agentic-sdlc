@@ -869,13 +869,16 @@ def get_plan_user_stories(project_id: str, plan_id: str, user: dict = Depends(ge
             raise HTTPException(status_code=404, detail="No user stories found")
         
         # Find stories files for this project
-        pattern = str(stories_dir / f"*{project_id}-user-stories.json")
+        pattern = str(stories_dir / f"*{project_id}*user-stories.json")
         matching_files = glob.glob(pattern)
         
         if not matching_files:
             raise HTTPException(status_code=404, detail="No user stories found for this project")
         
-        # Find the file with the specific plan_id
+        # Collect all user stories from matching files for this plan
+        # Use a dict to deduplicate by ID, keeping the most recent version
+        stories_by_id = {}
+        
         for stories_file in matching_files:
             try:
                 with open(stories_file, 'r', encoding='utf-8') as f:
@@ -883,12 +886,28 @@ def get_plan_user_stories(project_id: str, plan_id: str, user: dict = Depends(ge
                 
                 # Check if this file contains stories for the requested plan
                 if stories_data.get("plan_id") == plan_id:
-                    return stories_data
+                    # Add/update stories from this file (newer files overwrite older)
+                    file_stories = stories_data.get("user_stories", [])
+                    for story in file_stories:
+                        story_id = story.get("id")
+                        if story_id:
+                            stories_by_id[story_id] = story
             
             except (json.JSONDecodeError, IOError):
                 continue
         
-        # If we reach here, no file with the specified plan_id was found
+        # Convert dict back to list
+        all_stories = list(stories_by_id.values())
+        
+        # If we found any stories, return them
+        if all_stories:
+            return {
+                "project_id": project_id,
+                "plan_id": plan_id,
+                "user_stories": all_stories
+            }
+        
+        # If we reach here, no stories found for this plan
         raise HTTPException(status_code=404, detail=f"No user stories found for plan {plan_id} in project {project_id}")
         
     except HTTPException:
