@@ -671,6 +671,17 @@ def add_project_agent(
             )
             session.commit()
             
+            # Auto-detection: Set use_supabase_llm to false when custom agents are assigned
+            from services.api.core.db import projects
+            from sqlalchemy import update
+            session.execute(
+                update(projects)
+                .where(projects.c.id == project_id)
+                .values(use_supabase_llm=0)
+            )
+            session.commit()
+            print(f"[Auto-detection] Set use_supabase_llm=false for project {project_id} (custom agent assigned)")
+            
             # Fetch created agent
             agent_id = result.inserted_primary_key[0]
             stmt = select(project_agents).where(project_agents.c.id == agent_id)
@@ -792,6 +803,22 @@ def remove_project_agent(
             stmt = delete(project_agents).where(project_agents.c.id == agent_id)
             session.execute(stmt)
             session.commit()
+            
+            # Auto-detection: Check if this was the last agent
+            count_stmt = select(project_agents).where(project_agents.c.project_id == project_id)
+            remaining_agents = session.execute(count_stmt).fetchall()
+            
+            if len(remaining_agents) == 0:
+                # No agents left, switch back to Supabase LLM
+                from services.api.core.db import projects
+                from sqlalchemy import update
+                session.execute(
+                    update(projects)
+                    .where(projects.c.id == project_id)
+                    .values(use_supabase_llm=1)
+                )
+                session.commit()
+                print(f"[Auto-detection] Set use_supabase_llm=true for project {project_id} (no custom agents)")
             
             return None
     except HTTPException:

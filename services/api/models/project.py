@@ -47,6 +47,7 @@ class ProjectBase(BaseModel):
     repository_url: Optional[HttpUrl] = None
     repository_owner: Optional[str] = None
     repository_name: Optional[str] = None
+    use_supabase_llm: Optional[bool] = True
 
 class ProjectCreate(ProjectBase):
     pass
@@ -57,6 +58,7 @@ class ProjectUpdate(BaseModel):
     repository_url: Optional[HttpUrl] = None
     repository_owner: Optional[str] = None
     repository_name: Optional[str] = None
+    use_supabase_llm: Optional[bool] = None
 
 class Project(ProjectBase):
     id: int

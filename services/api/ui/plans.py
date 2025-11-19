@@ -456,54 +456,12 @@ def _write_text_file(rel_path: str, content: str) -> None:
     p.write_text(content, encoding="utf-8")
 
 def _fallback_openapi_yaml() -> str:
-    return """openapi: 3.0.0
-info:
-  title: Notes Service
-  version: "1.0.0"
-paths:
-  /api/notes:
-    get:
-      summary: List notes
-      responses:
-        '200':
-          description: OK
-    post:
-      summary: Create note
-      responses:
-        '201':
-          description: Created
-  /api/notes/{id}:
-    get:
-      summary: Get note
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: OK
-    delete:
-      summary: Delete note
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-      responses:
-        '204':
-          description: No Content
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-security:
-  - bearerAuth: []
-"""
+    """No fallback - raise error to require LLM."""
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=503,
+        detail="LLM service is not configured. Please set LLM_PROVIDER environment variable to generate OpenAPI specifications."
+    )
 
 def _slugify(text: str) -> str:
     import re

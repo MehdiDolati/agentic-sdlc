@@ -60,13 +60,15 @@ def generate_feature_stories(
         """), {"project_id": plan['project_id']}).fetchone()
         
         project = dict(project_result._mapping) if project_result else {}
+        project_id = plan.get('project_id', '')
         
-        # Generate user stories using LLM (uses get_llm_from_env internally)
+        # Generate user stories using LLM (uses project-specific LLM configuration)
         user_stories = _generate_stories_with_llm(
             feature, 
             plan, 
             project,
-            feature_id
+            feature_id,
+            project_id
         )
         
         # Save user stories to file
@@ -110,18 +112,15 @@ def _generate_stories_with_llm(
     feature: Dict[str, Any],
     plan: Dict[str, Any],
     project: Dict[str, Any],
-    feature_id: str
+    feature_id: str,
+    project_id: str
 ) -> list:
-    """Generate user stories using LLM - same pattern as core.py."""
+    """Generate user stories using LLM - uses project-specific LLM configuration."""
     
-    # Get LLM client using the standard infrastructure (same as planner/core.py)
-    llm_client = get_llm_from_env()
+    from services.api.llm_selector import get_llm_for_project
     
-    if not llm_client:
-        raise HTTPException(
-            status_code=503,
-            detail="LLM service is not configured. Please set LLM_PROVIDER environment variable to 'anthropic', 'openai', or 'supabase' and provide the corresponding API key."
-        )
+    # Get LLM client based on project settings (Supabase or custom agents)
+    llm_client = get_llm_for_project(project_id, step_name="story_generation")
     
     # Build a comprehensive prompt that the LLM can understand
     request_text = f"""Generate user stories for this software feature:
@@ -155,16 +154,25 @@ Generate 2-4 user stories in this JSON format:
 }}
 
 Include both user-facing and technical stories (testing, deployment, documentation).
-Each story should have 3-5 specific, actionable tasks."""
+Each story should have 3-5 specific, actionable tasks.
+
+IMPORTANT: Return ONLY valid JSON with no markdown formatting, no code blocks, no additional text."""
 
     try:
-        # Use the LLM client's generate_plan method (same as core.py does)
+        # Use the LLM client's appropriate method
         print(f"[DEBUG] Generating stories with LLM client: {type(llm_client).__name__}")
-        artifacts = llm_client.generate_plan(request_text)
         
-        # The generate_plan returns PlanArtifacts with prd_markdown
-        # We need to extract JSON from it
-        content = artifacts.prd_markdown if hasattr(artifacts, 'prd_markdown') else str(artifacts)
+        # Use generate_text for SupabaseLLM, generate_plan for others
+        if hasattr(llm_client, 'generate_text'):
+            # SupabaseLLM - use generate_text with custom system prompt emphasizing JSON
+            system_prompt = """You are a software requirements analyst. Generate user stories as strict JSON following the exact schema provided. 
+
+CRITICAL: Return ONLY valid JSON with no markdown formatting, no code blocks (no ```json), no additional text or explanations. Start directly with { and end with }."""
+            content = llm_client.generate_text(request_text, system_prompt)
+        else:
+            # Other LLM clients - use generate_plan
+            artifacts = llm_client.generate_plan(request_text)
+            content = artifacts.prd_markdown if hasattr(artifacts, 'prd_markdown') else str(artifacts)
         
         # Extract JSON from markdown code blocks if present
         if "```json" in content:

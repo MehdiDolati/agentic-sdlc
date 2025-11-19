@@ -5,6 +5,7 @@ import re
 import yaml
 import os
 from typing import Any, Dict, Optional
+from fastapi import HTTPException
 
 # LLM and history imports
 from services.api.llm import get_llm_from_env, PlanArtifacts
@@ -45,12 +46,19 @@ def _get_chat_history_context(owner: str, limit: int = 10) -> str:
         print(f"Warning: Could not load chat history: {e}")
         return ""
 
-def _generate_prd_with_llm(request_text: str, owner: str, stack: dict, gates: dict) -> Optional[str]:
-    """Generate PRD using LLM with chat history context."""
-    llm_client = get_llm_from_env()
-    print(f"[DEBUG] LLM client: {llm_client}")
+def _generate_prd_with_llm(request_text: str, owner: str, stack: dict, gates: dict, project_id: Optional[str] = None) -> Optional[str]:
+    """Generate PRD using LLM with chat history context and project-specific LLM selection."""
+    from services.api.llm_selector import get_llm_for_project
+    
+    # Use project-based LLM selection if project_id provided, otherwise fall back to env-based
+    if project_id:
+        llm_client = get_llm_for_project(project_id, "prd_generation")
+    else:
+        llm_client = get_llm_from_env()
+    
+    print(f"[DEBUG] LLM client for PRD generation: {llm_client}")
     if not llm_client:
-        print("[DEBUG] No LLM client available")
+        print("[DEBUG] No LLM client available - PRD generation requires LLM configuration")
         return None
     
     # Get chat history context
@@ -317,128 +325,70 @@ def plan_request(request_text: str, repo_root: Path, owner: str = "public") -> d
 
     prd_path = prd_dir / f"PRD-{date}-{slug}.md"
     
-    # Try to generate PRD with LLM first
+    # Generate PRD with LLM - no fallback
     prd_md = _generate_prd_with_llm(request_text, owner, stack, gates)
     
-    # Fallback to template-based generation if LLM is not available or fails
     if not prd_md:
-        print("[PRD] Using template-based generation (LLM not available)")
-        prd_md = f"""# Product Requirements Document — {request_text[:80]}
-
-## Problem
-{request_text.strip() or "User request describing desired functionality."}
-
-## Goals / Non-goals
-- **Goals**: Deliver the requested functionality with tests and docs.
-- **Non-goals**: Features not explicitly requested; large-scale infra changes.
-
-## Personas & Scenarios
-- Primary Persona: End-user
-- Scenario: A user interacts with the system to accomplish: "{request_text.strip()}"
-
-## Requirements (Must / Should / Could)
-**Must**
-{chr(10).join(f"- {item}" for item in must)}
-
-**Should**
-{chr(10).join(f"- {item}" for item in should)}
-
-**Could**
-{chr(10).join(f"- {item}" for item in could)}
-
-## Acceptance Criteria
-{chr(10).join(f"- {c}" for c in criteria)}
-
-## Stack Summary (Selected)
-- Language: **{stack.get('language','')}**
-- Backend Framework: **{stack.get('framework','')}**
-- Frontend: **{stack.get('frontend','')}**
-- Database: **{stack.get('database','')}**
-- Deployment: **{stack.get('deployment','')}**
-
-## Quality & Policy Gates
-- Coverage gate: **{gates.get('coverage_gate')}**
-- Risk threshold: **{gates.get('risk_threshold')}**
-- Approvals: **{gates.get('approvals')}**
-
-## Risks & Assumptions
-- Assumes default adapters and templates for the chosen stack are available.
-- Security scanning and policy checks run in CI before deploy.
-"""
-    else:
-        print("[PRD] Successfully generated PRD using LLM")
+        raise HTTPException(
+            status_code=503,
+            detail="LLM service is not configured. Please set LLM_PROVIDER environment variable (openai, anthropic, supabase, or ollama) and the corresponding API key."
+        )
     
     prd_path.write_text(prd_md.strip() + "\n", encoding="utf-8")
 
-    adr_path = adr_dir / f"ADR-{date}-auto-planning.md"
-    adr_md = f"""# Architecture Decision Record — Auto Planning
-## Context
-Initial design decision for request: {request_text[:80]}
-
-## Decision
-Use selected stack from runtime config (or defaults). Document deviations via follow-up ADRs.
-
-## Alternatives
-- Alternate frameworks or data stores per profile
-
-## Consequences
-- Provides a baseline to iterate on in subsequent cycles.
-"""
-    adr_path.write_text(adr_md.strip() + "\n", encoding="utf-8")
-
-    stories_path = stories_dir / f"USER_STORIES-{date}-{slug}.yaml"
-    stories = [
-        {
-            "id": "US-0001",
-            "persona": "end-user",
-            "story": f"As an end-user, I want {request_text[:60]} so that I can achieve the desired outcome.",
-            "acceptance_criteria": _acceptance_criteria(request_text),
-            "priority": "Must",
-            "estimates": {"size": "S", "confidence": 0.6},
-        }
-    ]
-    stories_yaml = yaml.safe_dump(stories, sort_keys=False, allow_unicode=True)
-    stories_path.write_text(stories_yaml, encoding="utf-8")
+    # ADR and Stories generation removed - require LLM through dedicated endpoints
+    # Use /api/adr/generate for ADR generation
+    # Use /api/plans/{plan_id}/features/{feature_id}/generate-stories for story generation
 
     tasks_path = plans_dir / f"TASKS-{date}-{slug}.md"
 
-    # Try to generate tasks with LLM if available
+    # Generate tasks with LLM - no fallback
     llm_client = get_llm_from_env()
     print(f"[DEBUG] Tasks LLM client: {llm_client}")
-    if llm_client:
-        try:
-            plan_artifacts = llm_client.generate_plan(request_text)
+    if not llm_client:
+        raise HTTPException(
+            status_code=503,
+            detail="LLM service is not configured. Please set LLM_PROVIDER environment variable (openai, anthropic, supabase, or ollama) and the corresponding API key."
+        )
+    
+    try:
+        plan_artifacts = llm_client.generate_plan(request_text)
 
-            if plan_artifacts.implementation_plan:
-                lines = [f"# Task Plan — {request_text[:80]}", ""]
-                for plan in plan_artifacts.implementation_plan:
-                    lines.append(f"## {plan.get('name', plan.get('id', 'Plan'))}")
-                    if plan.get('description'):
-                        lines.append(plan['description'])
-                        lines.append("")
-                    lines.append(f"Priority: {plan.get('priority', 'medium').title()}  |  Estimate: {plan.get('size_estimate_days', 0)} days")
+        if plan_artifacts.implementation_plan:
+            lines = [f"# Task Plan — {request_text[:80]}", ""]
+            for plan in plan_artifacts.implementation_plan:
+                lines.append(f"## {plan.get('name', plan.get('id', 'Plan'))}")
+                if plan.get('description'):
+                    lines.append(plan['description'])
                     lines.append("")
-                    lines.append("### Features")
-                    for feature in plan.get('features', []):
-                        lines.append(f"- [ ] {feature.get('name', feature.get('id', 'Feature'))}")
-                        if feature.get('description'):
-                            lines.append(f"      - {feature['description']}")
-                        lines.append(f"      - Priority: {feature.get('priority', 'medium').title()}, Estimate: {feature.get('size_estimate_hours', 0)} hours")
-                        if feature.get('acceptance_criteria'):
-                            lines.append("      - Acceptance Criteria:")
-                            for criterion in feature['acceptance_criteria']:
-                                lines.append(f"          * {criterion}")
-                        lines.append("")
+                lines.append(f"Priority: {plan.get('priority', 'medium').title()}  |  Estimate: {plan.get('size_estimate_days', 0)} days")
+                lines.append("")
+                lines.append("### Features")
+                for feature in plan.get('features', []):
+                    lines.append(f"- [ ] {feature.get('name', feature.get('id', 'Feature'))}")
+                    if feature.get('description'):
+                        lines.append(f"      - {feature['description']}")
+                    lines.append(f"      - Priority: {feature.get('priority', 'medium').title()}, Estimate: {feature.get('size_estimate_hours', 0)} hours")
+                    if feature.get('acceptance_criteria'):
+                        lines.append("      - Acceptance Criteria:")
+                        for criterion in feature['acceptance_criteria']:
+                            lines.append(f"          * {criterion}")
                     lines.append("")
-                tasks_md = "\n".join(lines).strip() + "\n"
-            else:
-                tasks_md = _default_tasks_md(request_text, gates)
-        except Exception as e:
-            print(f"[AI] Failed to generate tasks with LLM: {e}, falling back to template")
-            tasks_md = _default_tasks_md(request_text, gates)
-    else:
-        print("[DEBUG] No LLM client for tasks, using template")
-        tasks_md = _default_tasks_md(request_text, gates)
+                lines.append("")
+            tasks_md = "\n".join(lines).strip() + "\n"
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="LLM returned empty implementation plan. Please try again."
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[AI] Failed to generate tasks with LLM: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate implementation plan: {str(e)}"
+        )
     
     tasks_path.write_text(tasks_md.strip() + "\n", encoding="utf-8")
 
@@ -468,8 +418,6 @@ Use selected stack from runtime config (or defaults). Document deviations via fo
         "created_at": created_at,
         "artifacts": {
             "prd":     rel(prd_path),
-            "adr":     rel(adr_path),
-            "stories": rel(stories_path),
             "tasks":   rel(tasks_path),
             "openapi": rel(openapi_path),
         },
@@ -481,23 +429,6 @@ Use selected stack from runtime config (or defaults). Document deviations via fo
     return {
         "plan_id": plan_id,  # helpful for callers; harmless for legacy
         "prd":     rel(prd_path),
-        "adr":     rel(adr_path),
-        "stories": rel(stories_path),
         "tasks":   rel(tasks_path),
         "openapi": rel(openapi_path),
     }
-
-
-def _default_tasks_md(request_text: str, gates: dict) -> str:
-    """Fallback checklist when LLM is unavailable or fails."""
-    return f"""# Task Plan — {request_text[:80]}
-
-- [ ] Clarify detailed acceptance criteria
-- [ ] Define API contract (OpenAPI)
-- [ ] Implement endpoint(s)
-- [ ] Write unit tests (meet coverage gate {gates.get('coverage_gate')})
-- [ ] Add integration tests (optional for MVP)
-- [ ] Update USER_MANUAL & CHANGELOG
-- [ ] Run CI; ensure gates pass (security, secrets scan)
-- [ ] Prepare deploy (staging)
-"""
