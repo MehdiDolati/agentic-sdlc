@@ -45,6 +45,7 @@ services:
       PGDATABASE: appdb
       UVICORN_HOST: "0.0.0.0"
       UVICORN_PORT: "8080"
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
     ports:
       - "8081:8080"
     # Run DB init/migrations, then start uvicorn
