@@ -68,7 +68,7 @@ def main() -> int:
             p.parent.mkdir(parents=True, exist_ok=True)
         appmod._write_text_file(repo_root / artifacts["adr"], f"# ADR: {text}\n\nStatus: Proposed\nDate: {ts}\n")
         appmod._write_text_file(repo_root / artifacts["stories"], f"# User Stories\n\n- As a user, I can: {text}\n")
-    appmod._write_text_file(repo_root / artifacts["tasks"], "# Tasks\n\n- [ ] Implement API skeleton\n- [ ] Add tests\n")
+        appmod._write_text_file(repo_root / artifacts["tasks"], "# Tasks\n\n- [ ] Implement API skeleton\n- [ ] Add tests\n")
 
         # Persist plan metadata into the DB (source of truth) + keep index.json for legacy
         plan_id = appmod._new_id("plan")
