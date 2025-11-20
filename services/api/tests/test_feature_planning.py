@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from services.api.app import app, _retarget_store
+from services.api.app import app, _retarget_store, _create_engine, _database_url
 
 
 def test_feature_planning_with_db_plan(tmp_path):
@@ -14,6 +14,14 @@ def test_feature_planning_with_db_plan(tmp_path):
     """
     # Retarget store to temp dir so files are written under tmp_path
     _retarget_store(tmp_path)
+
+    # Initialize database schema - ensure all required tables exist
+    from services.api.core.repos import ensure_plans_schema, ensure_projects_schema, ensure_features_schema, ensure_priority_changes_schema
+    engine = _create_engine(_database_url(tmp_path))
+    ensure_projects_schema(engine)
+    ensure_plans_schema(engine)
+    ensure_features_schema(engine)
+    ensure_priority_changes_schema(engine)
 
     client = TestClient(app)
 
