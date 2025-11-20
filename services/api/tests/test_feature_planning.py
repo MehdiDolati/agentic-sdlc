@@ -6,18 +6,35 @@ from fastapi.testclient import TestClient
 from services.api.app import app, _retarget_store, _create_engine, _database_url
 
 
-def test_feature_planning_with_db_plan(tmp_path):
+def test_feature_planning_with_db_plan(tmp_path, monkeypatch):
     """Save a plan via the save-all route (DB) then run feature-planning.
 
     This test verifies the DB-backed path for the new feature-planning
     endpoint. It runs entirely against a temporary store (no repo files).
     """
+    # Ensure proper environment isolation
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    
+    # Reset repo root cache to ensure changes take effect
+    from services.api.core import shared
+    shared._reset_repo_root_cache_for_tests()
+    
     # Retarget store to temp dir so files are written under tmp_path
     _retarget_store(tmp_path)
 
     # Initialize database schema - ensure all required tables exist
+    # We need to ensure the database directory exists first
+    (tmp_path / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+    
     from services.api.core.repos import ensure_plans_schema, ensure_projects_schema, ensure_features_schema, ensure_priority_changes_schema
-    engine = _create_engine(_database_url(tmp_path))
+    
+    # Verify that both database URLs point to the same location
+    test_db_url = _database_url(tmp_path)
+    api_db_url = _database_url(shared._repo_root())
+    assert test_db_url == api_db_url, f"Database URLs don't match: test={test_db_url}, api={api_db_url}"
+    
+    engine = _create_engine(test_db_url)
     ensure_projects_schema(engine)
     ensure_plans_schema(engine)
     ensure_features_schema(engine)
