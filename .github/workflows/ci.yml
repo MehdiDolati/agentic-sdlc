@@ -100,7 +100,7 @@ jobs:
       - name: Seed a plan
         run: |
           set -e
-          curl -sS -X POST http://127.0.0.1:8081/requests \
+          curl -sS -X POST http://127.0.0.1:8081/ui/requests \
           -H 'Content-Type: application/json' \
           -d '{"text":"UI smoke seed plan"}' > /tmp/seed.json
           cat /tmp/seed.json
