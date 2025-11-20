@@ -51,6 +51,8 @@ jobs:
       DATABASE_URL: postgresql+psycopg://app:app@db:5432/notes
       # Make compose more patient on CI
       COMPOSE_HTTP_TIMEOUT: "240"
+      # Configure LLM provider for plan generation
+      LLM_PROVIDER: mock
     steps:
       - uses: actions/checkout@v4
 
@@ -100,7 +102,7 @@ jobs:
       - name: Seed a plan
         run: |
           set -e
-          curl -sS -X POST http://127.0.0.1:8081/ui/requests \
+          curl -sS -X POST http://127.0.0.1:8081/requests \
           -H 'Content-Type: application/json' \
           -d '{"text":"UI smoke seed plan"}' > /tmp/seed.json
           cat /tmp/seed.json
