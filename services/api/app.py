@@ -56,6 +56,8 @@ from services.api.routes.admin import router as admin_router
 from services.api.routes.profile import router as profile_router
 from services.api.routes.plans import router as plans_router
 from services.api.routes.history import router as history_router
+from services.api.routes.documents import router as documents_router
+from services.api.routes.feature_stories import router as feature_stories_router
 
 _BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
@@ -326,6 +328,10 @@ app.include_router(profile_router)
 print("profile_router included")
 app.include_router(history_router)
 print("history_router included")
+app.include_router(documents_router)
+print("documents_router included")
+app.include_router(feature_stories_router)
+print("feature_stories_router included")
 
 # Add CORS middleware — note: there is no '*' literal anywhere in this file
 app.add_middleware(

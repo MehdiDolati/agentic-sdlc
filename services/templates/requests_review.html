@@ -36,11 +36,18 @@
     <div style="margin-top:1rem">
       <label>Save as Plan ID</label>
       <input id="planId" type="text" value="{{ suggested_plan_id }}" required />
-      <button id="saveBtn" type="button">Persist Plan</button>
+      <button id="saveBtn" type="button" style="display: none;">Persist Plan</button>
+      <button id="proceedBtn" type="button" style="display: none; margin-left: 0.5rem; background-color: #007bff; color: white;">Proceed to execution</button>
       <pre id="saveResult" style="margin-top:0.5rem"></pre>
     </div>
     <script id="plan-artifacts" type="application/json">{{ plan.get('artifacts') | tojson }}</script>
     <script>
+      let currentProjectId = null;
+      
+      // Initially, only show the save button
+      document.getElementById('saveBtn').style.display = 'inline-block';
+      document.getElementById('proceedBtn').style.display = 'none';
+      
       document.getElementById('saveBtn').addEventListener('click', async () => {
         const id = document.getElementById('planId').value.trim();
         const goal = (document.querySelector('pre')?.textContent || '').trim();
@@ -65,6 +72,41 @@
         });
         const text = await r.text();
         document.getElementById('saveResult').textContent = text;
+        
+        // After successful save, hide persist button and show proceed button
+        if (r.ok) {
+          currentProjectId = `proj-${id}`;
+          document.getElementById('saveBtn').style.display = 'none';
+          document.getElementById('proceedBtn').style.display = 'inline-block';
+        }
+      });
+      
+      document.getElementById('proceedBtn').addEventListener('click', async () => {
+        // If we don't have a current project ID, try to get the most recent one
+        if (!currentProjectId) {
+          const planId = document.getElementById('planId').value.trim();
+          if (planId) {
+            currentProjectId = `proj-${planId}`;
+          } else {
+            // Fallback: try to get the most recent project
+            try {
+              const response = await fetch('/api/projects');
+              const data = await response.json();
+              if (data.length > 0) {
+                currentProjectId = data[0].id; // Most recent project
+              }
+            } catch (error) {
+              console.error('Error fetching projects:', error);
+            }
+          }
+        }
+        
+        if (currentProjectId) {
+          // Redirect to project detail page
+          window.location.href = `/projects/${currentProjectId}`;
+        } else {
+          alert('No project found. Please save the plan first.');
+        }
       });
     </script>
   </body>

@@ -1,0 +1,24 @@
+{
+  "project_id": "proj-20250101010101-plan-aaaaaa",
+  "plan_id": "20250101010101-plan-aaaaaa",
+  "plan_name": "Build test service",
+  "generated_at": "2025-11-20T19:54:58.306121",
+  "user_stories": [
+    {
+      "id": "story-20250101010101-plan-aaaaaa-1",
+      "title": "As a user, I want to implement build test service",
+      "description": "A test plan",
+      "feature_id": null,
+      "feature_name": "Build test service",
+      "priority": "high",
+      "acceptance_criteria": [
+        "Given the user needs Build test service",
+        "When they use the system",
+        "Then A test plan"
+      ],
+      "story_points": 5,
+      "status": "ready",
+      "tasks": []
+    }
+  ]
+}

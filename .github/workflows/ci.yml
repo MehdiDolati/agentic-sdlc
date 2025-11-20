@@ -51,6 +51,8 @@ jobs:
       DATABASE_URL: postgresql+psycopg://app:app@db:5432/notes
       # Make compose more patient on CI
       COMPOSE_HTTP_TIMEOUT: "240"
+      # Configure LLM provider for plan generation
+      LLM_PROVIDER: mock
     steps:
       - uses: actions/checkout@v4
 
@@ -103,11 +105,16 @@ jobs:
           curl -sS -X POST http://127.0.0.1:8081/requests \
           -H 'Content-Type: application/json' \
           -d '{"text":"UI smoke seed plan"}' > /tmp/seed.json
+          echo "=== API Response ==="
           cat /tmp/seed.json
+          echo "=================="
       - name: Extract plan_id
         run: |
           set -e
+          echo "=== Parsing JSON ==="
+          cat /tmp/seed.json | jq '.'
           PLAN_ID=$(jq -r '.plan_id' /tmp/seed.json)
+          echo "Extracted PLAN_ID: '$PLAN_ID'"
           if [ -z "$PLAN_ID" ] || [ "$PLAN_ID" = "null" ]; then
             echo "Failed to get plan_id"
             exit 1

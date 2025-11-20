@@ -45,6 +45,8 @@ def test_htmx_500_returns_flash_fragment(monkeypatch, tmp_path: Path):
 
 def test_execute_returns_success_flash(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("APP_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("LLM_PROVIDER", "mock")
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
     p = _seed_plan(tmp_path, "Run flash")
     r = client.post(f"/ui/plans/{p['id']}/execute", headers={"HX-Request": "true"})
     assert r.status_code == 200
@@ -53,6 +55,8 @@ def test_execute_returns_success_flash(monkeypatch, tmp_path: Path):
 
 def test_artifact_edit_returns_success_flash(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("APP_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("LLM_PROVIDER", "mock")
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
     p = _seed_plan(tmp_path, "Edit PRD flash")
     pid = p["id"]
     # open editor to ensure path is set (not strictly required)

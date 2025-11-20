@@ -23,7 +23,8 @@ _TEMPLATES_DIR = _THIS_FILE.parents[2] / "templates"  # <repo>/services/template
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 class PRDRequest(BaseModel):
-    project_name: str
+    project_id: str
+    project_name: Optional[str] = None
     project_description: Optional[str] = None
     include_chat_history: bool = True
 
@@ -56,7 +57,8 @@ class PRDGetResponse(BaseModel):
     last_modified: int
 
 class ADRRequest(BaseModel):
-    project_name: str
+    project_id: str
+    project_name: Optional[str] = None
     project_description: Optional[str] = None
     prd_content: Optional[str] = None
     include_chat_history: bool = True
@@ -80,6 +82,15 @@ class ADRGetResponse(BaseModel):
     file_path: str
     last_modified: int
 
+class PlanGenerateRequest(BaseModel):
+    project_id: str
+    project_name: Optional[str] = None
+    project_description: Optional[str] = None
+    prd_content: Optional[str] = None
+
+class PlanGenerateResponse(BaseModel):
+    plan: Dict[str, Any]  # Contains implementation_plan array
+    
 class PlanSaveRequest(BaseModel):
     project_id: str
     name: str
@@ -177,18 +188,19 @@ def generate_prd_endpoint(
     prd_request: PRDRequest,
     user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """Generate PRD using chat history and LLM."""
+    """Generate PRD using chat history and project-specific LLM."""
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
 
     # Get chat history if requested
     chat_context = ""
+    project_name = prd_request.project_name or prd_request.project_id
     if prd_request.include_chat_history:
         from services.api.planner.core import _get_chat_history_context
-        chat_context = _get_chat_history_context(prd_request.project_name)
+        chat_context = _get_chat_history_context(project_name)
 
     # Combine project info with chat context
-    full_request = f"{prd_request.project_name}"
+    full_request = f"{project_name}"
     if prd_request.project_description:
         full_request += f"\n{prd_request.project_description}"
 
@@ -199,32 +211,24 @@ def generate_prd_endpoint(
     stack = {"language": "python", "framework": "fastapi", "database": "sqlite"}
     gates = {"coverage_gate": 0.8, "risk_threshold": "medium", "approvals": {}}
 
-    # Generate PRD using our LLM function
+    # Generate PRD using project-specific LLM
     prd_content = _generate_prd_with_llm(
         full_request,
         user.get("id", "public"),
         stack,
-        gates
+        gates,
+        project_id=prd_request.project_id
     )
 
     if not prd_content:
-        # Fallback to basic template
-        prd_content = f"""# Product Requirements Document — {prd_request.project_name}
-
-## Problem Statement
-{full_request}
-
-## Goals & Non-Goals
-- **Goals**: Deliver the requested functionality
-- **Non-Goals**: Out of scope features
-
-## Requirements
-- Core functionality as discussed in chat
-"""
+        raise HTTPException(
+            status_code=503,
+            detail="PRD generation requires LLM configuration. Please configure Supabase credentials or assign custom agents to this project."
+        )
 
     return PRDResponse(
         prd_content=prd_content,
-        plan_id=None  # Could generate a plan ID here if needed
+        plan_id=None
     )
 
 # PRD save endpoint
@@ -325,42 +329,27 @@ def generate_adr_endpoint(
     adr_request: ADRRequest,
     user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """Generate ADR using PRD content and chat history."""
+    """Generate ADR using PRD content, chat history, and project-specific LLM."""
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
 
-    # Get LLM client
-    from services.api.llm import get_llm_from_env
-    llm_client = get_llm_from_env()
+    # Get project-based LLM client
+    from services.api.llm_selector import get_llm_for_project
+    llm_client = get_llm_for_project(adr_request.project_id, "adr_generation")
     
     if not llm_client:
-        # Fallback ADR content
-        adr_content = f"""# Architecture Design Records (ADR)
-## {adr_request.project_name}
+        raise HTTPException(
+            status_code=503,
+            detail="ADR generation requires LLM configuration. Please configure Supabase credentials or assign custom agents to this project."
+        )
 
-## ADR 001: Technology Stack Selection
+    # Generate ADR using LLM
+    system_prompt = """You are an expert software architect. Generate comprehensive Architecture Design Records (ADR) and Technology Stack Specification based on the provided PRD and project information. Follow ADR best practices with clear context, decisions, and consequences."""
+    
+    project_name = adr_request.project_name or adr_request.project_id
+    user_prompt = f"""Generate Architecture Design Records and Technology Stack Specification for this project:
 
-### Context
-{adr_request.project_description or "Project requires technology stack selection for optimal architecture."}
-
-### Decision
-We will use a modern web stack with React frontend and FastAPI backend.
-
-### Consequences
-- **Positive**: Fast development, good ecosystem support
-- **Negative**: Learning curve for new technologies
-- **Risks**: Technology changes, maintenance overhead
-
-### Status
-Accepted
-"""
-    else:
-        # Generate ADR using LLM
-        system_prompt = """You are an expert software architect. Generate comprehensive Architecture Design Records (ADR) and Technology Stack Specification based on the provided PRD and project information. Follow ADR best practices with clear context, decisions, and consequences."""
-        
-        user_prompt = f"""Generate Architecture Design Records and Technology Stack Specification for this project:
-
-Project: {adr_request.project_name}
+Project: {project_name}
 Description: {adr_request.project_description or 'No description provided'}
 
 PRD Content:
@@ -389,30 +378,71 @@ Example structure:
 
 [Tech stack content here]"""
 
-        try:
+    try:
+        # Use generate_text for SupabaseLLM, generate_plan for others
+        if hasattr(llm_client, 'generate_text'):
+            adr_content = llm_client.generate_text(user_prompt, system_prompt)
+        else:
+            # For other LLM clients that might support system_prompt parameter
             adr_content = llm_client.generate_plan(user_prompt, system_prompt=system_prompt)
-        except Exception as e:
-            print(f"LLM ADR generation failed: {e}")
-            # Fallback content
-            adr_content = f"""# Architecture Design Records (ADR)
-## {adr_request.project_name}
-
-## ADR 001: Technology Stack Selection
-
-### Context
-{adr_request.project_description or "Project requires technology stack selection."}
-
-### Decision
-Selected technology stack based on project requirements.
-
-### Status
-Draft - Requires refinement with LLM
-"""
+    except Exception as e:
+        print(f"LLM ADR generation failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate ADR: {str(e)}"
+        )
 
     return ADRResponse(
         adr_content=adr_content,
         plan_id=None
     )
+
+# Plan generation endpoint
+@router.post("/api/plan/generate", response_model=PlanGenerateResponse)
+def generate_plan_endpoint(
+    plan_request: PlanGenerateRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Generate implementation plan using project-specific LLM."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+
+    # Get project-based LLM client
+    from services.api.llm_selector import get_llm_for_project
+    llm_client = get_llm_for_project(plan_request.project_id, "plan_generation")
+    
+    if not llm_client:
+        raise HTTPException(
+            status_code=503,
+            detail="Plan generation requires LLM configuration. Please configure Supabase credentials or assign custom agents to this project."
+        )
+
+    # Build the prompt
+    project_name = plan_request.project_name or plan_request.project_id
+    user_request = f"Project: {project_name}"
+    if plan_request.project_description:
+        user_request += f"\nDescription: {plan_request.project_description}"
+    if plan_request.prd_content:
+        user_request += f"\n\nPRD:\n{plan_request.prd_content}"
+
+    try:
+        # Call LLM to generate plan
+        artifacts = llm_client.generate_plan(user_request)
+        
+        # Return the implementation plan
+        return PlanGenerateResponse(
+            plan={
+                "implementation_plan": artifacts.implementation_plan if hasattr(artifacts, 'implementation_plan') else []
+            }
+        )
+    except Exception as e:
+        print(f"LLM Plan generation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate plan: {str(e)}"
+        )
 
 # ADR save endpoint
 @router.post("/api/adr/save", response_model=ADRSaveResponse)
@@ -875,6 +905,35 @@ def save_feature_endpoint(feature_save_request: FeatureSaveRequest):
     except Exception as e:
         print(f"DEBUG: Error saving feature: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to save feature: {str(e)}")
+
+# Check if any plans exist - simple endpoint for UI to use
+@router.get("/api/plans/check")
+def check_plans_exist(user: Dict[str, Any] = Depends(get_current_user)):
+    """Check if any plans exist for the current user."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        from services.api.core.repos import PlansRepoDB
+        repo_root = _repo_root()
+        engine = _create_engine(_database_url(repo_root))
+        repo = PlansRepoDB(engine)
+        
+        # Check if any plans exist for this user
+        user_owner = user.get("id")
+        plans, total = repo.list(limit=1, offset=0, owner=user_owner)
+        
+        return {
+            "plans_exist": total > 0,
+            "total_plans": total,
+            "most_recent_project_id": f"proj-{plans[0]['id']}" if plans else None
+        }
+    except Exception as e:
+        return {
+            "plans_exist": False, 
+            "total_plans": 0,
+            "most_recent_project_id": None
+        }
 
 # Export the router with the expected name
 ui_requests_router = router

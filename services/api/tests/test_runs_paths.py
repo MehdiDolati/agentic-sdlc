@@ -7,6 +7,8 @@ client = TestClient(app)
 
 def test_runs_table_and_detail_404s(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("APP_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("LLM_PROVIDER", "mock")
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
     p = _seed_plan(tmp_path, "Runs test")
     # Table for non-existent plan
     r = client.get("/ui/plans/NOPE/runs/table")

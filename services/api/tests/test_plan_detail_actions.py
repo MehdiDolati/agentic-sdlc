@@ -16,6 +16,11 @@ def _seed_plan(tmp_path: Path, vision: str = "Test plan") -> dict:
     Generate artifacts to disk via planner, then persist a Plan row to the DB.
     plan_request(...) returns artifacts & request text, but not an id; we create one.
     """
+    import os
+    # Ensure LLM environment is set for plan_request
+    os.environ["LLM_PROVIDER"] = "mock"
+    os.environ["PYTEST_CURRENT_TEST"] = "1"
+    
     # 1) Generate artifacts deterministically under tmp_path/docs/...
     planned = plan_request(vision, tmp_path, owner="ui")
     artifacts = planned.get("artifacts", {})

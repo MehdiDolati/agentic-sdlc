@@ -1,0 +1,24 @@
+{
+  "project_id": "proj-20251029140802-plan-ecdf97",
+  "plan_id": "20251029140802-plan-ecdf97",
+  "plan_name": "Create a hello endpoint",
+  "generated_at": "2025-11-12T14:29:02.269245",
+  "user_stories": [
+    {
+      "id": "story-20251029140802-plan-ecdf97-1",
+      "title": "As a user, I want to implement create a hello endpoint",
+      "description": "Create a hello endpoint",
+      "feature_id": null,
+      "feature_name": "Create a hello endpoint",
+      "priority": "high",
+      "acceptance_criteria": [
+        "Given the user needs Create a hello endpoint",
+        "When they use the system",
+        "Then Create a hello endpoint"
+      ],
+      "story_points": 5,
+      "status": "ready",
+      "tasks": []
+    }
+  ]
+}

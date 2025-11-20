@@ -1,0 +1,24 @@
+{
+  "project_id": "proj-20251029141049-plan-05cd1d",
+  "plan_id": "20251029141049-plan-05cd1d",
+  "plan_name": "Build a notes service with auth",
+  "generated_at": "2025-11-12T14:27:21.392053",
+  "user_stories": [
+    {
+      "id": "story-20251029141049-plan-05cd1d-1",
+      "title": "As a user, I want to implement build a notes service with auth",
+      "description": "Build a notes service with auth",
+      "feature_id": null,
+      "feature_name": "Build a notes service with auth",
+      "priority": "high",
+      "acceptance_criteria": [
+        "Given the user needs Build a notes service with auth",
+        "When they use the system",
+        "Then Build a notes service with auth"
+      ],
+      "story_points": 5,
+      "status": "ready",
+      "tasks": []
+    }
+  ]
+}

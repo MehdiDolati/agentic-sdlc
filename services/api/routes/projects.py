@@ -12,6 +12,7 @@ from services.api.core.shared import _create_engine, _database_url, _repo_root
 from services.api.core.repos import ProjectsRepoDB
 from services.api.auth.routes import get_current_user
 from services.api.models.project import ProjectAgent, ProjectAgentCreate
+from sqlalchemy import text
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -68,45 +69,65 @@ class ProjectWithDocuments(BaseModel):
     documents: DocumentStatus
 
 def _check_plan_exists(project_id: str) -> bool:
-    """Check if a plan exists for the given project using secure file system access."""
+    """Check if a plan exists for the given project using database and file system."""
     try:
+        # First, check the database for plans with this project_id
+        try:
+            engine = _get_engine()
+            from sqlalchemy import select, func, text
+            
+            # Query directly for plans with matching project_id
+            with engine.connect() as conn:
+                count_stmt = text("SELECT COUNT(*) FROM plans WHERE project_id = :project_id")
+                total = conn.execute(count_stmt, {"project_id": project_id}).scalar_one()
+                
+                if total > 0:
+                    print(f"Found {total} plans in database for project_id: {project_id}")
+                    return True
+        except Exception as db_error:
+            print(f"Database check failed: {db_error}")
+        
+        # If not in database, check file system
         import re
         import os
         import glob
         
-        # Extract plan timestamp from project_id using strict regex validation
-        plan_pattern = r'^proj-(\d{14})-plan-[a-f0-9]{6}$'
-        match = re.match(plan_pattern, project_id)
-        
-        if not match:
-            print(f"Invalid project_id format: {project_id}")
-            return False
-        
-        plan_timestamp = match.group(1)
-        print(f"Checking plan existence for project_id: {project_id}, extracted timestamp: {plan_timestamp}")
-        
         # Construct secure path to plans directory 
-        # Navigate up from services/api/routes to project root
         current_file = os.path.abspath(__file__)
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file))))
-        plans_dir = os.path.join(project_root, "docs", "plans")
-        plans_dir = os.path.abspath(plans_dir)  # Normalize path for security
         
-        print(f"Current file: {current_file}")
-        print(f"Project root: {project_root}")
-        print(f"Plans directory: {plans_dir}")
+        # Check both docs/plans and data/docs/plans directories
+        plans_dirs = [
+            os.path.join(project_root, "docs", "plans"),
+            os.path.join(project_root, "data", "docs", "plans")
+        ]
         
-        # Use glob to safely search for files with the timestamp
-        # This prevents path traversal while allowing flexible matching
-        pattern = os.path.join(plans_dir, f"{plan_timestamp}*.json")
-        matching_files = glob.glob(pattern)
-        
-        print(f"Searching pattern: {pattern}")
-        print(f"Found {len(matching_files)} matching plan files")
-        
-        if matching_files:
-            print(f"Plan files found: {[os.path.basename(f) for f in matching_files]}")
-            return True
+        for plans_dir in plans_dirs:
+            if not os.path.exists(plans_dir):
+                continue
+                
+            plans_dir = os.path.abspath(plans_dir)
+            
+            # Search for files containing the project_id
+            pattern = os.path.join(plans_dir, f"*{project_id}*.json")
+            matching_files = glob.glob(pattern)
+            
+            if matching_files:
+                print(f"Found {len(matching_files)} matching plan files in {plans_dir}")
+                return True
+            
+            # Also try searching for old format if project_id matches that pattern
+            plan_pattern = r'^proj-(\d{14})-plan-[a-f0-9]{6}$'
+            match = re.match(plan_pattern, project_id)
+            
+            if match:
+                plan_timestamp = match.group(1)
+                pattern = os.path.join(plans_dir, f"{plan_timestamp}*.json")
+                matching_files = glob.glob(pattern)
+                
+                if matching_files:
+                    print(f"Found {len(matching_files)} matching plan files with timestamp")
+                    return True
         
         return False
             
@@ -233,17 +254,31 @@ def list_projects(
     q: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     sort: Optional[str] = Query(default="created_at"),
-    order: Optional[str] = Query(default="desc")
+    order: Optional[str] = Query(default="desc"),
+    user: Dict[str, Any] = Depends(get_current_user)
 ):
     """List projects with filtering and pagination."""
     try:
+        from services.api.core.shared import _auth_enabled
+        
         engine = _get_engine()
         projects_repo = ProjectsRepoDB(engine)
         
-        # Build filters (bypassing auth for now)
-        filters = {
-            "owner": "public"
-        }
+        # Build filters - filter by authenticated user's projects
+        filters = {}
+        
+        # Get the user ID from the authenticated user
+        user_id = user.get("id", "public")
+        
+        # Always filter by the user ID (whether from session or public)
+        # This ensures logged-in users see their projects
+        if user_id and user_id != "public":
+            print(f"[DEBUG] Filtering projects for user: {user_id}")
+            filters["owner"] = user_id
+        else:
+            # For unauthenticated/public users, show public projects
+            print(f"[DEBUG] Showing public projects for unauthenticated user")
+            filters["owner"] = "public"
         if q:
             filters["q"] = q
         if status:
@@ -314,7 +349,17 @@ def get_project(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
-        # Check ownership (for now, allow access to all projects - can be enhanced with proper permissions)
+        # Check ownership - users can only access their own projects (unless they're public user)
+        user_id = user.get("id", "public")
+        project_owner = project.get("owner", "public")
+        print(f"[GET PROJECT] Checking ownership: project_owner={project_owner}, user_id={user_id}")
+        
+        # If user is authenticated (not public), verify they own this project
+        if user_id != "public" and project_owner != user_id:
+            print(f"[GET PROJECT] Access denied: project owner {project_owner} != user {user_id}")
+            raise HTTPException(status_code=403, detail="Access denied: You can only access your own projects")
+        
+        print(f"[GET PROJECT] Access granted for project {project_id}")
         
         def _iso(v):
             return v.isoformat() if hasattr(v, "isoformat") else (v or datetime.now().isoformat())
@@ -627,6 +672,17 @@ def add_project_agent(
             )
             session.commit()
             
+            # Auto-detection: Set use_supabase_llm to false when custom agents are assigned
+            from services.api.core.db import projects
+            from sqlalchemy import update
+            session.execute(
+                update(projects)
+                .where(projects.c.id == project_id)
+                .values(use_supabase_llm=0)
+            )
+            session.commit()
+            print(f"[Auto-detection] Set use_supabase_llm=false for project {project_id} (custom agent assigned)")
+            
             # Fetch created agent
             agent_id = result.inserted_primary_key[0]
             stmt = select(project_agents).where(project_agents.c.id == agent_id)
@@ -749,8 +805,457 @@ def remove_project_agent(
             session.execute(stmt)
             session.commit()
             
+            # Auto-detection: Check if this was the last agent
+            count_stmt = select(project_agents).where(project_agents.c.project_id == project_id)
+            remaining_agents = session.execute(count_stmt).fetchall()
+            
+            if len(remaining_agents) == 0:
+                # No agents left, switch back to Supabase LLM
+                from services.api.core.db import projects
+                from sqlalchemy import update
+                session.execute(
+                    update(projects)
+                    .where(projects.c.id == project_id)
+                    .values(use_supabase_llm=1)
+                )
+                session.commit()
+                print(f"[Auto-detection] Set use_supabase_llm=true for project {project_id} (no custom agents)")
+            
             return None
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to remove project agent: {str(e)}")
+
+@router.get("/{project_id}/user-stories")
+def get_project_user_stories(project_id: str, user: dict = Depends(get_current_user)):
+    """
+    Get existing user stories for a project by reading the saved stories files.
+    """
+    from pathlib import Path
+    import json
+    import glob
+    import os
+    from services.api.core.shared import _auth_enabled
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        # Look for user stories files for this project
+        repo_root = _repo_root()
+        stories_dir = Path(repo_root) / "docs" / "stories"
+        
+        if not stories_dir.exists():
+            raise HTTPException(status_code=404, detail="No user stories found")
+        
+        # Find stories files for this project
+        pattern = str(stories_dir / f"*{project_id}-user-stories.json")
+        matching_files = glob.glob(pattern)
+        
+        if not matching_files:
+            raise HTTPException(status_code=404, detail="No user stories found for this project")
+        
+        # Use the most recent file (files are timestamped)
+        latest_file = max(matching_files, key=os.path.getmtime)
+        
+        with open(latest_file, 'r', encoding='utf-8') as f:
+            stories_data = json.load(f)
+        
+        return stories_data.get("user_stories", [])
+        
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="User stories file not found")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Invalid user stories file format")
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get user stories: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_project_user_stories] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get user stories: {str(e)}")
+
+@router.get("/{project_id}/plans/{plan_id}/user-stories")
+def get_plan_user_stories(project_id: str, plan_id: str, user: dict = Depends(get_current_user)):
+    """
+    Get user stories for a specific plan within a project.
+    """
+    from pathlib import Path
+    import json
+    import glob
+    import os
+    from services.api.core.shared import _auth_enabled
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        # Look for user stories files for this project
+        repo_root = _repo_root()
+        stories_dir = Path(repo_root) / "docs" / "stories"
+        
+        if not stories_dir.exists():
+            raise HTTPException(status_code=404, detail="No user stories found")
+        
+        # Find stories files for this project
+        pattern = str(stories_dir / f"*{project_id}*user-stories.json")
+        matching_files = glob.glob(pattern)
+        
+        if not matching_files:
+            raise HTTPException(status_code=404, detail="No user stories found for this project")
+        
+        # Collect all user stories from matching files for this plan
+        # Use a dict to deduplicate by ID, keeping the most recent version
+        stories_by_id = {}
+        
+        for stories_file in matching_files:
+            try:
+                with open(stories_file, 'r', encoding='utf-8') as f:
+                    stories_data = json.load(f)
+                
+                # Check if this file contains stories for the requested plan
+                if stories_data.get("plan_id") == plan_id:
+                    # Add/update stories from this file (newer files overwrite older)
+                    file_stories = stories_data.get("user_stories", [])
+                    for story in file_stories:
+                        story_id = story.get("id")
+                        if story_id:
+                            stories_by_id[story_id] = story
+            
+            except (json.JSONDecodeError, IOError):
+                continue
+        
+        # Convert dict back to list
+        all_stories = list(stories_by_id.values())
+        
+        # If we found any stories, return them
+        if all_stories:
+            return {
+                "project_id": project_id,
+                "plan_id": plan_id,
+                "user_stories": all_stories
+            }
+        
+        # If we reach here, no stories found for this plan
+        raise HTTPException(status_code=404, detail=f"No user stories found for plan {plan_id} in project {project_id}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get plan user stories: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_plan_user_stories] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get plan user stories: {str(e)}")
+
+@router.get("/{project_id}/active-plan")
+def get_active_plan(project_id: str, user: dict = Depends(get_current_user)):
+    """
+    Get the currently active plan for a project.
+    Returns the plan marked as active, or determines one based on business logic.
+    """
+    from services.api.core.shared import _auth_enabled
+    from sqlalchemy import text
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        engine = _create_engine(_database_url(_repo_root()))
+        with engine.begin() as db:
+            # Try to get explicitly set active plan first
+            result = db.execute(text("""
+                SELECT p.*, pr.active_plan_id
+                FROM projects pr 
+                LEFT JOIN plans p ON pr.active_plan_id = p.id
+                WHERE pr.id = :project_id
+            """), {"project_id": project_id}).fetchone()
+            
+            if result and result.active_plan_id:
+                # Return the explicitly set active plan
+                plan_data = dict(result._mapping)
+                return {
+                    "id": plan_data["id"],
+                    "name": plan_data["name"],
+                    "description": plan_data["description"],
+                    "status": plan_data["status"],
+                    "priority": plan_data["priority"],
+                    "is_explicit": True
+                }
+            
+            # Fall back to business logic: find the plan currently in progress or highest priority
+            fallback_result = db.execute(text("""
+                SELECT * FROM plans 
+                WHERE project_id = :project_id 
+                AND status IN ('in_progress', 'planning')
+                ORDER BY 
+                    CASE 
+                        WHEN status = 'in_progress' THEN 1 
+                        WHEN status = 'planning' THEN 2 
+                        ELSE 3 
+                    END,
+                    priority_order ASC, 
+                    CASE priority 
+                        WHEN 'critical' THEN 1 
+                        WHEN 'high' THEN 2 
+                        WHEN 'medium' THEN 3 
+                        WHEN 'low' THEN 4 
+                    END
+                LIMIT 1
+            """), {"project_id": project_id}).fetchone()
+            
+            if fallback_result:
+                plan_data = dict(fallback_result._mapping)
+                return {
+                    "id": plan_data["id"],
+                    "name": plan_data["name"],
+                    "description": plan_data["description"],
+                    "status": plan_data["status"],
+                    "priority": plan_data["priority"],
+                    "is_explicit": False,
+                    "reason": "Determined by status and priority"
+                }
+            
+            # If no plans in progress, return highest priority plan
+            highest_priority = db.execute(text("""
+                SELECT * FROM plans 
+                WHERE project_id = :project_id 
+                ORDER BY 
+                    priority_order ASC,
+                    CASE priority 
+                        WHEN 'critical' THEN 1 
+                        WHEN 'high' THEN 2 
+                        WHEN 'medium' THEN 3 
+                        WHEN 'low' THEN 4 
+                    END
+                LIMIT 1
+            """), {"project_id": project_id}).fetchone()
+            
+            if highest_priority:
+                plan_data = dict(highest_priority._mapping)
+                return {
+                    "id": plan_data["id"],
+                    "name": plan_data["name"],
+                    "description": plan_data["description"],
+                    "status": plan_data["status"],
+                    "priority": plan_data["priority"],
+                    "is_explicit": False,
+                    "reason": "Highest priority plan (no active plans found)"
+                }
+            
+            raise HTTPException(status_code=404, detail="No plans found for this project")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get active plan: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_active_plan] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get active plan: {str(e)}")
+
+@router.post("/{project_id}/active-plan/{plan_id}")
+def set_active_plan(project_id: str, plan_id: str, user: dict = Depends(get_current_user)):
+    """
+    Explicitly set the active plan for a project.
+    """
+    from services.api.core.shared import _auth_enabled
+    from sqlalchemy import text
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        engine = _create_engine(_database_url(_repo_root()))
+        with engine.begin() as db:
+            # Verify the plan exists and belongs to the project
+            plan_check = db.execute(text("""
+                SELECT id FROM plans 
+                WHERE id = :plan_id AND project_id = :project_id
+            """), {"plan_id": plan_id, "project_id": project_id}).fetchone()
+            
+            if not plan_check:
+                raise HTTPException(status_code=404, detail="Plan not found or does not belong to this project")
+            
+            # Update the project's active plan
+            db.execute(text("""
+                UPDATE projects 
+                SET active_plan_id = :plan_id 
+                WHERE id = :project_id
+            """), {"plan_id": plan_id, "project_id": project_id})
+            
+            return {
+                "success": True,
+                "message": f"Active plan set to {plan_id} for project {project_id}",
+                "active_plan_id": plan_id
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to set active plan: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in set_active_plan] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to set active plan: {str(e)}")
+
+@router.get("/{project_id}/plan-progress")
+def get_project_plan_progress(project_id: str, plan_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """
+    Get progress information for a specific plan or the active plan.
+    """
+    from services.api.core.shared import _auth_enabled
+    from sqlalchemy import text
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        engine = _create_engine(_database_url(_repo_root()))
+        with engine.begin() as db:
+            # If no plan_id provided, get the active plan
+            if not plan_id:
+                active_plan_result = db.execute(text("""
+                    SELECT pr.active_plan_id
+                    FROM projects pr 
+                    WHERE pr.id = :project_id
+                """), {"project_id": project_id}).fetchone()
+                
+                if active_plan_result and active_plan_result.active_plan_id:
+                    plan_id = active_plan_result.active_plan_id
+                else:
+                    # Fallback to highest priority plan
+                    fallback_result = db.execute(text("""
+                        SELECT id FROM plans 
+                        WHERE project_id = :project_id 
+                        ORDER BY 
+                            CASE 
+                                WHEN status = 'in_progress' THEN 1 
+                                WHEN status = 'planning' THEN 2 
+                                ELSE 3 
+                            END,
+                            priority_order ASC, 
+                            CASE priority 
+                                WHEN 'critical' THEN 1 
+                                WHEN 'high' THEN 2 
+                                WHEN 'medium' THEN 3 
+                                WHEN 'low' THEN 4 
+                            END
+                        LIMIT 1
+                    """), {"project_id": project_id}).fetchone()
+                    
+                    if not fallback_result:
+                        raise HTTPException(status_code=404, detail="No plans found for project")
+                    
+                    plan_id = fallback_result.id
+            
+            # Get plan details
+            plan_result = db.execute(text("""
+                SELECT * FROM plans WHERE id = :plan_id AND project_id = :project_id
+            """), {"plan_id": plan_id, "project_id": project_id}).fetchone()
+            
+            if not plan_result:
+                raise HTTPException(status_code=404, detail="Plan not found")
+            
+            plan_data = dict(plan_result._mapping)
+            
+            # Get features for this plan
+            features_result = db.execute(text("""
+                SELECT * FROM features 
+                WHERE plan_id = :plan_id 
+                ORDER BY priority_order ASC
+            """), {"plan_id": plan_id}).fetchall()
+            
+            features = [dict(f._mapping) for f in features_result]
+            
+            # Calculate progress
+            total_features = len(features)
+            completed_features = len([f for f in features if f['status'] == 'completed'])
+            in_progress_features = len([f for f in features if f['status'] == 'in_progress'])
+            
+            progress = 0
+            if total_features > 0:
+                # Give partial credit for in_progress features
+                progress = round(((completed_features + in_progress_features * 0.5) / total_features) * 100)
+            
+            return {
+                "plan": plan_data,
+                "features": features,
+                "progress": {
+                    "percentage": progress,
+                    "total_features": total_features,
+                    "completed_features": completed_features,
+                    "in_progress_features": in_progress_features,
+                    "pending_features": total_features - completed_features - in_progress_features
+                }
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get plan progress: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_project_plan_progress] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get plan progress: {str(e)}")
+
+
+class SetActivePlanRequest(BaseModel):
+    plan_id: str
+
+@router.post("/{project_id}/active-plan")
+def set_active_plan(
+    project_id: str,
+    request: SetActivePlanRequest,
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Set the active plan for a project and update status to development."""
+    try:
+        engine = _get_engine()
+        projects_repo = ProjectsRepoDB(engine)
+        
+        # Get project to verify ownership
+        project = projects_repo.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Check ownership
+        user_id = user.get("id", "public")
+        project_owner = project.get("owner", "public")
+        
+        if user_id != "public" and project_owner != user_id:
+            raise HTTPException(status_code=403, detail="Access denied: You can only modify your own projects")
+        
+        # Verify the plan exists and belongs to this project
+        with engine.connect() as conn:
+            plan_result = conn.execute(text("""
+                SELECT id FROM plans WHERE id = :plan_id AND project_id = :project_id
+            """), {"plan_id": request.plan_id, "project_id": project_id}).fetchone()
+            
+            if not plan_result:
+                raise HTTPException(status_code=404, detail="Plan not found for this project")
+        
+        # Update project status to development and set active plan using direct SQL
+        with engine.connect() as conn:
+            conn.execute(text("""
+                UPDATE projects 
+                SET status = :status, active_plan_id = :active_plan_id, updated_at = CURRENT_TIMESTAMP
+                WHERE id = :project_id
+            """), {
+                "status": "development",
+                "active_plan_id": request.plan_id,
+                "project_id": project_id
+            })
+            conn.commit()
+        
+        return {
+            "message": "Active plan set successfully",
+            "project_id": project_id,
+            "active_plan_id": request.plan_id,
+            "status": "development"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to set active plan: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in set_active_plan] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to set active plan: {str(e)}")
+
+
