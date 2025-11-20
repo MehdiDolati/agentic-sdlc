@@ -51,23 +51,77 @@ def get_plans_by_project(project_id: str, db: Session = Depends(get_db), user: d
     """Get all plans for a project."""
     if _auth_enabled() and user.get("id") == "public":
         raise HTTPException(status_code=401, detail="authentication required")
+
+    print(f"[GET PLANS] Fetching plans for project_id: {project_id}")
     
     plans = db.execute(text("""
-        SELECT * FROM plans 
-        WHERE project_id = :project_id 
+        SELECT * FROM plans
+        WHERE project_id = :project_id
         ORDER BY priority_order ASC
     """), {"project_id": project_id}).fetchall()
-    
+
+    print(f"[GET PLANS] Found {len(plans) if plans else 0} plans for project {project_id}")
+
     # Convert to dict and return
     result = []
     for plan in plans:
         plan_dict = dict(plan._mapping)
         plan_dict['features'] = []
         result.append(plan_dict)
-    
+        print(f"[GET PLANS] Plan: id={plan_dict.get('id')}, name={plan_dict.get('name')}, project_id={plan_dict.get('project_id')}")
+
     return result
 
-@router.delete("/{plan_id}")
+
+@router.get("/project/{project_id}/debug")
+def debug_plans_by_project(project_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Debug endpoint to check if plans exist in database for a project."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    print(f"\n[DEBUG PLANS] === DEBUG REQUEST ===")
+    print(f"[DEBUG PLANS] User ID: {user.get('id')}")
+    print(f"[DEBUG PLANS] Project ID requested: {project_id}")
+    
+    # Check if table exists
+    try:
+        table_check = db.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='plans'")).fetchone()
+        print(f"[DEBUG PLANS] Plans table exists: {table_check is not None}")
+    except Exception as e:
+        print(f"[DEBUG PLANS] Error checking plans table: {e}")
+    
+    # Get all plans (regardless of project)
+    try:
+        all_plans = db.execute(text("SELECT id, project_id, name FROM plans LIMIT 10")).fetchall()
+        print(f"[DEBUG PLANS] Total plans in database: {len(all_plans) if all_plans else 0}")
+        if all_plans:
+            for plan in all_plans:
+                plan_dict = dict(plan._mapping)
+                print(f"[DEBUG PLANS]   - id={plan_dict.get('id')}, project_id={plan_dict.get('project_id')}, name={plan_dict.get('name')}")
+    except Exception as e:
+        print(f"[DEBUG PLANS] Error fetching all plans: {e}")
+    
+    # Get plans for this specific project
+    try:
+        project_plans = db.execute(text("""
+            SELECT id, project_id, name, description FROM plans
+            WHERE project_id = :project_id
+        """), {"project_id": project_id}).fetchall()
+        print(f"[DEBUG PLANS] Plans for project {project_id}: {len(project_plans) if project_plans else 0}")
+        if project_plans:
+            for plan in project_plans:
+                plan_dict = dict(plan._mapping)
+                print(f"[DEBUG PLANS]   - id={plan_dict.get('id')}, name={plan_dict.get('name')}")
+    except Exception as e:
+        print(f"[DEBUG PLANS] Error fetching project plans: {e}")
+    
+    print(f"[DEBUG PLANS] === END DEBUG ===")
+    
+    return {
+        "project_id": project_id,
+        "user_id": user.get("id"),
+        "message": "Check server logs for debug output"
+    }@router.delete("/{plan_id}")
 def delete_plan(plan_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     """Delete a plan and all its features."""
     if _auth_enabled() and user.get("id") == "public":

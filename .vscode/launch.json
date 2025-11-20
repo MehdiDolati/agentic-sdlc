@@ -15,10 +15,10 @@
         "8000"
       ],
       "env": {
-        "PYTHONPATH": "${workspaceFolder}/agentic-sdlc"
+        "PYTHONPATH": "${workspaceFolder}"
       },
       "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}/agentic-sdlc"
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Frontend Only",
@@ -46,7 +46,7 @@
         "8000"
       ],
       "env": {
-        "PYTHONPATH": "${workspaceFolder}/agentic-sdlc"
+        "PYTHONPATH": "${workspaceFolder}"
       },
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}/agentic-sdlc",

@@ -12,6 +12,7 @@ from services.api.core.shared import _create_engine, _database_url, _repo_root
 from services.api.core.repos import ProjectsRepoDB
 from services.api.auth.routes import get_current_user
 from services.api.models.project import ProjectAgent, ProjectAgentCreate
+from sqlalchemy import text
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -1192,3 +1193,112 @@ def get_project_plan_progress(project_id: str, plan_id: Optional[str] = None, us
         error_detail = f"Failed to get plan progress: {str(e)}\n{traceback.format_exc()}"
         print(f"[ERROR in get_project_plan_progress] {error_detail}")
         raise HTTPException(status_code=500, detail=f"Failed to get plan progress: {str(e)}")
+
+
+class SetActivePlanRequest(BaseModel):
+    plan_id: str
+
+@router.post("/{project_id}/active-plan")
+def set_active_plan(
+    project_id: str,
+    request: SetActivePlanRequest,
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Set the active plan for a project and update status to development."""
+    try:
+        engine = _get_engine()
+        projects_repo = ProjectsRepoDB(engine)
+        
+        # Get project to verify ownership
+        project = projects_repo.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Check ownership
+        user_id = user.get("id", "public")
+        project_owner = project.get("owner", "public")
+        
+        if user_id != "public" and project_owner != user_id:
+            raise HTTPException(status_code=403, detail="Access denied: You can only modify your own projects")
+        
+        # Verify the plan exists and belongs to this project
+        with engine.connect() as conn:
+            plan_result = conn.execute(text("""
+                SELECT id FROM plans WHERE id = :plan_id AND project_id = :project_id
+            """), {"plan_id": request.plan_id, "project_id": project_id}).fetchone()
+            
+            if not plan_result:
+                raise HTTPException(status_code=404, detail="Plan not found for this project")
+        
+        # Update project status to development and set active plan using direct SQL
+        with engine.connect() as conn:
+            conn.execute(text("""
+                UPDATE projects 
+                SET status = :status, active_plan_id = :active_plan_id, updated_at = CURRENT_TIMESTAMP
+                WHERE id = :project_id
+            """), {
+                "status": "development",
+                "active_plan_id": request.plan_id,
+                "project_id": project_id
+            })
+            conn.commit()
+        
+        return {
+            "message": "Active plan set successfully",
+            "project_id": project_id,
+            "active_plan_id": request.plan_id,
+            "status": "development"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to set active plan: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in set_active_plan] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to set active plan: {str(e)}")
+
+@router.get("/{project_id}/active-plan")
+def get_active_plan(
+    project_id: str,
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get the active plan for a project."""
+    try:
+        engine = _get_engine()
+        projects_repo = ProjectsRepoDB(engine)
+        
+        # Get project to verify ownership
+        project = projects_repo.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Check ownership
+        user_id = user.get("id", "public")
+        project_owner = project.get("owner", "public")
+        
+        if user_id != "public" and project_owner != user_id:
+            raise HTTPException(status_code=403, detail="Access denied: You can only access your own projects")
+        
+        active_plan_id = project.get("active_plan_id")
+        if not active_plan_id:
+            raise HTTPException(status_code=404, detail="No active plan set for this project")
+        
+        # Get the plan details
+        with engine.connect() as conn:
+            plan_result = conn.execute(text("""
+                SELECT * FROM plans WHERE id = :plan_id AND project_id = :project_id
+            """), {"plan_id": active_plan_id, "project_id": project_id}).fetchone()
+            
+            if not plan_result:
+                raise HTTPException(status_code=404, detail="Active plan not found")
+            
+            return dict(plan_result._mapping)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get active plan: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_active_plan] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get active plan: {str(e)}")

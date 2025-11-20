@@ -31,6 +31,7 @@ _PROJECTS_TABLE = Table(
     Column("repository_url", String, nullable=True),
     Column("repository_owner", String, nullable=True),
     Column("repository_name", String, nullable=True),
+    Column("active_plan_id", String, nullable=True),
 )
 
 _PLANS_METADATA = MetaData()

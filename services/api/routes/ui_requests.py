@@ -906,5 +906,34 @@ def save_feature_endpoint(feature_save_request: FeatureSaveRequest):
         print(f"DEBUG: Error saving feature: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to save feature: {str(e)}")
 
+# Check if any plans exist - simple endpoint for UI to use
+@router.get("/api/plans/check")
+def check_plans_exist(user: Dict[str, Any] = Depends(get_current_user)):
+    """Check if any plans exist for the current user."""
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        from services.api.core.repos import PlansRepoDB
+        repo_root = _repo_root()
+        engine = _create_engine(_database_url(repo_root))
+        repo = PlansRepoDB(engine)
+        
+        # Check if any plans exist for this user
+        user_owner = user.get("id")
+        plans, total = repo.list(limit=1, offset=0, owner=user_owner)
+        
+        return {
+            "plans_exist": total > 0,
+            "total_plans": total,
+            "most_recent_project_id": f"proj-{plans[0]['id']}" if plans else None
+        }
+    except Exception as e:
+        return {
+            "plans_exist": False, 
+            "total_plans": 0,
+            "most_recent_project_id": None
+        }
+
 # Export the router with the expected name
 ui_requests_router = router
