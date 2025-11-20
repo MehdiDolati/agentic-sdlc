@@ -10,11 +10,7 @@ WORKDIR /app
 # System deps only if/when needed (kept minimal)
 RUN set -ex; \
     apk add --no-cache \
-        ca-certificates curl && \
-    # Install tini separately (more reliable) \
-    TINI_VERSION=v0.19.0 && \
-    curl -fsSL https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static-amd64 -o /usr/local/bin/tini && \
-    chmod +x /usr/local/bin/tini
+        ca-certificates curl tini
 
 # Copy only requirements first for better layer caching
 COPY services/api/requirements.txt ./services/api/requirements.txt
@@ -50,5 +46,5 @@ USER app
 EXPOSE 8080
 ENV PORT=8080
 
-ENTRYPOINT ["/usr/local/bin/tini","-g","--","/bin/sh","/app/services/api/docker/entrypoint.sh"]
+ENTRYPOINT ["/sbin/tini","-g","--","/bin/sh","/app/services/api/docker/entrypoint.sh"]
 CMD ["python","-m","uvicorn","services.api.app:app","--host","0.0.0.0","--port","8080"]
