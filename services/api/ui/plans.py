@@ -464,15 +464,51 @@ def _fallback_openapi_yaml() -> str:
     if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("LLM_PROVIDER") == "mock":
         return """openapi: 3.0.0
 info:
-  title: Test API
-  version: '1.0.0'
+  title: Notes Service
+  version: "1.0.0"
 paths:
-  /api/test:
+  /api/notes:
     get:
-      summary: Test endpoint
+      summary: List notes
       responses:
         '200':
           description: OK
+    post:
+      summary: Create note
+      responses:
+        '201':
+          description: Created
+  /api/notes/{id}:
+    get:
+      summary: Get note
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete note
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No Content
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - bearerAuth: []
 """
     
     raise HTTPException(
