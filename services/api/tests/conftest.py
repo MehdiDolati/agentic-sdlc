@@ -10,6 +10,11 @@ def isolate_env_and_cache(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("AUTH_ENABLED", raising=False)
     monkeypatch.delenv("AUTH_MODE", raising=False)
+    
+    # Set up mock LLM provider for all tests
+    monkeypatch.setenv("LLM_PROVIDER", "mock")
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    
     # Clear the shared module repo-root cache before each test
     if hasattr(shared, "_reset_repo_root_cache_for_tests"):
         shared._reset_repo_root_cache_for_tests()

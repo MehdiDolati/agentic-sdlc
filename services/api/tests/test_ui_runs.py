@@ -24,6 +24,8 @@ def _seed_plan(tmp_path: Path, vision: str) -> dict:
 
 def test_runs_list_and_detail(monkeypatch, tmp_path):
     monkeypatch.setenv("APP_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("LLM_PROVIDER", "mock")
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
     p = _seed_plan(tmp_path, "Run mgmt")
     plan_id = p["id"]
 

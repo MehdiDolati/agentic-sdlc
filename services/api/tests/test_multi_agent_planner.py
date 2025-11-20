@@ -17,8 +17,8 @@ def _setup_app(tmp_path: Path):
 def test_multi_agent_generates_prd_openapi_adr(tmp_path, monkeypatch):
     # enable multi-agent
     monkeypatch.setenv("PLANNER_MODE", "multi")
-    # deterministic path (no LLM needed)
-    monkeypatch.setenv("LLM_PROVIDER", "")
+    # use mock LLM for deterministic results
+    monkeypatch.setenv("LLM_PROVIDER", "mock")
     monkeypatch.setenv("REPO_ROOT", str(tmp_path))
     shared._reset_repo_root_cache_for_tests()
 

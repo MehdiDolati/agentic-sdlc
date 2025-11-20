@@ -56,9 +56,7 @@ def _generate_prd_with_llm(request_text: str, owner: str, stack: dict, gates: di
     else:
         llm_client = get_llm_from_env()
     
-    print(f"[DEBUG] LLM client for PRD generation: {llm_client}")
     if not llm_client:
-        print("[DEBUG] No LLM client available - PRD generation requires LLM configuration")
         return None
     
     # Get chat history context
@@ -344,7 +342,6 @@ def plan_request(request_text: str, repo_root: Path, owner: str = "public") -> d
 
     # Generate tasks with LLM - no fallback
     llm_client = get_llm_from_env()
-    print(f"[DEBUG] Tasks LLM client: {llm_client}")
     if not llm_client:
         raise HTTPException(
             status_code=503,
