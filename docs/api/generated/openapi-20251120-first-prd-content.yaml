@@ -1,0 +1,34 @@
+openapi: 3.1.0
+info:
+  title: First API
+  version: 0.1.0
+paths:
+  /api/first:
+    get:
+      summary: List first
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create first
+      responses:
+        '201':
+          description: Created
+  /api/first/{id}:
+    get:
+      summary: Get first
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: Not Found
+    put:
+      summary: Update first
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete first
+      responses:
+        '204':
+          description: No Content
