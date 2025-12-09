@@ -89,8 +89,10 @@ def get_tech_document(
         
         # Parse the document
         tech_stack = parse_tech_document(content)
-        
-        return tech_stack
+
+        # Return both the parsed structure and the raw content so frontends
+        # can display the raw doc when the parser couldn't extract structured items.
+        return {"parsed": tech_stack, "raw": content}
         
     except HTTPException:
         raise
@@ -100,15 +102,22 @@ def get_tech_document(
 def _check_plan_exists(project_id: str) -> bool:
     """Check if a plan exists for the project in the database."""
     try:
-        from services.api.core.shared import _create_engine
-        from services.api.core.repos import PlansRepoDB
+        from services.api.core.shared import _create_engine, _database_url, _repo_root
+        from sqlalchemy import text
         
-        engine = _create_engine()
-        plans_repo = PlansRepoDB(engine)
-        plans = plans_repo.list_by_project(project_id)
-        return len(plans) > 0
+        engine = _create_engine(_database_url(_repo_root()))
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT COUNT(*) FROM plans WHERE project_id = :project_id"),
+                {"project_id": project_id}
+            )
+            count = result.scalar()
+            print(f"[_check_plan_exists] Found {count} plans for project {project_id}")
+            return count > 0
     except Exception as e:
-        print(f"Error checking plans: {e}")
+        print(f"[_check_plan_exists] Error checking plans for project {project_id}: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 @router.get("/{project_id}/status", response_model=DocumentStatus)

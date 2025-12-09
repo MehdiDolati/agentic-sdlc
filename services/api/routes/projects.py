@@ -1259,3 +1259,111 @@ def set_active_plan(
         raise HTTPException(status_code=500, detail=f"Failed to set active plan: {str(e)}")
 
 
+class ProjectStats(BaseModel):
+    """Project statistics model."""
+    total_features: int = 0
+    completed_features: int = 0
+    in_progress_features: int = 0
+    pending_features: int = 0
+    total_stories: int = 0
+    completed_stories: int = 0
+    in_progress_stories: int = 0
+    pending_stories: int = 0
+    total_plans: int = 0
+
+
+@router.get("/{project_id}/statistics", response_model=ProjectStats)
+def get_project_statistics(project_id: str, user: dict = Depends(get_current_user)):
+    """
+    Get project statistics including features, stories, and plans counts.
+    """
+    from services.api.core.shared import _auth_enabled
+    
+    if _auth_enabled() and user.get("id") == "public":
+        raise HTTPException(status_code=401, detail="authentication required")
+    
+    try:
+        stats = ProjectStats()
+        engine = _get_engine()
+        
+        # Get plans count
+        with engine.connect() as conn:
+            plans_count = conn.execute(
+                text("SELECT COUNT(*) FROM plans WHERE project_id = :project_id"),
+                {"project_id": project_id}
+            ).scalar()
+            stats.total_plans = plans_count or 0
+        
+        # Get features count and status breakdown
+        with engine.connect() as conn:
+            features_result = conn.execute(
+                text("""
+                    SELECT status, COUNT(*) as count 
+                    FROM features 
+                    WHERE plan_id IN (SELECT id FROM plans WHERE project_id = :project_id)
+                    GROUP BY status
+                """),
+                {"project_id": project_id}
+            ).fetchall()
+            
+            for row in features_result:
+                status = row[0]
+                count = row[1]
+                stats.total_features += count
+                
+                if status == 'completed':
+                    stats.completed_features = count
+                elif status == 'in_progress':
+                    stats.in_progress_features = count
+                elif status == 'pending':
+                    stats.pending_features = count
+        
+        # Get user stories from file system
+        from pathlib import Path
+        import json
+        import glob
+        
+        repo_root = _repo_root()
+        stories_dir = Path(repo_root) / "docs" / "stories"
+        
+        if stories_dir.exists():
+            pattern = str(stories_dir / f"*{project_id}*user-stories.json")
+            matching_files = glob.glob(pattern)
+            
+            stories_by_id = {}
+            for stories_file in matching_files:
+                try:
+                    with open(stories_file, 'r', encoding='utf-8') as f:
+                        stories_data = json.load(f)
+                    
+                    file_stories = stories_data.get("user_stories", [])
+                    for story in file_stories:
+                        story_id = story.get("id")
+                        if story_id:
+                            stories_by_id[story_id] = story
+                except (json.JSONDecodeError, IOError):
+                    continue
+            
+            # Count stories by status
+            for story in stories_by_id.values():
+                stats.total_stories += 1
+                status = story.get("status", "pending")
+                
+                if status == 'completed':
+                    stats.completed_stories += 1
+                elif status == 'in_progress':
+                    stats.in_progress_stories += 1
+                elif status == 'pending':
+                    stats.pending_stories += 1
+        
+        return stats
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to get project statistics: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR in get_project_statistics] {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Failed to get project statistics: {str(e)}")
+
+
